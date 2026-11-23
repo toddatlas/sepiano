@@ -1,6 +1,6 @@
 [Unit]
 Description=sepiano piano service
-Documentation=https://github.com/brbkr/sepiano/blob/main/docs/SERVICE-PLAN.md
+Documentation=https://github.com/toddatlas/sepiano/blob/main/docs/SERVICE-PLAN.md
 After=network.target
 
 [Service]
