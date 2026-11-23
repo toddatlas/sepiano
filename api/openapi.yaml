@@ -144,7 +144,7 @@ paths:
     get:
       summary: List the library
       parameters:
-        - { name: q, in: query, schema: { type: string }, description: Words to match in title, composer, performer, notes and file name }
+        - { name: q, in: query, schema: { type: string }, description: Words to match in title, composer, performer, album, notes, file name, instrument, date and .kb header text }
         - { name: composer, in: query, schema: { type: string } }
         - { name: performer, in: query, schema: { type: string } }
         - { name: instrument, in: query, schema: { type: string } }
@@ -202,7 +202,7 @@ paths:
           application/json:
             schema:
               type: object
-              description: Any subset of these fields.
+              description: Any subset of these fields. Each field set here is locked, so re-reading the files never changes it again.
               properties:
                 title: { type: string }
                 composer: { type: string }
@@ -210,6 +210,8 @@ paths:
                 recorded_on: { type: string }
                 instrument: { type: string }
                 notes: { type: string }
+                album: { type: string }
+                track: { type: integer, minimum: 0 }
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Piece" } } } }
         "404": { $ref: "#/components/responses/Error" }
@@ -359,7 +361,7 @@ components:
         title: { type: string }
         composer: { type: string }
         performer: { type: string }
-        recorded_on: { type: string, description: "YYYY-MM-DD when known" }
+        recorded_on: { type: string, description: "YYYY-MM-DD, YYYY-MM or YYYY, as precisely as known" }
         instrument: { type: string, description: "Rendering instrument, e.g. Steinway_SED133291" }
         perf_key: { type: string, description: "Same value for every rendering of one performance; group by it" }
         duration_ms: { type: integer }
@@ -369,6 +371,10 @@ components:
         header_text: { type: string, description: Text stored in the .kb header (often a copyright line) }
         kb_sha256: { type: string }
         has_midi_source: { type: boolean, description: The piece was converted from an uploaded MIDI file, which is kept }
+        album: { type: string, description: "Album and catalog number, e.g. \"Earl Wild: The Art of the Transcription (FP-1002)\"" }
+        track: { type: integer, description: Track number on the album, 0 when none }
+        locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
+        meta_version: { type: integer, description: Version of the parser that described the piece }
         added_at: { type: string, format: date-time }
 
     Settings:

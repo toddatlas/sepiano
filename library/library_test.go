@@ -3,6 +3,7 @@ package library
 import (
 	"archive/zip"
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -17,9 +18,26 @@ import (
 func TestParseName(t *testing.T) {
 	for name, want := range map[string]Meta{
 		"02-Rachmaninoff19280404-Rachmaninoff_PreludeOp3_2-Steinway_SED133291": {
-			Title: "Prelude Op. 3 No. 2", Composer: "Rachmaninoff", Performer: "Rachmaninoff",
+			Title: "Prelude Op. 3 No. 2", Composer: "Rachmaninoff", Performer: "Sergei Rachmaninoff",
 			RecordedOn: "1928-04-04", Instrument: "Steinway_SED133291",
 			PerfKey: "rachmaninoff19280404-rachmaninoff_preludeop3_2"},
+		"Tatum19490402-Gershwin_STWOM-Boesendorfer_SE42251-590-22(20150112)-SE": {
+			Title: "Someone to Watch Over Me", Composer: "Gershwin", Performer: "Art Tatum", RecordedOn: "1949-04-02",
+			Instrument: "Boesendorfer_SE42251-590-22(20150112)", PerfKey: "tatum19490402-gershwin_stwom"},
+		"03-Rachmaninoff19290416-Rimsky-KorsakovRachmaninoff_TFOTBB-Steinway_SED133291": {
+			Title: "The Flight of the Bumble-Bee", Composer: "Rimsky-Korsakov-Rachmaninoff", Performer: "Sergei Rachmaninoff",
+			RecordedOn: "1929-04-16", Instrument: "Steinway_SED133291",
+			PerfKey: "rachmaninoff19290416-rimsky-korsakovrachmaninoff_tfotbb"},
+		"Gould19640319-Bach_07-Inv14-BflatMaj-Steinway_SED519960-SE": {
+			Title: "Invention 14 in B-flat major", Composer: "Bach", Performer: "Glenn Gould",
+			RecordedOn: "1964-03-19", Instrument: "Steinway_SED519960",
+			PerfKey: "gould19640319-bach_07-inv14-bflatmaj"},
+		"Peterson19853333-HanleyMacDonald_Indiana-Steinway_SED133291": {
+			Title: "Indiana", Composer: "Hanley-MacDonald", Performer: "Oscar Peterson", RecordedOn: "1985",
+			Instrument: "Steinway_SED133291", PerfKey: "peterson19853333-hanleymacdonald_indiana"},
+		"BellHamlisch20100121-RodgersHamlisch_ITM-Boesendorfer_SE42251_590_22(20200831)-SE": {
+			Title: "ITM", Composer: "Rodgers-Hamlisch", Performer: "Bell & Hamlisch", RecordedOn: "2010-01-21",
+			Instrument: "Boesendorfer_SE42251_590_22(20200831)", PerfKey: "bellhamlisch20100121-rodgershamlisch_itm"},
 		"GlennGould19550610-JSBach_GoldbergVariations-Yamaha_CFIIIS": {
 			Title: "Goldberg Variations", Composer: "JS Bach", Performer: "Glenn Gould",
 			RecordedOn: "1955-06-10", Instrument: "Yamaha_CFIIIS",
@@ -184,7 +202,8 @@ func TestRescanRebuildsIndex(t *testing.T) {
 			horowitz = &ps[i]
 		}
 	}
-	if horowitz == nil || !isID(horowitz.ID) || horowitz.Composer != "Chopin" || horowitz.Title != "Ballade1" {
+	if horowitz == nil || !isID(horowitz.ID) || horowitz.Composer != "Chopin" || horowitz.Title != "Ballade 1" ||
+		horowitz.Performer != "Vladimir Horowitz" {
 		t.Fatalf("hand-copied set: %+v", horowitz)
 	}
 	if _, err := os.Stat(filepath.Join(l.Dir(), name+".kb")); !os.IsNotExist(err) {
@@ -242,5 +261,93 @@ func TestUpdateRejectsEmptyTitle(t *testing.T) {
 	empty := " "
 	if _, err := l.Update(p.ID, Patch{Title: &empty}); err == nil {
 		t.Fatal("empty title accepted")
+	}
+}
+
+func TestParseHeader(t *testing.T) {
+	for text, want := range map[string]Meta{
+		"Mozart: Sonata No. 12 in F Major, K.332\r\nFirst Movement (Allegro)\r\nPhilippe Entremont, pianist\r\nRecorded February 12, 1990 in Vienna": {
+			Title: "Sonata No. 12 in F Major, K.332 — First Movement (Allegro)", Composer: "Mozart",
+			Performer: "Philippe Entremont", RecordedOn: "1990-02-12", Notes: "Recorded February 12, 1990 in Vienna"},
+		"Bach: The Goldberg Variations\r\nGlenn Gould, pianist\r\nRecorded June, 1955 in New York\r\nVariation 30: Quodlibet\r\nCopyright (c) Zenph(R) Studios, Inc. 2002-2008\r\nAll rights reserved": {
+			Title: "The Goldberg Variations — Variation 30: Quodlibet", Composer: "Bach", Performer: "Glenn Gould",
+			RecordedOn: "1955-06", Notes: "Recorded June, 1955 in New York"},
+		"Toot, Toot, Tootsie! Goo'Bye\r\nPlayed by The Original Piano Trio\r\nAmpico 203091 (issued December, 1922)": {
+			Title: "Toot, Toot, Tootsie! Goo'Bye", Performer: "The Original Piano Trio", RecordedOn: "1922-12",
+			Notes: "Ampico 203091 (issued December, 1922)"},
+		"Ampico Roll Number: 206421\r\nAmpico Roll Title: Manhattan (from \"Garrick Gaieties\")\r\nComposer: Rodgers\r\nPianist: Zez Confrey\r\nDate: 9-25\r\nCopyright (c) 1993 by Wayne Stahnke": {
+			Title: "Manhattan (from \"Garrick Gaieties\")", Composer: "Rodgers", Performer: "Zez Confrey",
+			RecordedOn: "1925-09", Notes: "Ampico roll 206421. Roll date 9-25"},
+		"Copyright (c) Zenph Sound Innovations, Inc. 2002-2011.  All Rights Reserved.  File created Mon Jul 11 14:41:33 2011": {},
+	} {
+		if got := ParseHeader(text); got != want {
+			t.Errorf("%q:\n got %+v\nwant %+v", text, got, want)
+		}
+	}
+	if s := Initials("Someone to Watch over Me"); s != "STWOM" {
+		t.Errorf("initials %q", s)
+	}
+}
+
+func TestDescribePrefersHeader(t *testing.T) {
+	m := Describe("K332_1-Steinway_SED133291", "Mozart: Sonata No. 12 in F Major, K.332\r\nPhilippe Entremont, pianist")
+	if m.Title != "Sonata No. 12 in F Major, K.332" || m.Composer != "Mozart" || m.Instrument != "Steinway_SED133291" ||
+		m.PerfKey != "philippe entremont|mozart|sonata no. 12 in f major, k.332" {
+		t.Fatalf("%+v", m)
+	}
+}
+
+// Pieces described by an older parser are described again when the library
+// opens; fields set by hand stay as they were.
+func TestMetadataMigrationKeepsLockedFields(t *testing.T) {
+	data := t.TempDir()
+	l, _ := Open(data)
+	kb, lp, sp := set(t, 5)
+	a, _, _ := l.AddSet("Gould19550616-Bach_GV07Var6-Steinway_SED519960-SE", kb, lp, sp, OriginImport, "")
+	kb2, lp2, sp2 := set(t, 6)
+	b, _, _ := l.AddSet("Gould19550616-Bach_GV08Var7-Steinway_SED519960-SE", kb2, lp2, sp2, OriginImport, "")
+	mine := "My favourite variation"
+	album := "Sunday favourites"
+	l.Update(b.ID, Patch{Title: &mine, Album: &album})
+
+	// Make both look as an old parser left them.
+	for _, id := range []string{a.ID, b.ID} {
+		path := filepath.Join(l.Dir(), id+".json")
+		raw, _ := os.ReadFile(path)
+		var p Piece
+		json.Unmarshal(raw, &p)
+		p.MetaVersion, p.Performer, p.Composer = 0, "Gould", ""
+		out, _ := json.Marshal(p)
+		os.WriteFile(path, out, 0o644)
+	}
+	l2, err := Open(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ga, _ := l2.Get(a.ID)
+	gb, _ := l2.Get(b.ID)
+	if ga.Title != "Goldberg Variations: Variation 6" || ga.Performer != "Glenn Gould" || ga.Composer != "Bach" || ga.MetaVersion != metaVersion {
+		t.Fatalf("not described again: %+v", ga)
+	}
+	if gb.Title != mine || gb.Album != album || gb.Performer != "Glenn Gould" {
+		t.Fatalf("locked fields lost: %+v", gb)
+	}
+	if got := l2.List(Filter{Q: "sunday"}); len(got) != 1 || got[0].ID != b.ID {
+		t.Fatalf("search by album: %+v", got)
+	}
+}
+
+func TestFullNamesFromHeaders(t *testing.T) {
+	pieces := map[string]*Piece{
+		"a": {Performer: "Earl Wild"},
+		"b": {Performer: "Wild"},
+		"c": {Performer: "Larkin"},
+		"d": {Performer: "Abe Lincoln"}, "e": {Performer: "Mary Lincoln"}, "f": {Performer: "Lincoln"},
+		"g": {Performer: "Wild", Locked: []string{"performer"}},
+	}
+	fullNames(pieces)
+	if pieces["b"].Performer != "Earl Wild" || pieces["c"].Performer != "Larkin" ||
+		pieces["f"].Performer != "Lincoln" || pieces["g"].Performer != "Wild" {
+		t.Fatalf("b %q c %q f %q g %q", pieces["b"].Performer, pieces["c"].Performer, pieces["f"].Performer, pieces["g"].Performer)
 	}
 }

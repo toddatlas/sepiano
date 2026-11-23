@@ -62,9 +62,58 @@ type Piece struct {
 	KBSHA256      string    `json:"kb_sha256"`
 	HasMIDISource bool      `json:"has_midi_source"`
 	AddedAt       time.Time `json:"added_at"`
+	Album         string    `json:"album"`
+	Track         int       `json:"track"`
+
+	// Locked lists the fields set by hand or from a catalog (by Update);
+	// re-deriving metadata from the files never changes them.
+	Locked []string `json:"locked,omitempty"`
+	// MetaVersion is the metadata parser that described the piece; older
+	// pieces are described again when the library opens.
+	MetaVersion int `json:"meta_version"`
 }
 
-// Patch changes metadata; nil fields are left alone.
+// metaVersion is the current parser: 2 reads the .kb header text, the newer
+// Zenph names and full performer names; 3 to 6 spell out known titles.
+const metaVersion = 6
+
+func (p *Piece) locked(field string) bool {
+	for _, f := range p.Locked {
+		if f == field {
+			return true
+		}
+	}
+	return false
+}
+
+// describe re-derives the metadata of p from its files' names and header,
+// leaving locked fields alone. It reports whether anything changed.
+func (p *Piece) describe() bool {
+	m := Describe(p.SourceName, p.HeaderText)
+	changed := p.MetaVersion != metaVersion
+	for _, f := range []struct {
+		name string
+		dst  *string
+		src  string
+	}{
+		{"title", &p.Title, m.Title}, {"composer", &p.Composer, m.Composer},
+		{"performer", &p.Performer, m.Performer}, {"recorded_on", &p.RecordedOn, m.RecordedOn},
+		{"instrument", &p.Instrument, m.Instrument}, {"perf_key", &p.PerfKey, m.PerfKey},
+		{"notes", &p.Notes, m.Notes},
+	} {
+		if !p.locked(f.name) && *f.dst != f.src && (f.src != "" || f.name != "title") {
+			*f.dst, changed = f.src, true
+		}
+	}
+	if p.Title == "" {
+		p.Title = p.ID
+	}
+	p.MetaVersion = metaVersion
+	return changed
+}
+
+// Patch changes metadata; nil fields are left alone. Every field it sets is
+// locked against automatic re-description.
 type Patch struct {
 	Title      *string `json:"title"`
 	Composer   *string `json:"composer"`
@@ -72,6 +121,8 @@ type Patch struct {
 	RecordedOn *string `json:"recorded_on"`
 	Instrument *string `json:"instrument"`
 	Notes      *string `json:"notes"`
+	Album      *string `json:"album"`
+	Track      *int    `json:"track"`
 }
 
 // Settings are the service's preferences.
@@ -185,6 +236,22 @@ func (l *Library) Rescan() (int, error) {
 			pieces[id] = p
 		}
 	}
+	// Describe again the pieces an older parser described, then share the
+	// full performer names around.
+	dirty := map[*Piece]bool{}
+	for _, p := range pieces {
+		if p.MetaVersion < metaVersion && p.describe() {
+			dirty[p] = true
+		}
+	}
+	for _, p := range fullNames(pieces) {
+		dirty[p] = true
+	}
+	for p := range dirty {
+		if err := l.writeMeta(p); err != nil {
+			return 0, err
+		}
+	}
 	for id, p := range pieces {
 		bySHA[p.KBSHA256] = id
 	}
@@ -214,15 +281,42 @@ func (l *Library) describe(id, sourceName, origin string) (*Piece, error) {
 }
 
 func newPiece(id, sourceName, origin string, kb []byte, k *se.KB) *Piece {
-	m := ParseName(sourceName)
 	sum := sha256.Sum256(kb)
-	return &Piece{
-		ID: id, Title: m.Title, Composer: m.Composer, Performer: m.Performer,
-		RecordedOn: m.RecordedOn, Instrument: m.Instrument, PerfKey: m.PerfKey,
-		DurationMs: se.TickDuration(k.End).Milliseconds(), Origin: origin,
+	p := &Piece{
+		ID: id, DurationMs: se.TickDuration(k.End).Milliseconds(), Origin: origin,
 		SourceName: sourceName, HeaderText: strings.TrimSpace(k.Text),
 		KBSHA256: hex.EncodeToString(sum[:]), AddedAt: time.Now().UTC().Truncate(time.Second),
 	}
+	p.describe()
+	return p
+}
+
+// fullNames learns full performer names from the pieces whose headers spell
+// them out ("Earl Wild, pianist") and gives them to pieces that only have
+// the surname, as the Zenph names do. Ambiguous surnames are left alone. It
+// returns the pieces it changed.
+func fullNames(pieces map[string]*Piece) []*Piece {
+	full := map[string]string{}
+	for _, p := range pieces {
+		f := strings.Fields(p.Performer)
+		if len(f) < 2 || strings.ContainsAny(p.Performer, "&,") || strings.Contains(p.Performer, " and ") {
+			continue
+		}
+		last := f[len(f)-1]
+		if prev, ok := full[last]; ok && prev != p.Performer {
+			full[last] = "" // two people share the surname
+			continue
+		}
+		full[last] = p.Performer
+	}
+	var changed []*Piece
+	for _, p := range pieces {
+		if f := full[p.Performer]; f != "" && !p.locked("performer") {
+			p.Performer = f
+			changed = append(changed, p)
+		}
+	}
+	return changed
 }
 
 func (l *Library) writeMeta(p *Piece) error {
@@ -302,7 +396,8 @@ func (l *Library) List(f Filter) []Piece {
 			f.Instrument != "" && !strings.EqualFold(p.Instrument, f.Instrument) {
 			continue
 		}
-		text := strings.ToLower(strings.Join([]string{p.Title, p.Composer, p.Performer, p.Notes, p.SourceName, p.Instrument, p.RecordedOn}, " "))
+		text := strings.ToLower(strings.Join([]string{p.Title, p.Composer, p.Performer, p.Album, p.Notes,
+			p.SourceName, p.Instrument, p.RecordedOn, p.HeaderText}, " "))
 		match := true
 		for _, w := range words {
 			if !strings.Contains(text, w) {
@@ -359,14 +454,31 @@ func (l *Library) Update(id string, patch Patch) (Piece, error) {
 		return Piece{}, ErrNotFound
 	}
 	q := *p
+	q.Locked = append([]string(nil), p.Locked...)
+	lock := func(name string) {
+		if !q.locked(name) {
+			q.Locked = append(q.Locked, name)
+		}
+	}
 	for _, f := range []struct {
-		src *string
-		dst *string
-	}{{patch.Title, &q.Title}, {patch.Composer, &q.Composer}, {patch.Performer, &q.Performer},
-		{patch.RecordedOn, &q.RecordedOn}, {patch.Instrument, &q.Instrument}, {patch.Notes, &q.Notes}} {
+		name string
+		src  *string
+		dst  *string
+	}{{"title", patch.Title, &q.Title}, {"composer", patch.Composer, &q.Composer},
+		{"performer", patch.Performer, &q.Performer}, {"recorded_on", patch.RecordedOn, &q.RecordedOn},
+		{"instrument", patch.Instrument, &q.Instrument}, {"notes", patch.Notes, &q.Notes},
+		{"album", patch.Album, &q.Album}} {
 		if f.src != nil {
 			*f.dst = strings.TrimSpace(*f.src)
+			lock(f.name)
 		}
+	}
+	if patch.Track != nil {
+		if *patch.Track < 0 {
+			return Piece{}, errors.New("the track number cannot be negative")
+		}
+		q.Track = *patch.Track
+		lock("track")
 	}
 	if q.Title == "" {
 		return Piece{}, errors.New("the title cannot be empty")

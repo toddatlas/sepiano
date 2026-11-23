@@ -116,9 +116,15 @@ It needs a web UI first, and an iPhone app later.
 - **Piece fields:** id, title, composer, performer, recorded_on, instrument,
   perf_key, duration_ms, notes, origin (import | upload | midi | recorded),
   source_name, header_text, kb_sha256, has_midi_source, added_at.
-- **Metadata** is parsed from the Zenph naming convention, e.g.
-  `02-Rachmaninoff19280404-Rachmaninoff_PreludeOp3_2-Steinway_SED133291`,
-  falling back to the `.kb` header text. Fields are editable.
+- **Metadata** comes, best first, from: edits in the app; the album `.bat`
+  catalogs and name lists, applied by `sepianod tag` (album, track, titles for
+  files without a header); the `.kb` header text ("Mozart: Sonata No. 12 …
+  / Philippe Entremont, pianist / Recorded February 12, 1990"; Ampico roll
+  headers); and the file name (Zenph style, e.g.
+  `Tatum19490402-Gershwin_STWOM-Boesendorfer_SE42251-590-22(20150112)-SE`, with
+  full performer names and known abbreviations spelled out). Fields set by
+  hand or by `tag` are locked; the rest are derived again whenever the parser
+  improves (`metaVersion`).
 - **Renderings.** `perf_key` (performer + date + work) groups the renderings
   of one performance. The default rendering comes from the
   `settings.preferred_instrument` setting.

@@ -4,6 +4,7 @@
 //	sepianod [-addr :80] [-data /var/lib/sepiano] [-port /dev/sepiano-piano]
 //	sepianod -simulate -addr :8080 -data ./devdata     # no piano needed
 //	sepianod import [-server http://127.0.0.1] DIR...  # add .kb/.lp/.sp sets
+//	sepianod tag [-server http://127.0.0.1] [-n] DIR... # titles and albums from the album .bat files
 //	sepianod version
 package main
 
@@ -44,6 +45,8 @@ func run(args []string) int {
 		switch args[0] {
 		case "import":
 			return importCmd(args[1:])
+		case "tag":
+			return tagCmd(args[1:])
 		case "version", "-version", "--version":
 			fmt.Println("sepianod", version)
 			return 0

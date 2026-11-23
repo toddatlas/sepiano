@@ -90,8 +90,13 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - **It owns the serial port.** Before using `sehost` by hand:
   `sudo systemctl stop sepianod`; afterwards `sudo systemctl start sepianod`.
 - Logs: `journalctl -u sepianod -f`. Status: `curl -s localhost/api/v1/status`.
-- Add songs: `sepianod import DIR` on the Pi (uploads to the running service),
-  or the web UI's Upload screen.
+- Add songs: `sepianod import DIR` (uploads to the running service; `-server
+  http://raspberrypi.local` from another machine), then `sepianod tag DIR` to
+  apply the album `.bat` catalogs (`-n` first for a dry run). Library metadata
+  is re-derived from file names and `.kb` headers when `library.metaVersion`
+  goes up; fields set by hand or by `tag` are `locked` and kept. Backup of the
+  pre-v2 metadata: `/var/lib/sepiano-meta-backup-20261123.tar.gz`.
+- Single pieces can also go through the web UI's Upload screen.
 
 ### Working with the piano
 

@@ -146,6 +146,11 @@ function fmtDateTime(iso) {
 }
 
 function fmtRecorded(s) {
+  const ym = /^(\d{4})-(\d{2})$/.exec(s || '');
+  if (ym) {
+    const d = new Date(Number(ym[1]), Number(ym[2]) - 1, 1);
+    return Number.isNaN(d.getTime()) ? s : d.toLocaleDateString(undefined, { year: 'numeric', month: 'long' });
+  }
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s || '');
   if (!m) return s || '';
   const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
@@ -1183,6 +1188,7 @@ function pieceScreen(root, [id]) {
         playBtn,
         h('button', { class: 'btn btn-large', type: 'button', onclick: startEdit }, icon('edit'), 'Edit')),
       metaList([
+        ['Album', p.album ? (p.track ? `${p.album}, track ${p.track}` : p.album) : ''],
         ['Recorded', fmtRecorded(p.recorded_on)],
         ['Instrument', instrumentLabel(p.instrument)],
         ['Length', fmtTime(p.duration_ms)],
@@ -1247,7 +1253,8 @@ function pieceScreen(root, [id]) {
       ['title', 'Title'],
       ['composer', 'Composer'],
       ['performer', 'Performer'],
-      ['recorded_on', 'Recorded on', 'YYYY-MM-DD'],
+      ['album', 'Album'],
+      ['recorded_on', 'Recorded on', 'YYYY-MM-DD, YYYY-MM or YYYY'],
       ['instrument', 'Instrument'],
       ['notes', 'Notes'],
     ];
@@ -1301,8 +1308,8 @@ function pieceScreen(root, [id]) {
         inputs.title.focus();
         return;
       }
-      if (patch.recorded_on && !/^\d{4}-\d{2}-\d{2}$/.test(patch.recorded_on)) {
-        toast('Write the date as YYYY-MM-DD, or leave it empty.', 'error');
+      if (patch.recorded_on && !/^\d{4}(-\d{2}(-\d{2})?)?$/.test(patch.recorded_on)) {
+        toast('Write the date as YYYY-MM-DD, YYYY-MM or YYYY, or leave it empty.', 'error');
         inputs.recorded_on.focus();
         return;
       }

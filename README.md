@@ -1,4 +1,5 @@
-# sepiano
+| `sepianod import DIR` | add the `.kb/.lp/.sp` sets in DIR to a running service |
+| `sepianod tag DIR` | fill in albums, tracks and titles from the album `.bat` catalogs and name lists in DIR (`-n` for a dry run) |# sepiano
 
 Open-source tools for the Stahnke SE reproducing piano system. The goal is to
 replace the Windows "SE Program Suite" (`play.exe` and friends) with a Go
