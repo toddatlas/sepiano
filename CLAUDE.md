@@ -97,6 +97,14 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   goes up; fields set by hand or by `tag` are `locked` and kept. Backup of the
   pre-v2 metadata: `/var/lib/sepiano-meta-backup-20261123.tar.gz`.
 - Single pieces can also go through the web UI's Upload screen.
+- `sepianod tag -write-bats DIR` also checks that every folder has a batch
+  file playing all of it, and writes `play_folder.bat` (first line
+  `rem … Written by sepianod tag.`) where none does; it never touches other
+  files, and rewrites only its own. The suite's album batch files
+  (`_FP1002.BAT` …) convert (`kls2bit`, `bit2wav`); they never played.
+- Albums and play lists play as one joined performance (`library.Join`, files
+  in `/var/lib/sepiano/play/`); renderings are chosen Steinway first
+  (`library.Rank`). Play lists live in `/var/lib/sepiano/playlists.json`.
 
 ### Working with the piano
 
@@ -170,3 +178,25 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - Lesson: a serial port opens only once. Close a connection fully before
   opening the next (`deck.release`), and close the port when a link dies.
   `sim.Instrument.Dial` enforces this so tests catch it.
+
+## Status (third session, 2026-11-23)
+
+- Library metadata from `.kb` headers, album `.bat` catalogs, `NAMES.TXT`
+  and better Zenph-name parsing; 1,738 pieces from the owner's Desktop
+  (`C:\Users\todd\OneDrive\Desktop`, which is in OneDrive).
+- Albums, play lists, continuous play of a whole album or play list,
+  previous/next, Steinway renderings first. On the Pi: 36 albums, including
+  "Bach: The Goldberg Variations (Glenn Gould, 1955)" (32 tracks, all
+  `Steinway_SED519960`), and 33 play lists (the owner's `play…bat` files
+  and one whole-folder list per folder without an album).
+- 56 `play_folder.bat` files written to the Desktop folders; 57 folders now
+  play whole from a batch file. Broken references reported, not changed:
+  `SE\Hamb\playTatum.bat` (1 missing file), `20200831\playall.bat` (2).
+- Tested against the simulator and in the browser; **not yet heard on the
+  piano**: a joined album playing through, and next/previous on the
+  hardware.
+- Next, as the owner asked: unpack the suite's other programs
+  (`se_program_suite_v0.95_setup.exe` on the Desktop is an NSIS installer:
+  needs 7-Zip or an extractor), then find what can be read from the
+  instrument itself (its stored playback settings and calibration tables),
+  aiming to edit them.

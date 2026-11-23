@@ -32,8 +32,9 @@ func tagCmd(args []string) int {
 	fl := flag.NewFlagSet("sepianod tag", flag.ExitOnError)
 	server := fl.String("server", "http://127.0.0.1", "running sepianod to update")
 	dry := fl.Bool("n", false, "dry run: print the changes without making them")
+	writeBats := fl.Bool("write-bats", false, "write play_folder.bat in each folder that has no batch file playing all of it")
 	fl.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: sepianod tag [-server URL] [-n] FOLDER...")
+		fmt.Fprintln(os.Stderr, "usage: sepianod tag [-server URL] [-n] [-write-bats] FOLDER...")
 		fl.PrintDefaults()
 	}
 	fl.Parse(args)
@@ -71,8 +72,10 @@ func tagCmd(args []string) int {
 	sameName(pieces, patches)
 	expandAbbreviations(pieces, albums, patches)
 	var lists []library.Playlist
+	var folders []string
+	opts := folderOpts{writeBats: *writeBats && !*dry, report: &folders}
 	for _, dir := range fl.Args() {
-		l, err := playlistsAndFolders(dir, pieces, bySHA, patches)
+		l, err := playlistsAndFolders(dir, pieces, bySHA, patches, opts)
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err)
 			return 1
@@ -117,6 +120,10 @@ func tagCmd(args []string) int {
 			fmt.Fprintf(os.Stderr, "%s: %v\n", pl.Source, err)
 			failed++
 		}
+	}
+	fmt.Println("\nFolders:")
+	for _, f := range folders {
+		fmt.Println("  " + f)
 	}
 	var abbrevs []string
 	for _, p := range pieces {
@@ -525,7 +532,7 @@ func dedupeFold(s []string) []string {
 }
 
 var (
-	playLineRE  = regexp.MustCompile(`(?i)^\s*play\s+([^\s%]+)`)
+	playLineRE  = regexp.MustCompile(`(?i)^\s*play\s+(?:"([^"]+)"|([^\s%"]+))`)
 	numberedRE  = regexp.MustCompile(`^(\d{1,3})-[A-Za-z].*\d{8}-`)
 	errNotFound = errors.New("not found")
 )
@@ -558,53 +565,275 @@ func findKB(dir string, entries []fs.DirEntry, name string) (string, error) {
 	return "", errNotFound
 }
 
+// folderBat is the play list batch file tag writes for a folder that has
+// none playing all of it; folderBatMark is its first line.
+const (
+	folderBat     = "play_folder.bat"
+	folderBatMark = "rem Plays every performance in this folder. Written by sepianod tag."
+)
+
+type folderOpts struct {
+	writeBats bool      // write play_folder.bat where nothing plays the whole folder
+	report    *[]string // one line per folder
+}
+
+// setsIn lists the base names of the complete .kb/.lp/.sp sets in a folder.
+func setsIn(entries []fs.DirEntry) []string {
+	have := map[string]bool{}
+	for _, e := range entries {
+		have[strings.ToLower(e.Name())] = true
+	}
+	var out []string
+	for _, e := range entries {
+		n := e.Name()
+		if !strings.EqualFold(filepath.Ext(n), ".kb") {
+			continue
+		}
+		base := strings.TrimSuffix(n, filepath.Ext(n))
+		if have[strings.ToLower(base+".lp")] && have[strings.ToLower(base+".sp")] {
+			out = append(out, base)
+		}
+	}
+	return out
+}
+
+func isSpacer(name string) bool { return strings.Contains(strings.ToLower(name), "spacer") }
+func isLeadIn(name string) bool { return strings.EqualFold(name, "10Sec-C9-400") }
+
+// playRefs reads the "play NAME" lines of a batch file, as upper-case base names.
+func playRefs(text string) []string {
+	var out []string
+	for _, line := range strings.Split(strings.ReplaceAll(text, "\r", ""), "\n") {
+		if m := playLineRE.FindStringSubmatch(line); m != nil {
+			n := m[1] + m[2] // quoted, or a plain word
+			if strings.EqualFold(filepath.Ext(n), ".kb") {
+				n = strings.TrimSuffix(n, filepath.Ext(n))
+			}
+			out = append(out, strings.ToUpper(n))
+		}
+	}
+	return out
+}
+
+// folderOrder is the order a whole folder plays in: album track order, the
+// numbers in the names, or by name with the short lead-in first. Long
+// spacers are left out.
+func folderOrder(sets []string, album *library.BatAlbum, ownAlbum, numbered bool) []string {
+	byUpper := map[string]string{}
+	for _, s := range sets {
+		byUpper[strings.ToUpper(s)] = s
+	}
+	if album != nil {
+		var out []string
+		for _, t := range album.Tracks {
+			if s, ok := byUpper[t.File]; ok {
+				out = append(out, s)
+			}
+		}
+		if len(out) > 0 && !ownAlbum {
+			// A pass folder under an album (JZ2006\RICHARD): its extra files follow.
+			in := map[string]bool{}
+			for _, s := range out {
+				in[s] = true
+			}
+			var extra []string
+			for _, s := range sets {
+				if _, variant := album.TrackFor(s); !in[s] && !variant && !isSpacer(s) {
+					extra = append(extra, s)
+				}
+			}
+			sort.Slice(extra, func(i, j int) bool { return strings.ToLower(extra[i]) < strings.ToLower(extra[j]) })
+			out = append(out, extra...)
+		}
+		if len(out) > 0 {
+			return out
+		}
+	}
+	var out []string
+	for _, s := range sets {
+		if !isSpacer(s) {
+			out = append(out, s)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		a, b := out[i], out[j]
+		if isLeadIn(a) != isLeadIn(b) {
+			return isLeadIn(a)
+		}
+		if numbered {
+			na, _ := strconv.Atoi(strings.SplitN(a, "-", 2)[0])
+			nb, _ := strconv.Atoi(strings.SplitN(b, "-", 2)[0])
+			if na != nb {
+				return na < nb
+			}
+		}
+		return strings.ToLower(a) < strings.ToLower(b)
+	})
+	return out
+}
+
+// ensureFolderBat checks that some play list batch file in the folder plays
+// every performance in it, and writes play_folder.bat if none does.
+func ensureFolderBat(root, dir string, entries []fs.DirEntry, sets []string, album *library.BatAlbum, ownAlbum, numbered bool, o folderOpts) (bool, error) {
+	rel, _ := filepath.Rel(root, dir)
+	rel = filepath.ToSlash(rel)
+	report := func(format string, args ...any) {
+		if o.report != nil {
+			*o.report = append(*o.report, fmt.Sprintf("%-46s ", rel)+fmt.Sprintf(format, args...))
+		}
+	}
+	inFolder := map[string]bool{}
+	for _, s := range sets {
+		inFolder[strings.ToUpper(s)] = true
+	}
+	order := folderOrder(sets, album, ownAlbum, numbered)
+	if len(order) < 2 {
+		report("one piece; nothing to play in a row")
+		return false, nil
+	}
+	ours := false
+	for _, e := range entries {
+		if !strings.EqualFold(filepath.Ext(e.Name()), ".bat") {
+			continue
+		}
+		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+		if err != nil {
+			return false, err
+		}
+		refs := playRefs(string(b))
+		if len(refs) == 0 {
+			continue
+		}
+		listed := map[string]bool{}
+		var missing []string
+		for _, r := range refs {
+			listed[r] = true
+			if !inFolder[r] {
+				missing = append(missing, r)
+			}
+		}
+		if len(missing) > 0 {
+			report("%s refers to %d missing file(s), e.g. %s", e.Name(), len(missing), missing[0])
+		}
+		all := true
+		for _, s := range order {
+			if !listed[strings.ToUpper(s)] {
+				all = false
+				break
+			}
+		}
+		if strings.EqualFold(e.Name(), folderBat) {
+			ours = strings.HasPrefix(string(b), folderBatMark)
+		}
+		if all && len(missing) == 0 {
+			report("plays whole with %s (%d pieces)", e.Name(), len(order))
+			return false, nil
+		}
+	}
+	path := filepath.Join(dir, folderBat)
+	if _, err := os.Stat(path); err == nil && !ours {
+		report("has its own %s that does not play the whole folder; left alone", folderBat)
+		return false, nil
+	}
+	if !o.writeBats {
+		report("no .bat plays the whole folder; would write %s (%d pieces)", folderBat, len(order))
+		return false, nil
+	}
+	var b strings.Builder
+	b.WriteString(folderBatMark + "\r\n")
+	for _, s := range order {
+		if strings.ContainsAny(s, " &^") {
+			s = `"` + s + `"` // "Copy of …"
+		}
+		b.WriteString("play " + s + "\r\n")
+	}
+	if err := os.WriteFile(path, []byte(b.String()), 0o644); err != nil {
+		return false, err
+	}
+	report("wrote %s (%d pieces)", folderBat, len(order))
+	return true, nil
+}
+
 // playlistsAndFolders reads the play list batch files ("play NAME" lines)
-// under root as play lists, and makes an album of each folder of numbered
-// Zenph files ("01-Peterson19890899-…"), named after the folder.
-func playlistsAndFolders(root string, pieces []library.Piece, bySHA map[string]*library.Piece, patches map[string]*library.Patch) ([]library.Playlist, error) {
+// under root as play lists, makes an album of each folder of numbered Zenph
+// files ("01-Peterson19890899-…", named after the folder), and checks that
+// every folder of performances has a batch file playing all of it.
+func playlistsAndFolders(root string, pieces []library.Piece, bySHA map[string]*library.Piece, patches map[string]*library.Patch, o folderOpts) ([]library.Playlist, error) {
 	h := hasher{}
 	bySource := map[string][]*library.Piece{}
 	for i := range pieces {
 		k := strings.ToLower(pieces[i].SourceName)
 		bySource[k] = append(bySource[k], &pieces[i])
 	}
+	albumOf := map[string]*library.BatAlbum{}
 	var lists []library.Playlist
 	err := filepath.WalkDir(root, func(dir string, d fs.DirEntry, err error) error {
 		if err != nil || !d.IsDir() {
 			return err
 		}
+		albumOf[dir] = albumOf[filepath.Dir(dir)]
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			return err
 		}
-		hasAlbumBat := false
+		ownAlbum := false
+		for _, e := range entries {
+			if strings.EqualFold(filepath.Ext(e.Name()), ".bat") {
+				b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+				if err != nil {
+					return err
+				}
+				if a, ok := library.ParseAlbumBat(string(b)); ok {
+					albumOf[dir], ownAlbum = &a, true
+					break
+				}
+			}
+		}
+		sets := setsIn(entries)
+		var numbered []string
+		for _, s := range sets {
+			if numberedRE.MatchString(s + ".kb") {
+				numbered = append(numbered, s)
+			}
+		}
+		numberedAlbum := !ownAlbum && len(numbered) >= 3 && len(numbered)*5 >= len(sets)*4
+		if len(sets) > 0 {
+			wrote, err := ensureFolderBat(root, dir, entries, sets, albumOf[dir], ownAlbum, numberedAlbum, o)
+			if err != nil {
+				return err
+			}
+			if wrote {
+				if entries, err = os.ReadDir(dir); err != nil {
+					return err
+				}
+			}
+		}
 		for _, e := range entries {
 			if !strings.EqualFold(filepath.Ext(e.Name()), ".bat") {
 				continue
+			}
+			isFolderBat := strings.EqualFold(e.Name(), folderBat)
+			if isFolderBat && (ownAlbum || numberedAlbum) {
+				continue // the album plays the folder in the app
 			}
 			b, err := os.ReadFile(filepath.Join(dir, e.Name()))
 			if err != nil {
 				return err
 			}
 			if _, ok := library.ParseAlbumBat(string(b)); ok {
-				hasAlbumBat = true
 				continue
 			}
 			var ids []string
 			missing := 0
-			for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r", ""), "\n") {
-				m := playLineRE.FindStringSubmatch(line)
-				if m == nil {
-					continue
-				}
+			for _, ref := range playRefs(string(b)) {
 				var p *library.Piece
-				if path, err := findKB(dir, entries, m[1]); err == nil { // the file beside the .bat
+				if path, err := findKB(dir, entries, ref); err == nil { // the file beside the .bat
 					if sum, err := h.of(path); err == nil {
 						p = bySHA[sum]
 					}
 				}
 				if p == nil { // else a piece of that name, if only one has it
-					if c := bySource[strings.ToLower(strings.TrimSuffix(m[1], ".kb"))]; len(c) == 1 {
+					if c := bySource[strings.ToLower(ref)]; len(c) == 1 {
 						p = c[0]
 					}
 				}
@@ -618,36 +847,27 @@ func playlistsAndFolders(root string, pieces []library.Piece, bySHA map[string]*
 				continue
 			}
 			rel, _ := filepath.Rel(root, filepath.Join(dir, e.Name()))
+			relDir, _ := filepath.Rel(root, dir)
 			name := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
 			name = strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(name, "play"), "Play"), "_ ")
 			if name == "" {
 				name = "all"
 			}
-			lists = append(lists, library.Playlist{Name: filepath.Base(dir) + " — " + name,
-				Source: filepath.ToSlash(rel), Pieces: ids})
+			name = filepath.Base(dir) + " — " + name
+			if isFolderBat {
+				name = filepath.ToSlash(relDir) + " (whole folder)"
+			}
+			lists = append(lists, library.Playlist{Name: name, Source: filepath.ToSlash(rel), Pieces: ids})
 			if missing > 0 {
 				fmt.Fprintf(os.Stderr, "%s: %d of its files are not in the library\n", filepath.ToSlash(rel), missing)
 			}
 		}
-		if hasAlbumBat {
-			return nil
-		}
-		// A folder of numbered Zenph files is an album.
-		var kbs, numbered []string
-		for _, e := range entries {
-			if strings.EqualFold(filepath.Ext(e.Name()), ".kb") {
-				kbs = append(kbs, e.Name())
-				if numberedRE.MatchString(e.Name()) {
-					numbered = append(numbered, e.Name())
-				}
-			}
-		}
-		if len(numbered) < 3 || len(numbered)*5 < len(kbs)*4 {
+		if !numberedAlbum {
 			return nil
 		}
 		album := filepath.Base(dir)
 		for _, n := range numbered {
-			sum, err := h.of(filepath.Join(dir, n))
+			sum, err := h.of(filepath.Join(dir, n+".kb"))
 			if err != nil {
 				return err
 			}
@@ -663,7 +883,7 @@ func playlistsAndFolders(root string, pieces []library.Piece, bySHA map[string]*
 			a := album
 			pt.Album = &a
 			if p.Track == 0 && !locked(p, "track") {
-				t, _ := strconv.Atoi(numberedRE.FindStringSubmatch(n)[1])
+				t, _ := strconv.Atoi(numberedRE.FindStringSubmatch(n + ".kb")[1])
 				pt.Track = &t
 			}
 			p.Album = album

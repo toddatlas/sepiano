@@ -3,6 +3,7 @@ package main
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"sepiano/library"
@@ -46,5 +47,51 @@ func TestNameList(t *testing.T) {
 	}
 	if d := library.ParseDate(got["OLDFOLKS"][1]); d != "1988-02-19" {
 		t.Fatalf("date %q", d)
+	}
+}
+
+func TestEnsureFolderBat(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "Hamb")
+	os.MkdirAll(dir, 0o755)
+	for _, n := range []string{"Tatum19330321-Handy_StLouisBlues", "10Sec-C9-400", "Abramski20080629-Chopin_Sonata3mvt1", "55min_spacer", "Copy of Zed"} {
+		for _, ext := range []string{".kb", ".lp", ".sp"} {
+			os.WriteFile(filepath.Join(dir, n+ext), []byte("x"), 0o644)
+		}
+	}
+	os.WriteFile(filepath.Join(dir, "playTatum.bat"), []byte("play Tatum19330321-Handy_StLouisBlues\r\nplay Gone-Missing\r\n"), 0o644)
+	var report []string
+	check := func(write bool) bool {
+		entries, _ := os.ReadDir(dir)
+		wrote, err := ensureFolderBat(root, dir, entries, setsIn(entries), nil, false, false, folderOpts{writeBats: write, report: &report})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return wrote
+	}
+	if check(false) {
+		t.Fatal("wrote without -write-bats")
+	}
+	if !check(true) {
+		t.Fatalf("did not write: %q", report)
+	}
+	b, _ := os.ReadFile(filepath.Join(dir, folderBat))
+	want := folderBatMark + "\r\nplay 10Sec-C9-400\r\nplay Abramski20080629-Chopin_Sonata3mvt1\r\nplay \"Copy of Zed\"\r\nplay Tatum19330321-Handy_StLouisBlues\r\n"
+	if string(b) != want {
+		t.Fatalf("play_folder.bat:\n%q\nwant\n%q", b, want)
+	}
+	if check(true) { // now covered by our own file
+		t.Fatalf("wrote twice: %q", report)
+	}
+	joined := strings.Join(report, "\n")
+	for _, s := range []string{"playTatum.bat refers to 1 missing file(s), e.g. GONE-MISSING", "wrote play_folder.bat (4 pieces)", "plays whole with play_folder.bat"} {
+		if !strings.Contains(joined, s) {
+			t.Errorf("report lacks %q:\n%s", s, joined)
+		}
+	}
+	// A play_folder.bat the owner wrote is never replaced.
+	os.WriteFile(filepath.Join(dir, folderBat), []byte("play Only-This\r\n"), 0o644)
+	if check(true) {
+		t.Fatal("replaced the owner's play_folder.bat")
 	}
 }
