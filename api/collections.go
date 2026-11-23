@@ -92,7 +92,7 @@ func (s *Server) resolve(req playRequest) ([]string, *deck.Collection, error) {
 }
 
 func ref(p library.Piece) deck.PieceRef {
-	return deck.PieceRef{ID: p.ID, Title: p.Title, Composer: p.Composer, Performer: p.Performer}
+	return deck.PieceRef{ID: p.ID, Title: p.Title, Composer: p.Composer, Performer: p.Performer, SourceName: p.SourceName}
 }
 
 // startQueue plays ids[start:] as one continuous performance.

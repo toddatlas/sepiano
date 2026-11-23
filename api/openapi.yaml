@@ -473,6 +473,7 @@ components:
     PieceRef:
       type: object
       properties:
+        source_name: { type: string, description: "The file it came from (base name), shown to check what plays" }
         id: { type: string }
         title: { type: string }
         composer: { type: string }

@@ -58,6 +58,8 @@ type PieceRef struct {
 	Title     string `json:"title"`
 	Composer  string `json:"composer,omitempty"`
 	Performer string `json:"performer,omitempty"`
+	// SourceName is the file the piece came from, shown to check what plays.
+	SourceName string `json:"source_name,omitempty"`
 }
 
 // Status is the deck's state as clients see it.

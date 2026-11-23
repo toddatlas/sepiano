@@ -1116,3 +1116,27 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition: none !important; }
 }
+
+/* The file behind a piece, small, to check what is playing. */
+.row-file,
+.np-file {
+  display: block;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 11px;
+  line-height: 1.35;
+  color: var(--muted);
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+.row-file { margin-top: 2px; }
+.np-file { margin: 6px 0 0; }
+
+/* Headings between the albums, play lists and pieces a search found. */
+.list-head {
+  margin: 18px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}

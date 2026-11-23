@@ -898,6 +898,7 @@ function nowPlayingScreen(root) {
   const titleEl = h('h1', { class: 'np-title' }, titleLink);
   const composerEl = h('p', { class: 'np-composer' });
   const performerEl = h('p', { class: 'np-performer' });
+  const fileEl = h('p', { class: 'np-file' }); // the file playing, to check what is what
   const hintEl = h('p', { class: 'np-hint' });
   const messageEl = h('p', { class: 'message message-warn', role: 'status' });
   const progFill = h('div', { class: 'progress-fill' });
@@ -926,7 +927,7 @@ function nowPlayingScreen(root) {
     h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop')));
 
   const playPanel = h('section', { class: 'np' },
-    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, hintEl, messageEl,
+    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, hintEl, messageEl,
     h('div', { class: 'np-progress' }, progress, h('div', { class: 'times' }, elapsedEl, totalEl), allEl),
     transport);
 
@@ -1008,6 +1009,8 @@ function nowPlayingScreen(root) {
     composerEl.hidden = !p.composer;
     setText(performerEl, p.performer);
     performerEl.hidden = !p.performer;
+    setText(fileEl, p.source_name);
+    fileEl.hidden = !p.source_name;
 
     let hint = '';
     if (s.state === 'loading') hint = 'Sending the player to the piano — about 2 seconds.';
@@ -1136,6 +1139,7 @@ const libState = { q: '', composer: '', performer: '', instrument: '', scroll: 0
 function libraryScreen(root, _params, ctx) {
   let alive = true;
   let pieces = null;
+  let colls = null; // albums and play lists matching the search
   let seq = 0;
   let restoreScroll = ctx.from === 'piece';
   let playingId = null;
@@ -1143,7 +1147,7 @@ function libraryScreen(root, _params, ctx) {
   const search = h('input', {
     class: 'search',
     type: 'search',
-    placeholder: 'Search title, composer, performer…',
+    placeholder: 'Search pieces, albums, folders…',
     'aria-label': 'Search the library',
     autocomplete: 'off',
     autocorrect: 'off',
@@ -1208,8 +1212,14 @@ function libraryScreen(root, _params, ctx) {
     const my = ++seq;
     const q = libState.q.trim();
     try {
-      const res = await api('GET', '/pieces' + (q ? '?q=' + encodeURIComponent(q) : ''));
+      // A search also looks through the albums and the folders' play lists.
+      const [res, al, pl] = await Promise.all([
+        api('GET', '/pieces' + (q ? '?q=' + encodeURIComponent(q) : '')),
+        q ? api('GET', '/albums').catch(() => null) : null,
+        q ? api('GET', '/playlists').catch(() => null) : null,
+      ]);
       if (!alive || my !== seq) return;
+      colls = q ? matchCollections(q, (al && al.albums) || [], (pl && pl.playlists) || []) : null;
       pieces = (res && res.pieces) || [];
       if (!q) {
         app.pieces = pieces;
@@ -1260,11 +1270,22 @@ function libraryScreen(root, _params, ctx) {
     setText(countEl, items.length === 1 ? '1 performance' : `${items.length} performances`);
     countEl.hidden = !items.length;
 
-    if (!items.length) {
+    const albums = (colls && colls.albums) || [];
+    const lists = (colls && colls.playlists) || [];
+    const found = albums.length || lists.length
+      ? [
+        albums.length && h('h2', { class: 'list-head' }, albums.length === 1 ? '1 album' : `${albums.length} albums`),
+        albums.length && h('ul', { class: 'list', role: 'list' }, albums.map(albumRow)),
+        lists.length && h('h2', { class: 'list-head' }, lists.length === 1 ? '1 folder or play list' : `${lists.length} folders and play lists`),
+        lists.length && h('ul', { class: 'list', role: 'list' }, lists.map(playlistRow)),
+        items.length && h('h2', { class: 'list-head' }, 'Pieces'),
+      ]
+      : [];
+    if (!items.length && !found.length) {
       fill(body, emptyState(anyFilter || !!libState.q.trim()));
     } else {
       fill(list, ...items.map(row));
-      fill(body, list);
+      fill(body, ...found, items.length ? list : null);
       playingId = null;
       markPlaying();
     }
@@ -1286,12 +1307,49 @@ function libraryScreen(root, _params, ctx) {
       h('a', { class: 'btn btn-primary', href: '#/upload' }, icon('upload'), 'Upload'));
   }
 
+  // Search hits among the albums and play lists. Tapping opens the page with
+  // "Play all"; the button here plays all at once.
+  function matchCollections(q, albums, lists) {
+    const words = fold(q).split(/\s+/).filter(Boolean);
+    const hit = (text) => { const t = fold(text); return words.every((w) => t.includes(w)); };
+    return {
+      albums: albums.filter((a) => hit([a.name, a.performer, a.composer].join(' '))),
+      playlists: lists.filter((p) => hit([p.name, p.source].join(' '))),
+    };
+  }
+
+  function albumRow(a) {
+    const sub = [a.performer, tracksText(a.tracks), a.duration_ms > 0 && fmtTime(a.duration_ms)].filter(Boolean).join(' · ');
+    return h('li', { class: 'row' },
+      h('a', { class: 'row-main', href: albumHref(a.name) },
+        h('span', { class: 'row-title' }, a.name),
+        sub && h('span', { class: 'row-sub' }, sub)),
+      h('button', {
+        class: 'row-play', type: 'button', 'aria-label': `Play all of ${a.name}`,
+        onclick: (e) => startPlay({ album: a.name }, e.currentTarget),
+      }, icon('play')));
+  }
+
+  function playlistRow(pl) {
+    const sub = [tracksText(pl.tracks), pl.duration_ms > 0 && fmtTime(pl.duration_ms)].filter(Boolean).join(' · ');
+    return h('li', { class: 'row' },
+      h('a', { class: 'row-main', href: playlistHref(pl.id) },
+        h('span', { class: 'row-title' }, pl.name),
+        sub && h('span', { class: 'row-sub' }, sub),
+        pl.source && h('span', { class: 'row-file' }, pl.source)),
+      h('button', {
+        class: 'row-play', type: 'button', 'aria-label': `Play all of ${pl.name}`,
+        onclick: (e) => startPlay({ playlist: pl.id }, e.currentTarget),
+      }, icon('play')));
+  }
+
   function row({ piece: p, count }) {
     const sub = byline(p);
     return h('li', { class: 'row', 'data-id': p.id },
       h('a', { class: 'row-main', href: pieceHref(p.id) },
         h('span', { class: 'row-title' }, p.title || 'Untitled'),
         sub && h('span', { class: 'row-sub' }, sub),
+        p.source_name && h('span', { class: 'row-file' }, p.source_name),
         h('span', { class: 'row-meta' },
           fmtTime(p.duration_ms),
           count > 1 && h('span', { class: 'hint-pill' }, `${count} renderings`))),
@@ -1533,6 +1591,7 @@ function trackRow({ index, num, piece: p, sub, pill, body }) {
   const main = [
     h('span', { class: 'row-title' }, title),
     sub && h('span', { class: 'row-sub' }, sub),
+    p.source_name && h('span', { class: 'row-file' }, p.source_name),
     h('span', { class: 'row-meta' },
       fmtTime(p.duration_ms),
       pill && h('span', { class: 'hint-pill' }, pill)),
@@ -1631,7 +1690,7 @@ function albumScreen(root, [name]) {
           type: 'button',
           disabled: !tracks.length,
           onclick: (e) => startPlay({ album: title }, e.currentTarget),
-        }, icon('play'), 'Play album')),
+        }, icon('play'), 'Play all')),
       list);
     playingIndex = null;
     markPlaying();
@@ -1708,7 +1767,7 @@ function playlistScreen(root, [id]) {
           type: 'button',
           disabled: !pieces.length,
           onclick: (e) => startPlay({ playlist: plId }, e.currentTarget),
-        }, icon('play'), 'Play')),
+        }, icon('play'), 'Play all')),
       pieces.length ? list : h('p', { class: 'muted center' }, 'This play list is empty.'),
       h('div', { class: 'danger-zone' },
         h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete play list')));
