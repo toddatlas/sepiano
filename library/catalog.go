@@ -6,10 +6,10 @@ import (
 	"strings"
 )
 
-// Album is a recording catalogued by one of the suite's album batch files
+// BatAlbum is a recording catalogued by one of the suite's album batch files
 // (e.g. WAYNE\FP1002\_FP1002.BAT): its title and performer, its catalog
 // number, and its tracks in order.
-type Album struct {
+type BatAlbum struct {
 	Title     string // "Earl Wild: The Art of the Transcription"
 	Performer string // "Earl Wild", when the header says
 	Catalog   string // "FP-1002"
@@ -37,7 +37,7 @@ var (
 
 // ParseAlbumBat reads an album batch file. ok is false for batch files that
 // describe no album (no catalog number or no tracks).
-func ParseAlbumBat(text string) (a Album, ok bool) {
+func ParseAlbumBat(text string) (a BatAlbum, ok bool) {
 	var heading, headComposer, albumComposer string
 	var headerDone bool
 	var files []string
@@ -147,7 +147,7 @@ func composerLike(s string) bool {
 // TrackFor finds the track for a performance file's base name. Variants
 // such as "@HUNTING", "_VAR1" or "XSUITE1" (rescaled or re-made copies)
 // belong to the track of the name without the mark.
-func (a Album) TrackFor(base string) (Track, bool) {
+func (a BatAlbum) TrackFor(base string) (Track, bool) {
 	name := strings.ToUpper(base)
 	for _, cand := range []string{name, strings.TrimLeft(name, "@_"), strings.TrimPrefix(strings.TrimLeft(name, "@_"), "X")} {
 		for _, t := range a.Tracks {
@@ -160,7 +160,7 @@ func (a Album) TrackFor(base string) (Track, bool) {
 }
 
 // Name is the album as shown: title and catalog number.
-func (a Album) Name() string {
+func (a BatAlbum) Name() string {
 	if a.Catalog == "" {
 		return a.Title
 	}

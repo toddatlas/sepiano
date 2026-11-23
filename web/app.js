@@ -15,7 +15,8 @@
 //   chrome       header badge, banners, mini player, toasts, confirm dialog
 //   ticker       smooth position between status events
 //   router       hash routes -> screen controllers
-//   screens      nowPlaying, library, piece, upload, record, status
+//   screens      nowPlaying, library, albums, playlists, album, playlist,
+//                piece, upload, record, status
 //   boot
 
 const API = '/api/v1';
@@ -66,6 +67,9 @@ const ICONS = {
     stroke: ['M6 5v14'],
     fill: ['M18 6.2v11.6c0 .8-.9 1.3-1.6.8L8.6 13c-.6-.4-.6-1.3 0-1.7l7.8-5.6c.7-.5 1.6 0 1.6.8z'],
   },
+  // Two triangles, so they read differently from `restart`'s single one.
+  previous: { stroke: ['M5.5 6v12'], fill: ['M13.5 6.5v11L7.5 12zM19.5 6.5v11L13.5 12z'] },
+  next: { stroke: ['M18.5 6v12'], fill: ['M10.5 6.5v11l6-5.5zM4.5 6.5v11l6-5.5z'] },
   minus: { stroke: ['M5 12h14'] },
   plus: { stroke: ['M12 5v14M5 12h14'] },
   now: { stroke: ['M9 18V5l11-2v13', 'M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM17 13a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'] },
@@ -185,9 +189,59 @@ function cmpPieces(a, b) {
 
 function uniqSorted(values) { return [...new Set(values.filter(Boolean))].sort(cmpText); }
 
+// Lower case without accents, so a typed "dvorak" finds "Dvořák".
+function fold(s) {
+  return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+}
+
+function num0(n) { return Number.isFinite(n) ? n : 0; }
+
 function byline(p) { return [p.composer, p.performer].filter(Boolean).join(' · '); }
+function tracksText(n) { return Number.isInteger(n) ? (n === 1 ? '1 track' : `${n} tracks`) : ''; }
 function pieceHref(id) { return '#/piece/' + encodeURIComponent(id); }
 function piecePath(id) { return '/pieces/' + encodeURIComponent(id); }
+function albumHref(name) { return '#/album/' + encodeURIComponent(name); }
+function albumPath(name) { return '/albums/' + encodeURIComponent(name); }
+function playlistHref(id) { return '#/playlist/' + encodeURIComponent(id); }
+function playlistPath(id) { return '/playlists/' + encodeURIComponent(id); }
+
+// The page of the album or play list being played; '' for a plain list.
+function collectionHref(c) {
+  if (!c || !c.id) return '';
+  if (c.kind === 'album') return albumHref(c.id);
+  if (c.kind === 'playlist') return playlistHref(c.id);
+  return '';
+}
+
+// Renderings of one performance (same perf_key), best first. The owner's
+// piano is a Steinway and the other renderings were tuned for other
+// instruments, so: the preferred instrument, then its variants (e.g.
+// "Steinway_SED133291_2011NovTemp"), then any Steinway, then renderings with
+// no instrument, then the rest. Within a rank the given order is kept.
+const DEFAULT_INSTRUMENT = 'Steinway_SED133291';
+
+function preferredInstrument() {
+  return (app.settings && app.settings.preferred_instrument) || DEFAULT_INSTRUMENT;
+}
+
+function renderingRank(instrument, pref) {
+  const inst = instrument || '';
+  if (pref && inst === pref) return 0;
+  if (pref && inst.startsWith(pref)) return 1;
+  if (inst.startsWith('Steinway')) return 2;
+  if (!inst) return 3;
+  return 4;
+}
+
+function rankRenderings(pieces) {
+  const pref = preferredInstrument();
+  return pieces
+    .map((p, i) => ({ p, i, rank: renderingRank(p.instrument, pref) }))
+    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .map((x) => x.p);
+}
+
+function bestRendering(pieces) { return rankRenderings(pieces)[0]; }
 
 function debounce(fn, ms) {
   let timer = 0;
@@ -197,13 +251,14 @@ function debounce(fn, ms) {
   };
 }
 
+// rows: [label, value, class]. A value is text, or a node (e.g. a link).
 function metaList(rows) {
   return h('dl', { class: 'meta' },
     rows
       .filter(([, value]) => value != null && value !== '' && value !== false)
       .map(([label, value, cls]) => h('div', { class: 'meta-row' },
         h('dt', null, label),
-        h('dd', { class: cls || null }, String(value)))));
+        h('dd', { class: cls || null }, value instanceof Node ? value : String(value)))));
 }
 
 // ========================================================================= api
@@ -270,12 +325,16 @@ function applyReplyStatus(s) {
   if (!cur || Date.parse(s.since) > Date.parse(cur.since)) applyStatus(s);
 }
 
-async function playPiece(id, btn) {
+// body: {piece}, {album} or {playlist}, with an optional 0-based `start`.
+// Shows Now Playing once the service has taken it.
+async function startPlay(body, btn) {
   if (btn) btn.disabled = true;
-  const ok = await command('/deck/play', { piece: id });
+  const ok = await command('/deck/play', body);
   if (btn) btn.disabled = false;
   if (ok) location.hash = '#/';
 }
+
+function playPiece(id, btn) { return startPlay({ piece: id }, btn); }
 
 // Multipart upload with progress (fetch cannot report upload progress).
 function postPieces(files, title, onProgress) {
@@ -375,6 +434,37 @@ const STATE_WORDS = {
   fault: 'Something went wrong',
 };
 function stateWords(s) { return s ? (STATE_WORDS[s.state] || s.state) : 'Connecting…'; }
+
+// An album or play list plays as one performance; `tracks` says where each
+// track lies in it. The main progress bar shows the current track's stretch
+// of it, or the whole performance for a single piece.
+function trackSpan(s) {
+  const t = s && s.collection && Array.isArray(s.tracks) ? s.tracks[s.track_index] : null;
+  if (t) return { start: Math.max(0, num0(t.start_ms)), dur: Math.max(0, num0(t.duration_ms)) };
+  return { start: 0, dur: s && s.duration_ms > 0 ? s.duration_ms : 0 };
+}
+
+// Position within a span. Between status events the extrapolated position
+// can run past the end of a track; it stays there until the server moves on.
+function spanPosition(span, pos) {
+  const p = Math.max(0, pos - span.start);
+  return span.dur ? Math.min(p, span.dur) : p;
+}
+
+// "Track n of m" counts in the whole album or play list (s.collection set).
+function trackOf(s) {
+  const c = s.collection;
+  return { n: num0(c.start) + num0(s.track_index) + 1, m: num0(c.count) };
+}
+
+// Index in the whole album or play list (kind, id) of the track playing now,
+// or -1 when that collection is not playing.
+function playingIndexIn(kind, id) {
+  const s = app.status;
+  const c = isPlaySession(s) ? s.collection : null;
+  if (!c || !id || c.kind !== kind || c.id !== id) return -1;
+  return num0(c.start) + num0(s.track_index);
+}
 
 function applyStatus(s) {
   const prev = app.status;
@@ -562,9 +652,10 @@ function renderMini() {
 
   if (mode === 'play') {
     const paused = s.state === 'paused';
+    const c = s.collection;
     mini.link.href = '#/';
     setText(mini.title, (s.piece && s.piece.title) || 'Untitled');
-    setText(mini.sub, stateWords(s));
+    setText(mini.sub, [stateWords(s), c && (c.title || c.id)].filter(Boolean).join(' · '));
     mini.btn.hidden = false;
     const name = paused ? 'play' : 'pause';
     if (name !== mini.iconName) { fill(mini.btn, icon(name)); mini.iconName = name; }
@@ -583,8 +674,8 @@ function miniTick(pos) {
   if (!mini.mode) return;
   const s = app.status;
   if (mini.mode === 'play') {
-    const dur = s.duration_ms > 0 ? s.duration_ms : 0;
-    mini.bar.style.transform = `scaleX(${dur ? Math.min(1, pos / dur) : 0})`;
+    const span = trackSpan(s);
+    mini.bar.style.transform = `scaleX(${span.dur ? Math.min(1, spanPosition(span, pos) / span.dur) : 0})`;
   } else {
     mini.bar.style.transform = 'scaleX(0)';
     if (s.state === 'recording') setText(mini.sub, `Recording · ${fmtTime(pos)}`);
@@ -705,17 +796,41 @@ function frame() {
 
 // ====================================================================== router
 
+// `back: true` goes to the library section last shown; an object names its own.
 const ROUTES = [
   { name: 'now', re: /^\/$/, tab: 'now', title: 'Now Playing', screen: nowPlayingScreen },
   { name: 'library', re: /^\/library$/, tab: 'library', title: 'Library', screen: libraryScreen },
+  { name: 'albums', re: /^\/albums$/, tab: 'library', title: 'Albums', screen: albumsScreen },
+  { name: 'playlists', re: /^\/playlists$/, tab: 'library', title: 'Play lists', screen: playlistsScreen },
+  { name: 'album', re: /^\/album\/([^/]+)$/, tab: 'library', title: 'Album', back: { href: '#/albums', label: 'Albums' }, screen: albumScreen },
+  { name: 'playlist', re: /^\/playlist\/([^/]+)$/, tab: 'library', title: 'Play list', back: { href: '#/playlists', label: 'Play lists' }, screen: playlistScreen },
   { name: 'piece', re: /^\/piece\/([^/]+)$/, tab: 'library', title: 'Piece', back: true, screen: pieceScreen },
   { name: 'upload', re: /^\/upload$/, tab: 'library', title: 'Upload', back: true, screen: uploadScreen },
   { name: 'record', re: /^\/record$/, tab: 'record', title: 'Record', screen: recordScreen },
   { name: 'status', re: /^\/status$/, tab: 'status', title: 'Status', screen: statusScreen },
 ];
 
+// The segmented control at the top of the library: [route name, hash, label].
+const LIB_SECTIONS = [
+  ['library', '#/library', 'Pieces'],
+  ['albums', '#/albums', 'Albums'],
+  ['playlists', '#/playlists', 'Play lists'],
+];
+
 let current = {}; // the mounted screen's controller: update, tick, onLibrary, onConsole, onSettings, onVisible, unmount
 let currentRoute = null;
+let currentPath = '';
+let libSection = '#/library'; // the Library tab returns to the section last shown
+
+// Where the top bar's back link goes. A piece opened from an album or play
+// list goes back to it.
+function backLink(r, prev, prevPath) {
+  if (!r.back) return null;
+  if (r.name === 'piece' && prev && (prev.name === 'album' || prev.name === 'playlist')) {
+    return { href: '#' + prevPath, label: prev.title };
+  }
+  return r.back === true ? { href: libSection, label: 'Library' } : r.back;
+}
 
 function route() {
   const path = location.hash.replace(/^#/, '') || '/';
@@ -734,19 +849,31 @@ function route() {
     return;
   }
 
-  const from = currentRoute ? currentRoute.name : '';
+  const prev = currentRoute;
+  const prevPath = currentPath;
+  const from = prev ? prev.name : '';
   if (current.unmount) current.unmount();
   currentRoute = r;
+  currentPath = path;
   fill(els.view);
   window.scrollTo(0, 0);
   document.title = r.name === 'now' ? 'Piano' : `${r.title} · Piano`;
+  if (LIB_SECTIONS.some(([name]) => name === r.name)) {
+    libSection = '#' + path;
+    els.libTab.href = libSection;
+  }
   for (const a of els.tabs) {
     const on = a.dataset.tab === r.tab;
     a.classList.toggle('active', on);
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   }
-  els.back.hidden = !r.back;
+  const back = backLink(r, prev, prevPath);
+  els.back.hidden = !back;
+  if (back) {
+    els.back.href = back.href;
+    setText(els.backLabel, back.label);
+  }
 
   current = r.screen(els.view, params, { from }) || {};
   if (app.status && current.update) current.update(app.status, null);
@@ -759,9 +886,14 @@ function nowPlayingScreen(root) {
   const busy = new Set();
   let alive = true;
   let lastSec = -1;
+  let lastAllSec = -1;
   let mainIconName = '';
 
   const stateEl = h('p', { class: 'np-state' });
+  // Album or play list: its title (a link to its page) and "Track n of m".
+  const collLink = h('a');
+  const collEl = h('p', { class: 'np-collection', hidden: true }, collLink);
+  const trackEl = h('p', { class: 'np-track', hidden: true });
   const titleLink = h('a');
   const titleEl = h('h1', { class: 'np-title' }, titleLink);
   const composerEl = h('p', { class: 'np-composer' });
@@ -772,18 +904,31 @@ function nowPlayingScreen(root) {
   const progress = h('div', { class: 'progress', role: 'progressbar', 'aria-label': 'Position in the piece', 'aria-valuemin': '0' }, progFill);
   const elapsedEl = h('span', null, '0:00');
   const totalEl = h('span');
+  // Album or play list: a thin second bar for the whole performance.
+  const allFill = h('div', { class: 'progress-fill' });
+  const allText = h('p', { class: 'np-all-text' });
+  const allEl = h('div', { class: 'np-all', hidden: true },
+    h('div', { class: 'progress progress-thin', 'aria-hidden': 'true' }, allFill),
+    allText);
   const restartBtn = h('button', { class: 'round-btn', type: 'button', 'aria-label': 'Restart from the beginning', onclick: () => run('restart', '/deck/restart') }, icon('restart'));
+  const prevBtn = h('button', { class: 'round-btn', type: 'button', 'aria-label': 'Previous track', onclick: () => run('previous', '/deck/previous') }, icon('previous'));
   const mainBtn = h('button', { class: 'round-btn round-btn-main', type: 'button', onclick: pauseResume });
   const mainLabel = h('span', { class: 'transport-label' }, 'Pause');
+  const nextBtn = h('button', { class: 'round-btn', type: 'button', 'aria-label': 'Next track', onclick: () => run('next', '/deck/next') }, icon('next'));
   const stopBtn = h('button', { class: 'round-btn', type: 'button', 'aria-label': 'Stop', onclick: () => run('stop', '/deck/stop') }, icon('stop'));
+  const prevItem = h('div', { class: 'transport-item', hidden: true }, prevBtn, h('span', { class: 'transport-label' }, 'Previous'));
+  const nextItem = h('div', { class: 'transport-item', hidden: true }, nextBtn, h('span', { class: 'transport-label' }, 'Next'));
+  const transport = h('div', { class: 'transport' },
+    h('div', { class: 'transport-item' }, restartBtn, h('span', { class: 'transport-label' }, 'Restart')),
+    prevItem,
+    h('div', { class: 'transport-item' }, mainBtn, mainLabel),
+    nextItem,
+    h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop')));
 
   const playPanel = h('section', { class: 'np' },
-    stateEl, titleEl, composerEl, performerEl, hintEl, messageEl,
-    h('div', { class: 'np-progress' }, progress, h('div', { class: 'times' }, elapsedEl, totalEl)),
-    h('div', { class: 'transport' },
-      h('div', { class: 'transport-item' }, restartBtn, h('span', { class: 'transport-label' }, 'Restart')),
-      h('div', { class: 'transport-item' }, mainBtn, mainLabel),
-      h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop'))));
+    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, hintEl, messageEl,
+    h('div', { class: 'np-progress' }, progress, h('div', { class: 'times' }, elapsedEl, totalEl), allEl),
+    transport);
 
   const emptyTitle = h('h1', { class: 'empty-title' });
   const emptyText = h('p', { class: 'empty-text' });
@@ -882,8 +1027,31 @@ function nowPlayingScreen(root) {
     stopBtn.disabled = !(playing || paused || s.state === 'loading') || busy.has('stop');
     restartBtn.disabled = !(playing || paused) || busy.has('restart');
 
-    setText(totalEl, s.duration_ms > 0 ? fmtTime(s.duration_ms) : '');
+    // An album or play list: with none, all of this stays hidden and the
+    // screen is the single-piece one.
+    const c = s.collection || null;
+    collEl.hidden = !c;
+    trackEl.hidden = !c;
+    allEl.hidden = !c;
+    prevItem.hidden = !c;
+    nextItem.hidden = !c;
+    transport.classList.toggle('has-skip', !!c);
+    progress.setAttribute('aria-label', c ? 'Position in the track' : 'Position in the piece');
+    if (c) {
+      setText(collLink, c.title || c.id || 'Untitled');
+      const href = collectionHref(c);
+      if (href) collLink.href = href;
+      else collLink.removeAttribute('href');
+      const { n, m } = trackOf(s);
+      setText(trackEl, m ? `Track ${n} of ${m}` : `Track ${n}`);
+      prevBtn.disabled = !(playing || paused) || busy.has('previous');
+      nextBtn.disabled = !(playing || paused) || (m > 0 && n >= m) || busy.has('next');
+    }
+
+    const span = trackSpan(s);
+    setText(totalEl, span.dur > 0 ? fmtTime(span.dur) : '');
     lastSec = -1;
+    lastAllSec = -1;
     tick(currentPosition());
   }
 
@@ -904,18 +1072,30 @@ function nowPlayingScreen(root) {
     setText(emptyText, text);
   }
 
+  // pos is in the whole performance; the main bar shows the current track.
   function tick(pos) {
     const s = app.status;
     if (!s || playPanel.hidden) return;
-    const dur = s.duration_ms > 0 ? s.duration_ms : 0;
-    progFill.style.transform = `scaleX(${dur ? Math.min(1, pos / dur) : 0})`;
-    const sec = Math.floor(pos / 1000);
+    const span = trackSpan(s);
+    const dur = span.dur;
+    const at = spanPosition(span, pos);
+    progFill.style.transform = `scaleX(${dur ? Math.min(1, at / dur) : 0})`;
+    const sec = Math.floor(at / 1000);
     if (sec !== lastSec) {
       lastSec = sec;
-      elapsedEl.textContent = fmtTime(pos);
+      elapsedEl.textContent = fmtTime(at);
       progress.setAttribute('aria-valuemax', String(Math.floor(dur / 1000)));
       progress.setAttribute('aria-valuenow', String(sec));
-      progress.setAttribute('aria-valuetext', dur ? `${fmtTime(pos)} of ${fmtTime(dur)}` : fmtTime(pos));
+      progress.setAttribute('aria-valuetext', dur ? `${fmtTime(at)} of ${fmtTime(dur)}` : fmtTime(at));
+    }
+    if (s.collection) {
+      const all = s.duration_ms > 0 ? s.duration_ms : 0;
+      allFill.style.transform = `scaleX(${all ? Math.min(1, pos / all) : 0})`;
+      const allSec = Math.floor(pos / 1000);
+      if (allSec !== lastAllSec) {
+        lastAllSec = allSec;
+        setText(allText, all ? `${fmtTime(pos)} of ${fmtTime(all)}` : fmtTime(pos));
+      }
     }
   }
 
@@ -937,6 +1117,18 @@ function recordWords(s) {
 }
 
 // ===================================================================== Library
+
+// The top of every library section: the title, Upload, and the segmented
+// control (links, so each section has its own route).
+function libraryHead(active) {
+  return [
+    h('div', { class: 'screen-head' },
+      h('h1', { class: 'screen-title' }, 'Library'),
+      h('a', { class: 'btn btn-small', href: '#/upload' }, icon('upload'), 'Upload')),
+    h('nav', { class: 'segmented lib-tabs', 'aria-label': 'Library sections' },
+      LIB_SECTIONS.map(([name, href, label]) => h('a', { href, 'aria-current': name === active ? 'page' : null }, label))),
+  ];
+}
 
 // Kept across visits so coming back from a piece restores search and scroll.
 const libState = { q: '', composer: '', performer: '', instrument: '', scroll: 0 };
@@ -978,9 +1170,7 @@ function libraryScreen(root, _params, ctx) {
   const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
 
   root.append(
-    h('div', { class: 'screen-head' },
-      h('h1', { class: 'screen-title' }, 'Library'),
-      h('a', { class: 'btn btn-small', href: '#/upload' }, icon('upload'), 'Upload')),
+    ...libraryHead('library'),
     h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
     h('div', { class: 'filters' }, filters.map((f) => f.el), clearBtn),
     countEl,
@@ -1035,10 +1225,9 @@ function libraryScreen(root, _params, ctx) {
     }
   }
 
-  // One row per performance (perf_key): the preferred instrument's rendering,
-  // or the filtered instrument's, or the first one.
+  // One row per performance (perf_key): the filtered instrument's rendering,
+  // or else the best one (rankRenderings: Steinway first).
   function rows() {
-    const pref = (app.settings && app.settings.preferred_instrument) || '';
     const groups = new Map();
     for (const p of pieces) {
       if (!matches(p, 'instrument')) continue;
@@ -1053,7 +1242,7 @@ function libraryScreen(root, _params, ctx) {
         pick = group.find((p) => p.instrument === libState.instrument);
         if (!pick) continue;
       } else {
-        pick = (pref && group.find((p) => p.instrument === pref)) || group[0];
+        pick = bestRendering(group);
       }
       out.push({ piece: pick, count: group.length });
     }
@@ -1146,6 +1335,422 @@ function libraryScreen(root, _params, ctx) {
   };
 }
 
+// ======================================================== Albums and play lists
+
+// Kept across visits, like libState.
+const albumsState = { q: '', scroll: 0 };
+const playlistsState = { q: '', scroll: 0 };
+
+function albumsScreen(root, _params, ctx) {
+  return collectionListScreen(root, ctx, {
+    section: 'albums',
+    detail: 'album',
+    kind: 'album',
+    path: '/albums',
+    field: 'albums',
+    state: albumsState,
+    placeholder: 'Search name, performer, composer…',
+    searchLabel: 'Search the albums',
+    noun: 'albums',
+    count: (n) => (n === 1 ? '1 album' : `${n} albums`),
+    key: (a) => a.name,
+    title: (a) => a.name,
+    words: (a) => [a.name, a.performer, a.composer],
+    sub: (a) => [a.performer, tracksText(a.tracks), a.duration_ms > 0 && fmtTime(a.duration_ms)],
+    note: () => '',
+    href: (a) => albumHref(a.name),
+    play: (a) => ({ album: a.name }),
+    emptyTitle: 'No albums yet',
+    emptyText: 'Pieces that have an album name are gathered here, in track order. You can set a piece’s album with Edit on its page.',
+  });
+}
+
+function playlistsScreen(root, _params, ctx) {
+  return collectionListScreen(root, ctx, {
+    section: 'playlists',
+    detail: 'playlist',
+    kind: 'playlist',
+    path: '/playlists',
+    field: 'playlists',
+    state: playlistsState,
+    placeholder: 'Search play lists…',
+    searchLabel: 'Search the play lists',
+    noun: 'play lists',
+    count: (n) => (n === 1 ? '1 play list' : `${n} play lists`),
+    key: (p) => p.id,
+    title: (p) => p.name,
+    words: (p) => [p.name, p.source],
+    sub: (p) => [tracksText(p.tracks), p.duration_ms > 0 && fmtTime(p.duration_ms)],
+    note: (p) => p.source,
+    href: (p) => playlistHref(p.id),
+    play: (p) => ({ playlist: p.id }),
+    emptyTitle: 'No play lists yet',
+    emptyText: 'Play lists imported with your collection appear here.',
+  });
+}
+
+// The Albums and Play lists sections: a list fetched whole, sorted by name,
+// filtered as you type. `cfg` says what to fetch and how to show an item.
+function collectionListScreen(root, ctx, cfg) {
+  const st = cfg.state;
+  let alive = true;
+  let items = null;
+  let seq = 0;
+  let restoreScroll = ctx.from === cfg.detail;
+  let playingKey = null;
+
+  const search = h('input', {
+    class: 'search',
+    type: 'search',
+    placeholder: cfg.placeholder,
+    'aria-label': cfg.searchLabel,
+    autocomplete: 'off',
+    autocorrect: 'off',
+    autocapitalize: 'off',
+    spellcheck: 'false',
+    enterkeyhint: 'search',
+  });
+  search.value = st.q;
+  search.addEventListener('input', () => {
+    if (!alive || search.value === st.q) return;
+    st.q = search.value;
+    render();
+  });
+  search.addEventListener('keydown', (e) => { if (e.key === 'Enter') search.blur(); });
+
+  const countEl = h('p', { class: 'lib-count', 'aria-live': 'polite' });
+  const list = h('ul', { class: 'list', role: 'list' });
+  const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
+
+  root.append(
+    ...libraryHead(cfg.section),
+    h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
+    countEl,
+    body);
+
+  load();
+
+  async function load() {
+    const my = ++seq;
+    try {
+      const res = await api('GET', cfg.path);
+      if (!alive || my !== seq) return;
+      const all = res && Array.isArray(res[cfg.field]) ? res[cfg.field] : [];
+      items = all.slice().sort((a, b) => cmpText(cfg.title(a), cfg.title(b)));
+      render();
+    } catch (err) {
+      if (!alive || my !== seq) return;
+      if (items) { toast(err.message, 'error'); return; }
+      fill(body, h('div', { class: 'empty small' },
+        h('p', { class: 'empty-text' }, `Could not load the ${cfg.noun}. ${err.message}`),
+        h('button', { class: 'btn', type: 'button', onclick: load }, icon('refresh'), 'Try again')));
+    }
+  }
+
+  function render() {
+    if (!items || !alive) return;
+    const words = fold(st.q).split(/\s+/).filter(Boolean);
+    const shown = words.length
+      ? items.filter((it) => {
+        const text = fold(cfg.words(it).filter(Boolean).join(' '));
+        return words.every((w) => text.includes(w));
+      })
+      : items;
+    setText(countEl, cfg.count(shown.length));
+    countEl.hidden = !shown.length;
+
+    if (!shown.length) {
+      fill(body, emptyState(items.length > 0));
+    } else {
+      fill(list, ...shown.map(row));
+      fill(body, list);
+      playingKey = null;
+      markPlaying();
+    }
+    if (restoreScroll) {
+      restoreScroll = false;
+      window.scrollTo(0, st.scroll);
+    }
+  }
+
+  function emptyState(filtered) {
+    if (filtered) {
+      return h('div', { class: 'empty small' },
+        h('p', { class: 'empty-text' }, 'Nothing matches.'),
+        h('button', { class: 'btn', type: 'button', onclick: clearSearch }, 'Show everything'));
+    }
+    return h('div', { class: 'empty small' },
+      h('h2', { class: 'empty-title' }, cfg.emptyTitle),
+      h('p', { class: 'empty-text' }, cfg.emptyText));
+  }
+
+  function row(it) {
+    const title = cfg.title(it) || 'Untitled';
+    const sub = cfg.sub(it).filter(Boolean).join(' · ');
+    const note = cfg.note(it);
+    return h('li', { class: 'row', 'data-key': cfg.key(it) },
+      h('a', { class: 'row-main', href: cfg.href(it) },
+        h('span', { class: 'row-title' }, title),
+        sub && h('span', { class: 'row-sub' }, sub),
+        note && h('span', { class: 'row-note' }, note)),
+      h('button', {
+        class: 'row-play',
+        type: 'button',
+        'aria-label': `Play ${title}`,
+        onclick: (e) => startPlay(cfg.play(it), e.currentTarget),
+      }, icon('play')));
+  }
+
+  function markPlaying() {
+    const s = app.status;
+    const c = isPlaySession(s) ? s.collection : null;
+    const key = (c && c.kind === cfg.kind && c.id) || '';
+    if (key === playingKey) return;
+    playingKey = key;
+    for (const li of list.children) li.classList.toggle('playing', !!key && li.dataset.key === key);
+  }
+
+  function clearSearch() {
+    st.q = '';
+    search.value = '';
+    render();
+  }
+
+  return {
+    update: markPlaying,
+    onLibrary: load,
+    unmount() {
+      alive = false;
+      st.scroll = window.scrollY;
+    },
+  };
+}
+
+// One track of an album or play list. Tapping it opens the piece; its play
+// button plays the album or play list from this track (`body`).
+function trackRow({ index, num, piece: p, sub, pill, body }) {
+  const title = p.title || 'Untitled';
+  const main = [
+    h('span', { class: 'row-title' }, title),
+    sub && h('span', { class: 'row-sub' }, sub),
+    h('span', { class: 'row-meta' },
+      fmtTime(p.duration_ms),
+      pill && h('span', { class: 'hint-pill' }, pill)),
+  ];
+  return h('li', { class: 'row', 'data-index': String(index) },
+    h('span', { class: 'row-num' }, num),
+    p.id ? h('a', { class: 'row-main', href: pieceHref(p.id) }, main) : h('div', { class: 'row-main' }, main),
+    h('button', {
+      class: 'row-play',
+      type: 'button',
+      'aria-label': `Play from ${title}`,
+      onclick: (e) => startPlay(body, e.currentTarget),
+    }, icon('play')));
+}
+
+function markPlayingRow(list, index) {
+  for (const li of list.children) li.classList.toggle('playing', index >= 0 && li.dataset.index === String(index));
+}
+
+function collectionMeta(count, durationMs) {
+  return [tracksText(count), durationMs > 0 && fmtTime(durationMs)].filter(Boolean).join(' · ');
+}
+
+function notFound(title, text, href, label) {
+  return h('div', { class: 'empty' },
+    h('h1', { class: 'empty-title' }, title),
+    h('p', { class: 'empty-text' }, text),
+    h('a', { class: 'btn btn-primary', href }, icon('library'), label));
+}
+
+function loadFailed(what, err, retry) {
+  return h('div', { class: 'empty' },
+    h('p', { class: 'empty-text' }, `Could not load ${what}. ${err.message}`),
+    h('button', { class: 'btn', type: 'button', onclick: retry }, icon('refresh'), 'Try again'));
+}
+
+// ======================================================================= Album
+
+function albumScreen(root, [name]) {
+  let alive = true;
+  let album = null;
+  let seq = 0;
+  let playingIndex = null;
+  const list = h('ul', { class: 'list', role: 'list' });
+
+  root.append(h('p', { class: 'muted center' }, 'Loading…'));
+  load();
+
+  async function load() {
+    const my = ++seq;
+    try {
+      const a = await api('GET', albumPath(name));
+      if (!alive || my !== seq) return;
+      album = a || {};
+      render();
+    } catch (err) {
+      if (!alive || my !== seq) return;
+      if (err.status === 404) {
+        album = null;
+        fill(root, notFound('Album not found', 'No piece in the library belongs to this album any more.', '#/albums', 'All albums'));
+      } else if (!album) {
+        fill(root, loadFailed('this album', err, load));
+      } else {
+        toast(err.message, 'error');
+      }
+    }
+  }
+
+  function albumName() { return (album && album.name) || name; }
+
+  function render() {
+    const a = album;
+    const title = albumName();
+    const tracks = Array.isArray(a.tracks) ? a.tracks : [];
+    document.title = `${title} · Piano`;
+    fill(list, tracks.map((t, i) => {
+      const p = t.piece || {};
+      return trackRow({
+        index: i,
+        num: t.track > 0 ? String(t.track) : '',
+        piece: p,
+        sub: p.composer && p.composer !== a.composer ? p.composer : '',
+        pill: t.renderings > 1 ? `${t.renderings} versions` : '',
+        body: { album: title, start: i },
+      });
+    }));
+    fill(root,
+      h('header', { class: 'piece-head' },
+        h('h1', { class: 'piece-title' }, title),
+        a.composer && h('p', { class: 'piece-composer' }, a.composer),
+        a.performer && h('p', { class: 'piece-performer' }, a.performer),
+        h('p', { class: 'collection-meta' }, collectionMeta(tracks.length, a.duration_ms))),
+      h('div', { class: 'piece-actions' },
+        h('button', {
+          class: 'btn btn-primary btn-large',
+          type: 'button',
+          disabled: !tracks.length,
+          onclick: (e) => startPlay({ album: title }, e.currentTarget),
+        }, icon('play'), 'Play album')),
+      list);
+    playingIndex = null;
+    markPlaying();
+  }
+
+  function markPlaying() {
+    const idx = album ? playingIndexIn('album', albumName()) : -1;
+    if (idx === playingIndex) return;
+    playingIndex = idx;
+    markPlayingRow(list, idx);
+  }
+
+  return {
+    update: markPlaying,
+    onLibrary: load,
+    unmount() { alive = false; },
+  };
+}
+
+// =================================================================== Play list
+
+function playlistScreen(root, [id]) {
+  let alive = true;
+  let pl = null;
+  let seq = 0;
+  let playingIndex = null;
+  const list = h('ul', { class: 'list', role: 'list' });
+
+  root.append(h('p', { class: 'muted center' }, 'Loading…'));
+  load();
+
+  async function load() {
+    const my = ++seq;
+    try {
+      const p = await api('GET', playlistPath(id));
+      if (!alive || my !== seq) return;
+      pl = p || {};
+      render();
+    } catch (err) {
+      if (!alive || my !== seq) return;
+      if (err.status === 404) {
+        pl = null;
+        fill(root, notFound('Play list not found', 'This play list was deleted or never existed.', '#/playlists', 'All play lists'));
+      } else if (!pl) {
+        fill(root, loadFailed('this play list', err, load));
+      } else {
+        toast(err.message, 'error');
+      }
+    }
+  }
+
+  function playlistId() { return (pl && pl.id) || id; }
+
+  function render() {
+    const name = pl.name || 'Untitled play list';
+    const pieces = Array.isArray(pl.pieces) ? pl.pieces : [];
+    const plId = playlistId();
+    document.title = `${name} · Piano`;
+    fill(list, pieces.map((p, i) => trackRow({
+      index: i,
+      num: String(i + 1),
+      piece: p || {},
+      sub: byline(p || {}),
+      body: { playlist: plId, start: i },
+    })));
+    fill(root,
+      h('header', { class: 'piece-head' },
+        h('h1', { class: 'piece-title' }, name),
+        pl.source && h('p', { class: 'collection-source' }, `Imported from ${pl.source}`),
+        h('p', { class: 'collection-meta' }, collectionMeta(pieces.length, pl.duration_ms))),
+      h('div', { class: 'piece-actions' },
+        h('button', {
+          class: 'btn btn-primary btn-large',
+          type: 'button',
+          disabled: !pieces.length,
+          onclick: (e) => startPlay({ playlist: plId }, e.currentTarget),
+        }, icon('play'), 'Play')),
+      pieces.length ? list : h('p', { class: 'muted center' }, 'This play list is empty.'),
+      h('div', { class: 'danger-zone' },
+        h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete play list')));
+    playingIndex = null;
+    markPlaying();
+  }
+
+  function markPlaying() {
+    const idx = pl ? playingIndexIn('playlist', playlistId()) : -1;
+    if (idx === playingIndex) return;
+    playingIndex = idx;
+    markPlayingRow(list, idx);
+  }
+
+  async function remove(e) {
+    const btn = e.currentTarget;
+    const name = pl.name || 'Untitled play list';
+    const ok = await confirmDialog({
+      title: 'Delete this play list?',
+      text: `“${name}” will be deleted. Only the list goes: its pieces stay in the library.`,
+      ok: 'Delete',
+      danger: true,
+    });
+    if (!ok || !alive) return;
+    btn.disabled = true;
+    try {
+      await api('DELETE', playlistPath(playlistId()));
+      toast(`Deleted “${name}”.`);
+      location.hash = '#/playlists';
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+    }
+  }
+
+  return {
+    update: markPlaying,
+    onLibrary: load,
+    unmount() { alive = false; },
+  };
+}
+
 // ======================================================================= Piece
 
 function pieceScreen(root, [id]) {
@@ -1188,7 +1793,7 @@ function pieceScreen(root, [id]) {
         playBtn,
         h('button', { class: 'btn btn-large', type: 'button', onclick: startEdit }, icon('edit'), 'Edit')),
       metaList([
-        ['Album', p.album ? (p.track ? `${p.album}, track ${p.track}` : p.album) : ''],
+        ['Album', p.album ? h('a', { href: albumHref(p.album) }, p.track ? `${p.album}, track ${p.track}` : p.album) : ''],
         ['Recorded', fmtRecorded(p.recorded_on)],
         ['Instrument', instrumentLabel(p.instrument)],
         ['Length', fmtTime(p.duration_ms)],
@@ -1226,11 +1831,12 @@ function pieceScreen(root, [id]) {
     let all;
     try { all = await getAllPieces(); } catch { return; }
     if (!alive || !piece) return;
-    const others = all
+    // Best first (Steinway first); by instrument name within a rank.
+    const others = rankRenderings(all
       .filter((o) => o.perf_key === piece.perf_key && o.id !== piece.id)
-      .sort((a, b) => cmpText(a.instrument, b.instrument));
+      .sort((a, b) => cmpText(a.instrument, b.instrument)));
     if (!others.length) { renderingsSection.hidden = true; return; }
-    const pref = (app.settings && app.settings.preferred_instrument) || '';
+    const pref = preferredInstrument();
     renderingsSection.hidden = false;
     fill(renderingsSection,
       h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Other renderings')),
@@ -2072,6 +2678,7 @@ function boot() {
   els.confirmOk = document.getElementById('confirm-ok');
   els.confirmCancel = document.getElementById('confirm-cancel');
   els.tabs = Array.from(document.querySelectorAll('.tabbar a'));
+  els.libTab = els.tabs.find((a) => a.dataset.tab === 'library');
 
   for (const a of els.tabs) {
     a.prepend(icon(a.dataset.icon));
@@ -2080,7 +2687,9 @@ function boot() {
       if (a.getAttribute('href') === (location.hash || '#/')) window.scrollTo({ top: 0, behavior: 'smooth' });
     });
   }
-  els.back.prepend(icon('back'));
+  // The back link's text depends on the route (route() sets it).
+  els.backLabel = h('span', null, els.back.textContent.trim() || 'Library');
+  fill(els.back, icon('back'), els.backLabel);
   // A tap on the dim backdrop cancels the dialog.
   els.confirm.addEventListener('click', (e) => { if (e.target === els.confirm) els.confirm.close('cancel'); });
 

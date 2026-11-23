@@ -18,6 +18,8 @@ type Meta struct {
 	Instrument string
 	PerfKey    string // the same for every rendering of one performance
 	Notes      string
+	Album      string // only where the name implies one (the Goldberg Variations)
+	Track      int
 }
 
 // Describe derives a piece's metadata from its base file name and the text
@@ -65,7 +67,7 @@ func ParseName(name string) Meta {
 		if t, ok := abbreviations[composer+"_"+work]; ok {
 			title = t
 		}
-		return Meta{
+		meta := Meta{
 			Title:      title,
 			Composer:   joinNames(composer, "-", nil),
 			Performer:  performerName(m[1]),
@@ -73,6 +75,14 @@ func ParseName(name string) Meta {
 			Instrument: m[4],
 			PerfKey:    strings.ToLower(m[1] + m[2] + "-" + m[3]),
 		}
+		if t := leadNumRE.FindStringSubmatch(name); t != nil { // "02-Rachmaninoff…": track 2
+			meta.Track, _ = strconv.Atoi(t[1])
+		}
+		if g := gvNumRE.FindStringSubmatch(work); g != nil { // GV01 … GV32 of the Goldberg Variations
+			meta.Track, _ = strconv.Atoi(g[1])
+			meta.Album = fmt.Sprintf("%s: The Goldberg Variations (%s, %s)", meta.Composer, meta.Performer, m[2][:4])
+		}
+		return meta
 	}
 	meta := Meta{}
 	if m := instrumentRE.FindStringSubmatch(name); m != nil {
@@ -271,6 +281,8 @@ var (
 	varRE     = regexp.MustCompile(`\bVar\s*0*(\d+)`)
 	mvtRE     = regexp.MustCompile(`(\d)\s*mvt\s*(\d+)`)
 	goldRE    = regexp.MustCompile(`^GV\d+(.*)$`)
+	gvNumRE   = regexp.MustCompile(`^GV(\d+)`)
+	leadNumRE = regexp.MustCompile(`^(\d{1,3})-`)
 	trackRE   = regexp.MustCompile(`^\d{1,3}[-_]`)
 	keyRE     = regexp.MustCompile(`[-_ ]([A-G])(flat|sharp|Sh|Fl|b)?(Maj|Min|maj|min)$`)
 	wordRE    = regexp.MustCompile(`\b(Inv|Sin|ET)\b`)

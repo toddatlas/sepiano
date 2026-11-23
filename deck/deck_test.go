@@ -409,3 +409,40 @@ func TestLineWriter(t *testing.T) {
 		t.Fatalf("%q", got)
 	}
 }
+
+// A joined performance reports which of its tracks is playing.
+func TestTracksFollowThePosition(t *testing.T) {
+	f := newFixture(t, nil)
+	j := f.piece(40)
+	j.Piece = PieceRef{ID: "first", Title: "Aria"}
+	j.Collection = &Collection{Kind: "album", ID: "Goldberg", Title: "Goldberg", Start: 0, Count: 2}
+	j.Tracks = []TrackRef{
+		{Piece: PieceRef{ID: "first", Title: "Aria"}, StartMs: 0, DurationMs: 10000},
+		{Piece: PieceRef{ID: "second", Title: "Variation 1"}, StartMs: 10000, DurationMs: 30000},
+	}
+	if err := f.d.Play(f.ctx(), j); err != nil {
+		t.Fatal(err)
+	}
+	st := f.wait(Playing, 5*time.Second)
+	if st.TrackIndex != 0 || st.Piece == nil || st.Piece.ID != "first" || st.Collection == nil || len(st.Tracks) != 2 {
+		t.Fatalf("at the start: %+v", st)
+	}
+	deadline := time.Now().Add(5 * time.Second) // 10 piano seconds take 1 s at Speed 10
+	for {
+		st = f.d.Status()
+		if st.TrackIndex == 1 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("never reached the second track: %+v", st)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if st.Piece == nil || st.Piece.ID != "second" || st.PositionMs < 10000 {
+		t.Fatalf("second track: %+v", st)
+	}
+	f.d.Stop(f.ctx())
+	if st := f.wait(Idle, 5*time.Second); st.Collection != nil || len(st.Tracks) != 0 {
+		t.Fatalf("after stop: %+v", st)
+	}
+}

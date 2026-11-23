@@ -9,6 +9,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -59,7 +60,7 @@ func newEnv(t *testing.T) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test",
+	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(),
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -267,5 +268,96 @@ func TestInstrumentSettingsProgramsSim(t *testing.T) {
 	}
 	if code, _ := e.do("GET", "/api/v1/nothing", nil); code != 404 {
 		t.Fatalf("unknown api: %d", code)
+	}
+}
+
+func TestAlbumAndPlaylistPlayback(t *testing.T) {
+	e := newEnv(t)
+	var ids []string
+	for i, name := range []string{"Gould19550616-Bach_GV01Aria-Steinway_SED519960-SE",
+		"Gould19550616-Bach_GV02Var1-Steinway_SED519960-SE", "Gould19550616-Bach_GV03Var2-Steinway_SED519960-SE",
+		"Gould19550616-Bach_GV02Var1-Boesendorfer_SE42251-590-22(20150112)-SE"} {
+		kb, lp, sp, _ := sim.Phrase(uint32((20 + i) * se.TicksPerSecond)).Encode()
+		r := e.upload(map[string][]byte{name + ".kb": kb, name + ".lp": lp, name + ".sp": sp})
+		if len(r.Added) != 1 {
+			t.Fatalf("upload %s: %+v", name, r)
+		}
+		ids = append(ids, r.Added[0].ID)
+	}
+	code, b := e.do("GET", "/api/v1/albums", nil)
+	if code != 200 || !strings.Contains(string(b), `"tracks":3`) {
+		t.Fatalf("albums: %d %s", code, b)
+	}
+	album := "Bach: The Goldberg Variations (Glenn Gould, 1955)"
+	code, b = e.do("GET", "/api/v1/albums/"+url.PathEscape(album), nil)
+	if code != 200 || strings.Contains(string(b), "Boesendorfer") || !strings.Contains(string(b), `"renderings":2`) {
+		t.Fatalf("album: %d %s", code, b)
+	}
+
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"album": album}); code != 202 {
+		t.Fatalf("play album: %d %s", code, b)
+	}
+	st := e.waitState("playing")
+	if st.Collection == nil || st.Collection.Kind != "album" || st.Collection.Count != 3 || len(st.Tracks) != 3 ||
+		st.Tracks[1].StartMs != 20000 || st.DurationMs != 20000+21000+22000 || st.Piece.Title != "Goldberg Variations: Aria" {
+		t.Fatalf("album status: %+v", st)
+	}
+	if code, b := e.do("POST", "/api/v1/deck/next", nil); code != 202 {
+		t.Fatalf("next: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool {
+		return s.State == "playing" && s.Collection != nil && s.Collection.Start == 1
+	})
+	if code, b := e.do("POST", "/api/v1/deck/previous", nil); code != 202 { // early in the track: the one before
+		t.Fatalf("previous: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool {
+		return s.State == "playing" && s.Collection != nil && s.Collection.Start == 0
+	})
+	if code, _ := e.do("POST", "/api/v1/deck/play", map[string]any{"album": album, "start": 2}); code != 202 {
+		t.Fatalf("play from track 3: %d", code)
+	}
+	waitFor(t, e, func(s deck.Status) bool {
+		return s.State == "playing" && s.Collection != nil && s.Collection.Start == 2 && len(s.Tracks) == 1
+	})
+	if code, _ := e.do("POST", "/api/v1/deck/next", nil); code != 409 {
+		t.Fatalf("next on the last track: %d", code)
+	}
+
+	code, b = e.do("POST", "/api/v1/playlists", map[string]any{"name": "Two", "pieces": []string{ids[2], ids[0]}, "source": "x/play.bat"})
+	if code != 201 {
+		t.Fatalf("create play list: %d %s", code, b)
+	}
+	var pl struct{ ID string }
+	json.Unmarshal(b, &pl)
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"playlist": pl.ID}); code != 202 {
+		t.Fatalf("play play list: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool {
+		return s.State == "playing" && s.Collection != nil && s.Collection.Kind == "playlist" && len(s.Tracks) == 2 &&
+			s.Piece != nil && s.Piece.ID == ids[2]
+	})
+	e.do("POST", "/api/v1/deck/stop", nil)
+	e.waitState("idle")
+	if code, _ := e.do("DELETE", "/api/v1/playlists/"+pl.ID, nil); code != 204 {
+		t.Fatalf("delete play list: %d", code)
+	}
+	if code, _ := e.do("POST", "/api/v1/deck/play", map[string]any{"piece": ids[0], "album": album}); code != 400 {
+		t.Fatalf("two things at once: %d", code)
+	}
+}
+
+func waitFor(t *testing.T, e *env, ok func(deck.Status) bool) {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	for {
+		st := e.status()
+		if ok(st) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("waited for a state; have %+v", st)
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }

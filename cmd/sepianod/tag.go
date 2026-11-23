@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 
@@ -52,7 +53,7 @@ func tagCmd(args []string) int {
 	}
 
 	patches := map[string]*library.Patch{}
-	var albums []library.Album
+	var albums []library.BatAlbum
 	for _, dir := range fl.Args() {
 		a, err := catalogPatches(dir, bySHA, patches)
 		if err != nil {
@@ -69,6 +70,15 @@ func tagCmd(args []string) int {
 	}
 	sameName(pieces, patches)
 	expandAbbreviations(pieces, albums, patches)
+	var lists []library.Playlist
+	for _, dir := range fl.Args() {
+		l, err := playlistsAndFolders(dir, pieces, bySHA, patches)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+		lists = append(lists, l...)
+	}
 
 	ids := make([]string, 0, len(patches))
 	for id := range patches {
@@ -91,6 +101,23 @@ func tagCmd(args []string) int {
 			failed++
 		}
 	}
+	existing := map[string]string{}
+	if !*dry {
+		if existing, err = fetchPlaylists(base); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			return 1
+		}
+	}
+	for _, pl := range lists {
+		fmt.Printf("play list  %-40.40s  %d pieces  (%s)\n", pl.Name, len(pl.Pieces), pl.Source)
+		if *dry {
+			continue
+		}
+		if err := sendPlaylist(base, existing, pl); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: %v\n", pl.Source, err)
+			failed++
+		}
+	}
 	var abbrevs []string
 	for _, p := range pieces {
 		if abbrevRE.MatchString(p.Title) {
@@ -98,7 +125,7 @@ func tagCmd(args []string) int {
 		}
 	}
 	sort.Strings(abbrevs)
-	fmt.Printf("\n%d albums, %d pieces updated", len(albums), len(ids))
+	fmt.Printf("\n%d albums, %d pieces updated, %d play lists", len(albums), len(ids), len(lists))
 	if *dry {
 		fmt.Print(" (dry run: nothing sent)")
 	}
@@ -125,9 +152,9 @@ func fetchPieces(base string) ([]library.Piece, error) {
 // catalogPatches walks dir, finds the album batch file of each folder (or of
 // the nearest folder above it), and plans the changes for the pieces whose
 // files the album lists.
-func catalogPatches(dir string, bySHA map[string]*library.Piece, patches map[string]*library.Patch) ([]library.Album, error) {
-	albumOf := map[string]*library.Album{}
-	var found []library.Album
+func catalogPatches(dir string, bySHA map[string]*library.Piece, patches map[string]*library.Patch) ([]library.BatAlbum, error) {
+	albumOf := map[string]*library.BatAlbum{}
+	var found []library.BatAlbum
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -212,7 +239,7 @@ func catalogPatches(dir string, bySHA map[string]*library.Piece, patches map[str
 
 // catalogPatch plans the album and track, and the title, composer and
 // performer when the file's own header doesn't give them.
-func catalogPatch(p *library.Piece, a library.Album, tr library.Track) *library.Patch {
+func catalogPatch(p *library.Piece, a library.BatAlbum, tr library.Track) *library.Patch {
 	var pt library.Patch
 	changed := false
 	set := func(field string, dst **string, cur, val string) {
@@ -248,7 +275,7 @@ var abbrevRE = regexp.MustCompile(`^[A-Z]{2,8}$`)
 // expandAbbreviations replaces titles like "STWOM" (from Zenph names) with a
 // title by the same performer whose initials match: "Someone to Watch over
 // Me". Only unambiguous matches are used.
-func expandAbbreviations(pieces []library.Piece, albums []library.Album, patches map[string]*library.Patch) {
+func expandAbbreviations(pieces []library.Piece, albums []library.BatAlbum, patches map[string]*library.Patch) {
 	known := map[string]map[string]bool{} // performer → initials → titles
 	add := func(performer, title string) {
 		if performer == "" || title == "" || abbrevRE.MatchString(title) {
@@ -495,4 +522,193 @@ func dedupeFold(s []string) []string {
 		}
 	}
 	return out
+}
+
+var (
+	playLineRE  = regexp.MustCompile(`(?i)^\s*play\s+([^\s%]+)`)
+	numberedRE  = regexp.MustCompile(`^(\d{1,3})-[A-Za-z].*\d{8}-`)
+	errNotFound = errors.New("not found")
+)
+
+// shaOf hashes a .kb file, remembering the answer.
+type hasher map[string]string
+
+func (h hasher) of(path string) (string, error) {
+	if s, ok := h[path]; ok {
+		return s, nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(b)
+	h[path] = hex.EncodeToString(sum[:])
+	return h[path], nil
+}
+
+// findKB finds name(.kb) in a folder, ignoring case.
+func findKB(dir string, entries []fs.DirEntry, name string) (string, error) {
+	name = strings.TrimSuffix(strings.TrimSuffix(name, ".kb"), ".KB")
+	for _, e := range entries {
+		n := e.Name()
+		if strings.EqualFold(filepath.Ext(n), ".kb") && strings.EqualFold(strings.TrimSuffix(n, filepath.Ext(n)), name) {
+			return filepath.Join(dir, n), nil
+		}
+	}
+	return "", errNotFound
+}
+
+// playlistsAndFolders reads the play list batch files ("play NAME" lines)
+// under root as play lists, and makes an album of each folder of numbered
+// Zenph files ("01-Peterson19890899-…"), named after the folder.
+func playlistsAndFolders(root string, pieces []library.Piece, bySHA map[string]*library.Piece, patches map[string]*library.Patch) ([]library.Playlist, error) {
+	h := hasher{}
+	bySource := map[string][]*library.Piece{}
+	for i := range pieces {
+		k := strings.ToLower(pieces[i].SourceName)
+		bySource[k] = append(bySource[k], &pieces[i])
+	}
+	var lists []library.Playlist
+	err := filepath.WalkDir(root, func(dir string, d fs.DirEntry, err error) error {
+		if err != nil || !d.IsDir() {
+			return err
+		}
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return err
+		}
+		hasAlbumBat := false
+		for _, e := range entries {
+			if !strings.EqualFold(filepath.Ext(e.Name()), ".bat") {
+				continue
+			}
+			b, err := os.ReadFile(filepath.Join(dir, e.Name()))
+			if err != nil {
+				return err
+			}
+			if _, ok := library.ParseAlbumBat(string(b)); ok {
+				hasAlbumBat = true
+				continue
+			}
+			var ids []string
+			missing := 0
+			for _, line := range strings.Split(strings.ReplaceAll(string(b), "\r", ""), "\n") {
+				m := playLineRE.FindStringSubmatch(line)
+				if m == nil {
+					continue
+				}
+				var p *library.Piece
+				if path, err := findKB(dir, entries, m[1]); err == nil { // the file beside the .bat
+					if sum, err := h.of(path); err == nil {
+						p = bySHA[sum]
+					}
+				}
+				if p == nil { // else a piece of that name, if only one has it
+					if c := bySource[strings.ToLower(strings.TrimSuffix(m[1], ".kb"))]; len(c) == 1 {
+						p = c[0]
+					}
+				}
+				if p == nil {
+					missing++
+					continue
+				}
+				ids = append(ids, p.ID)
+			}
+			if len(ids) == 0 {
+				continue
+			}
+			rel, _ := filepath.Rel(root, filepath.Join(dir, e.Name()))
+			name := strings.TrimSuffix(e.Name(), filepath.Ext(e.Name()))
+			name = strings.TrimLeft(strings.TrimPrefix(strings.TrimPrefix(name, "play"), "Play"), "_ ")
+			if name == "" {
+				name = "all"
+			}
+			lists = append(lists, library.Playlist{Name: filepath.Base(dir) + " — " + name,
+				Source: filepath.ToSlash(rel), Pieces: ids})
+			if missing > 0 {
+				fmt.Fprintf(os.Stderr, "%s: %d of its files are not in the library\n", filepath.ToSlash(rel), missing)
+			}
+		}
+		if hasAlbumBat {
+			return nil
+		}
+		// A folder of numbered Zenph files is an album.
+		var kbs, numbered []string
+		for _, e := range entries {
+			if strings.EqualFold(filepath.Ext(e.Name()), ".kb") {
+				kbs = append(kbs, e.Name())
+				if numberedRE.MatchString(e.Name()) {
+					numbered = append(numbered, e.Name())
+				}
+			}
+		}
+		if len(numbered) < 3 || len(numbered)*5 < len(kbs)*4 {
+			return nil
+		}
+		album := filepath.Base(dir)
+		for _, n := range numbered {
+			sum, err := h.of(filepath.Join(dir, n))
+			if err != nil {
+				return err
+			}
+			p := bySHA[sum]
+			if p == nil || p.Album != "" || locked(p, "album") {
+				continue
+			}
+			pt := patches[p.ID]
+			if pt == nil {
+				pt = &library.Patch{}
+				patches[p.ID] = pt
+			}
+			a := album
+			pt.Album = &a
+			if p.Track == 0 && !locked(p, "track") {
+				t, _ := strconv.Atoi(numberedRE.FindStringSubmatch(n)[1])
+				pt.Track = &t
+			}
+			p.Album = album
+		}
+		return nil
+	})
+	return lists, err
+}
+
+func fetchPlaylists(base string) (map[string]string, error) {
+	resp, err := http.Get(base + "/playlists")
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var r struct{ Playlists []library.PlaylistSummary }
+	if err := json.NewDecoder(resp.Body).Decode(&r); err != nil {
+		return nil, err
+	}
+	out := map[string]string{} // source → id
+	for _, p := range r.Playlists {
+		if p.Source != "" {
+			out[p.Source] = p.ID
+		}
+	}
+	return out, nil
+}
+
+// sendPlaylist creates the play list, or replaces the one from the same source.
+func sendPlaylist(base string, existing map[string]string, pl library.Playlist) error {
+	method, url := http.MethodPost, base+"/playlists"
+	if id, ok := existing[pl.Source]; ok {
+		method, url = http.MethodPut, base+"/playlists/"+id
+	}
+	b, _ := json.Marshal(pl)
+	req, _ := http.NewRequest(method, url, bytes.NewReader(b))
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 && resp.StatusCode != 201 {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("%s: %s", resp.Status, strings.TrimSpace(string(body)))
+	}
+	return nil
 }

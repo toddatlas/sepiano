@@ -74,8 +74,9 @@ type Piece struct {
 }
 
 // metaVersion is the current parser: 2 reads the .kb header text, the newer
-// Zenph names and full performer names; 3 to 6 spell out known titles.
-const metaVersion = 6
+// Zenph names and full performer names; 3 to 6 spell out known titles; 7 adds
+// albums and tracks implied by names (the Goldberg Variations, "NN-" prefixes).
+const metaVersion = 7
 
 func (p *Piece) locked(field string) bool {
 	for _, f := range p.Locked {
@@ -104,6 +105,13 @@ func (p *Piece) describe() bool {
 		if !p.locked(f.name) && *f.dst != f.src && (f.src != "" || f.name != "title") {
 			*f.dst, changed = f.src, true
 		}
+	}
+	// Album and track only when the name implies them; catalogs set the rest.
+	if m.Album != "" && p.Album != m.Album && !p.locked("album") {
+		p.Album, changed = m.Album, true
+	}
+	if m.Track != 0 && p.Track != m.Track && !p.locked("track") {
+		p.Track, changed = m.Track, true
 	}
 	if p.Title == "" {
 		p.Title = p.ID
@@ -145,6 +153,8 @@ type Library struct {
 	pieces map[string]*Piece
 	bySHA  map[string]string
 	set    Settings
+
+	plMu sync.Mutex // play lists file
 }
 
 // Open opens (creating if needed) a library under dataDir: pieces go in

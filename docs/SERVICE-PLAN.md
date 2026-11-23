@@ -147,7 +147,7 @@ It needs a web UI first, and an iPhone app later.
 | Playback | `POST /deck/play {piece}`, `/deck/pause`, `/deck/resume`, `/deck/stop`, `/deck/restart`, `/deck/level {delta \| level}` |
 | Recording | `POST /record/arm {title}`, `/record/start`, `/record/stop`, `/record/discard` |
 | Library | `GET /pieces?q=&composer=&performer=&instrument=`, `GET/PATCH/DELETE /pieces/{id}`, `POST /pieces` (multipart), `GET /pieces/{id}/download?format=se\|midi`, `GET /export`, `POST /library/rescan` |
-| Lists (phase 2) | `/playlists` CRUD, `GET/PUT /queue`, `play {playlist}` |
+| Albums and play lists | `GET /albums`, `GET /albums/{name}`; `/playlists` CRUD; `POST /deck/play {album | playlist | pieces, start}`; `POST /deck/next`, `/deck/previous` |
 | Instrument | `GET /instrument` (port, baud, link stats, program banners, recent console lines), `PUT /programs/{play\|record}` (upload the .exe) |
 | Settings | `GET/PUT /settings` (preferred instrument, level) |
 | Simulator | `POST /sim/power {on}`, only with `-simulate` |
@@ -162,8 +162,8 @@ The screens:
 - **Now Playing:** title and performer, a progress bar from the piano clock,
   pause/stop/restart, and level −/+ with a readout.
 - **Library:** search, filters, renderings grouped together.
-- **Piece:** play, download as SE or MIDI, edit, delete (queue: phase 2).
-- **Playlists / Queue:** phase 2.
+- **Piece:** play, download as SE or MIDI, edit, delete.
+- **Albums and play lists:** play a whole album or play list, or from any track; previous and next on Now Playing.
 - **Record:** arm → start → stop → name it.
 - **Upload.**
 - **Status & Settings:** link health, programs, preferred instrument, backup.
@@ -228,7 +228,7 @@ and listen. Each answer changes deck details:
 7. `deploy/` (unit, avahi, udev) and a Makefile.
 
 **Phase 2:**
-- queue and playlists, including the `.bat` imports;
+- editing play lists in the app (they can be imported and played already);
 - play history;
 - "start at" seeking, by serving a performance cut with `se`;
 - the velocity trim for louder-than-recorded;
@@ -337,5 +337,28 @@ export) and the API end to end.
   inside `se_program_suite_v0.95_setup.exe`; unpack it with 7-Zip);
 - a piano power cycle while idle and while playing.
 
-**Not built yet:** queue and playlists (and `.bat` import), play history,
+**Not built yet:** editing play lists in the app, play history,
 seeking, the louder-than-recorded trim, the overlay root, the iOS app.
+
+### Albums, play lists and continuous play
+
+- **Albums** are the pieces sharing an `album` name, in `track` order: the
+  catalog albums (`sepianod tag` from the album `.bat` files), folders of
+  numbered Zenph files (named after the folder), and the Zenph Goldberg
+  Variations (`GV01`…`GV32`, from the file names).
+- **Play lists** are stored in `/var/lib/sepiano/playlists.json`. `sepianod
+  tag` imports the play list batch files (`play NAME` lines), matching each
+  line to the exact file in the batch file's folder; spacers such as
+  `10Sec-C9-400` are kept as the batch file has them.
+- **Continuous play.** An album or play list plays as **one joined
+  performance** (`library.Join`): key events shifted in time, pedal samples
+  laid end to end, each part keeping its own lead-in and ending. Playing
+  track by track would leave 2–3 s between tracks while the player program
+  uploads again. The status lists the tracks with their start times, and the
+  deck reports the one playing from the piano's clock. Next and previous
+  play the collection again from another track (a short pause).
+- **Which rendering.** Where a track exists in several renderings, the
+  preferred one plays (`library.Rank`): this piano's `Steinway_SED133291`,
+  then its variants (`_2011NovTemp`, `_2012FebTemp`), then any Steinway, then
+  files made for no instrument in particular, then the rest. Renderings for
+  other pianos were adjusted to play well on those, not on a Steinway.

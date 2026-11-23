@@ -43,19 +43,120 @@ paths:
 
   /deck/play:
     post:
-      summary: Play a piece
+      summary: Play a piece, an album or a play list
       description: |
-        Starts the piece. If something is already playing it is stopped first.
-        Returns at once (202) with the deck in `loading`; follow progress on
-        `/events`. The upload of the player program takes about 2 s.
+        Give exactly one of `piece`, `album`, `playlist` or `pieces`.
+
+        Several tracks play as **one continuous performance**: the service
+        joins their files, each with its own short lead-in, so there is no
+        pause to upload the player between tracks. `start` (0-based) begins
+        at a later track. For an album, each track plays in the preferred
+        rendering (Steinway first; see Settings.preferred_instrument).
+
+        If something is already playing it is stopped first. Returns at once
+        (202) with the deck in `loading`; follow progress on `/events`. The
+        upload of the player program takes about 2 s.
       requestBody:
         required: true
-        content: { application/json: { schema: { type: object, required: [piece], properties: { piece: { type: string, description: Piece id } } } } }
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                piece: { type: string, description: Piece id }
+                album: { type: string, description: "Album name, as in Album.name" }
+                playlist: { type: string, description: Play list id }
+                pieces: { type: array, items: { type: string }, description: Piece ids, played in this order }
+                title: { type: string, description: "Name shown for `pieces` (default: the first piece's title)" }
+                start: { type: integer, minimum: 0, description: Track to begin with (0-based) }
       responses:
         "202": { $ref: "#/components/responses/Status" }
+        "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { description: Piano offline or player program missing, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+
+  /deck/next:
+    post:
+      summary: Skip to the next track of the album or play list
+      description: Plays the collection again from the next track (a pause of a few seconds while the player uploads).
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "409": { description: Nothing playing, or already the last track, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+  /deck/previous:
+    post:
+      summary: Back to the start of this track, or to the previous track
+      description: Within the first 5 seconds of a track, goes to the previous track; otherwise starts the current track again.
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /albums:
+    get:
+      summary: Albums
+      description: |
+        Pieces grouped by their `album` field, in track order. Where a track
+        exists in several renderings, the preferred one is listed and
+        `renderings` counts them all.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  albums: { type: array, items: { $ref: "#/components/schemas/AlbumSummary" } }
+  /albums/{name}:
+    parameters:
+      - { name: name, in: path, required: true, schema: { type: string }, description: "Album.name, URL-escaped" }
+    get:
+      summary: One album with its tracks
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Album" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /playlists:
+    get:
+      summary: Play lists
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  playlists: { type: array, items: { $ref: "#/components/schemas/PlaylistSummary" } }
+    post:
+      summary: Create a play list
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, required: [name], properties: { name: { type: string }, pieces: { type: array, items: { type: string } }, source: { type: string } } } } }
+      responses:
+        "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Playlist" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+  /playlists/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: One play list with its pieces
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Playlist" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    put:
+      summary: Rename a play list or replace its pieces
+      requestBody:
+        required: true
+        content: { application/json: { schema: { type: object, properties: { name: { type: string }, pieces: { type: array, items: { type: string } } } } } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Playlist" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Delete a play list (its pieces stay in the library)
+      responses:
+        "204": { description: Deleted }
+        "404": { $ref: "#/components/responses/Error" }
 
   /deck/pause:
     post:
@@ -332,10 +433,34 @@ components:
         state: { $ref: "#/components/schemas/State" }
         online: { type: boolean, description: The link to the piano is up }
         piece:
-          description: What is loaded or playing; null when idle
+          description: The track playing now (for an album or play list, the current track); null when idle
           oneOf: [{ type: "null" }, { $ref: "#/components/schemas/PieceRef" }]
-        position_ms: { type: integer, description: Position from the piano's own 800 Hz clock }
-        duration_ms: { type: integer }
+        collection:
+          description: The album or play list being played; null for a single piece
+          oneOf:
+            - { type: "null" }
+            - type: object
+              properties:
+                kind: { type: string, enum: [album, playlist, list] }
+                id: { type: string, description: "Album name, play list id, or empty for a list of pieces" }
+                title: { type: string }
+                start: { type: integer, description: "Index in the whole collection of tracks[0]" }
+                count: { type: integer, description: Tracks in the whole collection }
+        tracks:
+          type: array
+          description: |
+            What the performance now playing is made of, in order: one entry
+            for a single piece, several for an album or play list (from
+            `collection.start` on). Times are within the whole performance.
+          items:
+            type: object
+            properties:
+              piece: { $ref: "#/components/schemas/PieceRef" }
+              start_ms: { type: integer }
+              duration_ms: { type: integer }
+        track_index: { type: integer, description: Index in `tracks` of the track playing now }
+        position_ms: { type: integer, description: "Position in the whole performance, from the piano's own 800 Hz clock" }
+        duration_ms: { type: integer, description: Length of the whole performance }
         level: { type: integer, description: The level the player last reported (0 = as recorded) }
         target_level: { type: integer, description: The level the service applies at the start of each piece }
         min_level: { type: [integer, "null"], description: Lowest level the player accepts, once discovered }
@@ -376,6 +501,47 @@ components:
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
         meta_version: { type: integer, description: Version of the parser that described the piece }
         added_at: { type: string, format: date-time }
+
+    AlbumSummary:
+      type: object
+      properties:
+        name: { type: string, description: "e.g. \"Earl Wild: The Art of the Transcription (FP-1002)\"; also its id" }
+        performer: { type: string, description: The performer of most tracks }
+        composer: { type: string, description: The composer of most tracks }
+        tracks: { type: integer }
+        duration_ms: { type: integer, description: The tracks played in their preferred renderings }
+
+    Album:
+      allOf:
+        - { $ref: "#/components/schemas/AlbumSummary" }
+        - type: object
+          properties:
+            tracks:
+              type: array
+              items:
+                type: object
+                properties:
+                  track: { type: integer, description: Track number on the album }
+                  piece: { $ref: "#/components/schemas/Piece" }
+                  renderings: { type: integer, description: "Versions of this track in the library (1 = just this one)" }
+
+    PlaylistSummary:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        source: { type: string, description: "Where it was imported from, e.g. \"SE/Hamb/playGould55.bat\"" }
+        tracks: { type: integer }
+        duration_ms: { type: integer }
+
+    Playlist:
+      type: object
+      properties:
+        id: { type: string }
+        name: { type: string }
+        source: { type: string }
+        duration_ms: { type: integer }
+        pieces: { type: array, items: { $ref: "#/components/schemas/Piece" }, description: "In play order; pieces deleted from the library are left out" }
 
     Settings:
       type: object

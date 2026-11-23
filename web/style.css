@@ -641,6 +641,41 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 .transport-item .round-btn:not(.round-btn-main) { margin: 14px 0; }
 .transport-label { font-size: 12px; color: var(--muted); }
 
+/* Album or play list: five controls instead of three. */
+.transport.has-skip { gap: 10px; }
+.transport.has-skip .round-btn { width: 52px; height: 52px; }
+.transport.has-skip .round-btn-main { width: 80px; height: 80px; }
+.transport.has-skip .round-btn-main .icon { width: 32px; height: 32px; }
+.transport.has-skip .transport-label { white-space: nowrap; }
+
+.np-collection { margin: -10px 0 0; }
+.np-collection a {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  padding: 0 8px;
+  font-family: var(--serif);
+  font-size: 17px;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.np-collection a:not([href]) { color: var(--ink-2); }
+.np-track {
+  margin: -6px 0 12px;
+  font-size: 13px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.np-all { margin-top: 14px; }
+.progress-thin { height: 3px; border-radius: 2px; }
+.np-all-text {
+  margin: 6px 0 0;
+  font-size: 12.5px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
 .level {
   display: grid;
   grid-template-columns: 56px 1fr 56px;
@@ -732,6 +767,26 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 
 .lib-count { margin: 10px 0 0; font-size: 13px; color: var(--muted); }
 
+/* Pieces | Albums | Play lists: links styled like .segmented buttons. */
+.segmented.lib-tabs { display: flex; margin: 0 0 14px; }
+.segmented a {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  border-radius: 999px;
+  color: var(--ink-2);
+  font-weight: 500;
+  text-decoration: none;
+  white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.segmented a[aria-current="page"] { background: var(--ink); color: var(--on-ink); }
+
 .list { list-style: none; margin: 6px 0 0; padding: 0; }
 .row {
   display: flex;
@@ -796,6 +851,21 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 .row.playing .row-play { background: var(--accent-soft); border-color: transparent; color: var(--accent-ink); }
 .list-compact .row-main { min-height: 56px; padding: 8px 0; }
 .list-compact .row:last-child { border-bottom: none; }
+.row-note { font-size: 13px; color: var(--muted); overflow-wrap: anywhere; }
+.row-num {
+  flex: none;
+  width: 1.9em;
+  text-align: right;
+  font-size: 14px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.row.playing .row-num { color: var(--accent-ink); }
+
+/* ---------- album and play list ---------- */
+
+.collection-source { margin: 4px 0 0; font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.collection-meta { margin: 6px 0 0; font-size: 14px; color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* ---------- piece ---------- */
 
@@ -824,6 +894,8 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 .meta dd { margin: 0; overflow-wrap: anywhere; }
 .meta dd.pre { white-space: pre-wrap; }
 .meta dd.mono { font-size: 14px; }
+/* A link fills the row's height, so it is easy to tap. */
+.meta dd a { display: inline-block; padding: 11px 0; margin: -11px 0; text-decoration: none; }
 .card .meta-row:first-child { border-top: none; }
 
 .danger-zone { margin-top: 28px; text-align: center; }
@@ -1034,6 +1106,11 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 @media (max-width: 360px) {
   .meta-row { grid-template-columns: 1fr; gap: 2px; }
   .transport { gap: 20px; }
+  .transport.has-skip { gap: 4px; }
+  .transport.has-skip .round-btn { width: 46px; height: 46px; }
+  .transport.has-skip .round-btn-main { width: 72px; height: 72px; }
+  .transport.has-skip .transport-item .round-btn:not(.round-btn-main) { margin: 13px 0; }
+  .transport.has-skip .transport-label { font-size: 11px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -19,7 +19,7 @@ func TestExpandAbbreviations(t *testing.T) {
 		{ID: "g", Title: "Tiny Polka", Performer: "Nobody"},
 		{ID: "h", Title: "SL", Performer: "Art Tatum", Locked: []string{"title"}},
 	}
-	albums := []library.Album{{Performer: "Art Tatum", Tracks: []library.Track{
+	albums := []library.BatAlbum{{Performer: "Art Tatum", Tracks: []library.Track{
 		{Title: "Tea for Two"}, {Title: "Sophisticated Lady"}}}}
 	patches := map[string]*library.Patch{}
 	expandAbbreviations(pieces, albums, patches)

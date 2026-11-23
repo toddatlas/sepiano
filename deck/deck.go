@@ -62,19 +62,22 @@ type PieceRef struct {
 
 // Status is the deck's state as clients see it.
 type Status struct {
-	State          State     `json:"state"`
-	Online         bool      `json:"online"`
-	Piece          *PieceRef `json:"piece"`
-	PositionMs     int64     `json:"position_ms"`
-	DurationMs     int64     `json:"duration_ms"`
-	Level          int       `json:"level"`
-	TargetLevel    int       `json:"target_level"`
-	MinLevel       *int      `json:"min_level"`
-	Message        string    `json:"message"`
-	RecordingTitle string    `json:"recording_title,omitempty"`
-	Program        string    `json:"program,omitempty"`
-	Simulated      bool      `json:"simulated"`
-	Since          time.Time `json:"since"`
+	State          State       `json:"state"`
+	Online         bool        `json:"online"`
+	Piece          *PieceRef   `json:"piece"` // the track playing now
+	Collection     *Collection `json:"collection"`
+	Tracks         []TrackRef  `json:"tracks"`
+	TrackIndex     int         `json:"track_index"`
+	PositionMs     int64       `json:"position_ms"`
+	DurationMs     int64       `json:"duration_ms"`
+	Level          int         `json:"level"`
+	TargetLevel    int         `json:"target_level"`
+	MinLevel       *int        `json:"min_level"`
+	Message        string      `json:"message"`
+	RecordingTitle string      `json:"recording_title,omitempty"`
+	Program        string      `json:"program,omitempty"`
+	Simulated      bool        `json:"simulated"`
+	Since          time.Time   `json:"since"`
 }
 
 // Job is a performance to play: the files Dir/Name.kb, .lp and .sp.
@@ -83,6 +86,27 @@ type Job struct {
 	Dir      string
 	Name     string
 	Duration time.Duration
+
+	// For an album or play list joined into one performance: what it is,
+	// and the tracks it is made of (Piece is then the first track).
+	Collection *Collection
+	Tracks     []TrackRef
+}
+
+// Collection is the album or play list a joined performance comes from.
+type Collection struct {
+	Kind  string `json:"kind"` // album, playlist or list
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	Start int    `json:"start"` // index in the collection of the first track played
+	Count int    `json:"count"` // tracks in the whole collection
+}
+
+// TrackRef is one track of the performance playing, with its place in it.
+type TrackRef struct {
+	Piece      PieceRef `json:"piece"`
+	StartMs    int64    `json:"start_ms"`
+	DurationMs int64    `json:"duration_ms"`
 }
 
 // Event is something to tell clients: Type is "status", "console", "library"
@@ -419,6 +443,14 @@ func (d *Deck) publish() {
 		m := *d.st.MinLevel
 		d.snap.MinLevel = &m
 	}
+	if d.st.Collection != nil {
+		c := *d.st.Collection
+		d.snap.Collection = &c
+	}
+	d.snap.Tracks = append([]TrackRef(nil), d.st.Tracks...)
+	if d.snap.Tracks == nil {
+		d.snap.Tracks = []TrackRef{}
+	}
 	snap := d.snap
 	d.mu.Unlock()
 	d.Publish(Event{"status", snap})
@@ -584,6 +616,7 @@ func (d *Deck) connDone(m connDone) {
 			return
 		}
 		d.st.Piece, d.st.PositionMs, d.st.DurationMs, d.st.Program, d.st.RecordingTitle = nil, 0, 0, "", ""
+		d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 		d.notice("error", "Could not connect to the piano: %v", m.err)
 		d.offline(m.err)
 		return
@@ -636,10 +669,18 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 		d.st.Piece = nil
 		d.st.DurationMs = 0
 		d.st.RecordingTitle = title
+		d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 	} else {
-		d.st.Piece = &j.Piece
 		d.st.DurationMs = j.Duration.Milliseconds()
 		d.st.RecordingTitle = ""
+		d.st.Collection = j.Collection
+		d.st.Tracks = j.Tracks
+		if len(d.st.Tracks) == 0 {
+			d.st.Tracks = []TrackRef{{Piece: j.Piece, DurationMs: d.st.DurationMs}}
+		}
+		d.st.TrackIndex = 0
+		p := d.st.Tracks[0].Piece
+		d.st.Piece = &p
 	}
 	d.sess = s
 	d.st.Program = prog.Banner
@@ -694,6 +735,7 @@ func (d *Deck) sessDone(m sessDone) {
 // afterSession reopens the idle link, or starts the next piece.
 func (d *Deck) afterSession(failed bool) {
 	d.st.Piece = nil
+	d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 	d.st.PositionMs = 0
 	d.st.DurationMs = 0
 	d.st.Program = ""
@@ -782,10 +824,12 @@ func (d *Deck) consoleLine(line string) {
 	case evRestart:
 		d.resetClock()
 		d.st.PositionMs = 0
+		d.followTrack()
 		d.setState(Playing)
 		d.resolve("restart", nil)
 	case evEnd:
 		d.st.PositionMs = d.st.DurationMs
+		d.followTrack()
 		d.setState(Stopping)
 	case evLevel:
 		d.levelReport(n)
@@ -1136,6 +1180,22 @@ func (d *Deck) updatePosition() {
 	}
 	if ms != d.st.PositionMs {
 		d.st.PositionMs = ms
+		d.followTrack()
 		d.publish()
+	}
+}
+
+// followTrack makes the status name the track the position is in.
+func (d *Deck) followTrack() {
+	i := 0
+	for j, t := range d.st.Tracks {
+		if t.StartMs <= d.st.PositionMs {
+			i = j
+		}
+	}
+	if i < len(d.st.Tracks) && (i != d.st.TrackIndex || d.st.Piece == nil) {
+		d.st.TrackIndex = i
+		p := d.st.Tracks[i].Piece
+		d.st.Piece = &p
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"sepiano/deck"
@@ -41,6 +42,12 @@ type Server struct {
 	UI       fs.FS
 	Version  string
 	Log      func(format string, args ...any)
+
+	// PlayDir holds the joined performances of albums and play lists.
+	PlayDir string
+
+	qmu   sync.Mutex
+	queue queue
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -55,6 +62,15 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, s.Deck.Status()) })
 	m.HandleFunc("GET /api/v1/events", s.events)
 	m.HandleFunc("POST /api/v1/deck/play", s.play)
+	m.HandleFunc("POST /api/v1/deck/next", s.skip(true))
+	m.HandleFunc("POST /api/v1/deck/previous", s.skip(false))
+	m.HandleFunc("GET /api/v1/albums", s.albums)
+	m.HandleFunc("GET /api/v1/albums/{name}", s.album)
+	m.HandleFunc("GET /api/v1/playlists", s.playlists)
+	m.HandleFunc("POST /api/v1/playlists", s.createPlaylist)
+	m.HandleFunc("GET /api/v1/playlists/{id}", s.getPlaylist)
+	m.HandleFunc("PUT /api/v1/playlists/{id}", s.updatePlaylist)
+	m.HandleFunc("DELETE /api/v1/playlists/{id}", s.deletePlaylist)
 	m.HandleFunc("POST /api/v1/deck/pause", s.deckCmd(s.Deck.Pause))
 	m.HandleFunc("POST /api/v1/deck/resume", s.deckCmd(s.Deck.Resume))
 	m.HandleFunc("POST /api/v1/deck/stop", s.deckCmd(s.Deck.Stop))
@@ -169,35 +185,6 @@ func (s *Server) deckCmd(fn func(context.Context) error) http.HandlerFunc {
 		}
 		writeJSON(w, 200, s.Deck.Status())
 	}
-}
-
-func (s *Server) play(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Piece string `json:"piece"`
-	}
-	if err := readJSON(r, &req); err != nil {
-		fail(w, 400, err.Error())
-		return
-	}
-	p, err := s.Lib.Get(req.Piece)
-	if err != nil {
-		fail(w, 404, "no such piece")
-		return
-	}
-	dir, base, _ := s.Lib.Files(p.ID)
-	job := deck.Job{
-		Piece:    deck.PieceRef{ID: p.ID, Title: p.Title, Composer: p.Composer, Performer: p.Performer},
-		Dir:      dir,
-		Name:     base,
-		Duration: time.Duration(p.DurationMs) * time.Millisecond,
-	}
-	ctx, cancel := cmdContext(r)
-	defer cancel()
-	if err := s.Deck.Play(ctx, job); err != nil {
-		deckError(w, err)
-		return
-	}
-	writeJSON(w, 202, s.Deck.Status())
 }
 
 func (s *Server) level(w http.ResponseWriter, r *http.Request) {

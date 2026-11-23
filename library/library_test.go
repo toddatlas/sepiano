@@ -20,14 +20,14 @@ func TestParseName(t *testing.T) {
 		"02-Rachmaninoff19280404-Rachmaninoff_PreludeOp3_2-Steinway_SED133291": {
 			Title: "Prelude Op. 3 No. 2", Composer: "Rachmaninoff", Performer: "Sergei Rachmaninoff",
 			RecordedOn: "1928-04-04", Instrument: "Steinway_SED133291",
-			PerfKey: "rachmaninoff19280404-rachmaninoff_preludeop3_2"},
+			PerfKey: "rachmaninoff19280404-rachmaninoff_preludeop3_2", Track: 2},
 		"Tatum19490402-Gershwin_STWOM-Boesendorfer_SE42251-590-22(20150112)-SE": {
 			Title: "Someone to Watch Over Me", Composer: "Gershwin", Performer: "Art Tatum", RecordedOn: "1949-04-02",
 			Instrument: "Boesendorfer_SE42251-590-22(20150112)", PerfKey: "tatum19490402-gershwin_stwom"},
 		"03-Rachmaninoff19290416-Rimsky-KorsakovRachmaninoff_TFOTBB-Steinway_SED133291": {
 			Title: "The Flight of the Bumble-Bee", Composer: "Rimsky-Korsakov-Rachmaninoff", Performer: "Sergei Rachmaninoff",
 			RecordedOn: "1929-04-16", Instrument: "Steinway_SED133291",
-			PerfKey: "rachmaninoff19290416-rimsky-korsakovrachmaninoff_tfotbb"},
+			PerfKey: "rachmaninoff19290416-rimsky-korsakovrachmaninoff_tfotbb", Track: 3},
 		"Gould19640319-Bach_07-Inv14-BflatMaj-Steinway_SED519960-SE": {
 			Title: "Invention 14 in B-flat major", Composer: "Bach", Performer: "Glenn Gould",
 			RecordedOn: "1964-03-19", Instrument: "Steinway_SED519960",
