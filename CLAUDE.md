@@ -192,9 +192,14 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - 56 `play_folder.bat` files written to the Desktop folders; 57 folders now
   play whole from a batch file. Broken references reported, not changed:
   `SE\Hamb\playTatum.bat` (1 missing file), `20200831\playall.bat` (2).
-- Tested against the simulator and in the browser; **not yet heard on the
-  piano**: a joined album playing through, and next/previous on the
-  hardware.
+- **Confirmed on the real piano (2026-11-23):** the joined Goldberg album
+  played continuously from 17:16:27 to 17:19:16, through the Aria into
+  Variations 1 and 2 with no stop or reload; **Next** works on the hardware
+  (tap to playing in about 3.5 s: stop, reconnect, upload). The owner
+  listened and approved ("Looking good").
+- The app shows each piece's file name (search results, tracks, Now
+  Playing) so the owner can check what plays; search also lists matching
+  albums and folders (play lists), whose pages offer "Play all".
 - Next, as the owner asked: unpack the suite's other programs
   (`se_program_suite_v0.95_setup.exe` on the Desktop is an NSIS installer:
   needs 7-Zip or an extractor), then find what can be read from the
