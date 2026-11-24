@@ -22,8 +22,13 @@ var DefaultCurve = VelocityCurve{
 	{296, 25}, {312, 22}, {400, 12}, {600, 4}, {1023, 1},
 }
 
-// ToMIDI returns the MIDI velocity (1-127) for an SE velocity.
+// ToMIDI returns the MIDI velocity (1-127) for an SE velocity. SE velocity
+// 0 is a silent press (play.exe 1044H), not the loudest note: MIDI has no
+// silent press, so it becomes the softest, 1.
 func (c VelocityCurve) ToMIDI(v uint16) byte {
+	if v == 0 {
+		return 1
+	}
 	x := float64(v)
 	return byte(clamp(interp(c, x, 0, 1), 1, 127) + 0.5)
 }

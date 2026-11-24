@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"sepiano/edit"
+	"sepiano/se"
 )
 
 func TestCorrectionsApply(t *testing.T) {
@@ -111,5 +112,20 @@ func TestPressCorrection(t *testing.T) {
 	}
 	if _, err := (Corrections{Keys: map[int]KeyCorrection{60: {Press: 301}}}).Clean(); err == nil {
 		t.Error("press out of range accepted")
+	}
+}
+
+// TestVoicingKeepsSilentPresses: a trim never makes a silent press sound.
+func TestVoicingKeepsSilentPresses(t *testing.T) {
+	v := Voicing{On: true, Trims: map[int]int{60: 20}}
+	p := &se.Performance{KB: &se.KB{Events: []se.Event{
+		{Tick: 0, Key: 60, On: true, Vel: 700},
+		{Tick: 10, Key: 60},
+		{Tick: 20, Key: 60, On: true, Vel: 0},
+		{Tick: 30, Key: 60},
+		{Tick: 40, Key: 60, On: true, Vel: 300},
+	}}}
+	if n := v.Apply(p); n != 1 || p.KB.Events[0].Vel != 700 || p.KB.Events[2].Vel != 0 || p.KB.Events[4].Vel == 300 {
+		t.Errorf("%d changed: %+v", n, p.KB.Events)
 	}
 }

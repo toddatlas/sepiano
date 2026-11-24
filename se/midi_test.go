@@ -139,3 +139,13 @@ func TestMIDISostenuto(t *testing.T) {
 		t.Errorf("sostenuto after the round trip: %+v", marks)
 	}
 }
+
+// TestSilentPressToMIDI: velocity 0 is a silent press, the softest in MIDI.
+func TestSilentPressToMIDI(t *testing.T) {
+	if v := DefaultCurve.ToMIDI(0); v != 1 {
+		t.Errorf("velocity 0 → MIDI %d, want 1", v)
+	}
+	if v := DefaultCurve.ToMIDI(12); v != 127 {
+		t.Errorf("velocity 12 → MIDI %d, want 127", v)
+	}
+}

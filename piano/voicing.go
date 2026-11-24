@@ -78,6 +78,9 @@ func (v Voicing) Velocity(note int, vel uint16) uint16 {
 }
 
 // Apply changes p's note-on velocities in place and says how many changed.
+// Silent presses (0, or 640 and more) are left alone: the player decides
+// a press is silent before it trims (play.exe 1044H), so a trim never
+// makes one sound.
 func (v Voicing) Apply(p *se.Performance) int {
 	if !v.Active() {
 		return 0
@@ -85,7 +88,7 @@ func (v Voicing) Apply(p *se.Performance) int {
 	n := 0
 	for i := range p.KB.Events {
 		e := &p.KB.Events[i]
-		if !e.On || e.Filler() {
+		if !e.On || e.Filler() || e.Vel == 0 || e.Vel >= SilentVelocity {
 			continue
 		}
 		if nv := v.Velocity(int(e.Key), e.Vel); nv != e.Vel {
