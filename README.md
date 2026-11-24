@@ -1,5 +1,4 @@
-| `sepianod import DIR` | add the `.kb/.lp/.sp` sets in DIR to a running service |
-| `sepianod tag DIR` | fill in albums, tracks and titles from the album `.bat` catalogs and name lists in DIR (`-n` for a dry run) |# sepiano
+# sepiano
 
 Open-source tools for the Stahnke SE reproducing piano system. The goal is to
 replace the Windows "SE Program Suite" (`play.exe` and friends) with a Go
@@ -10,8 +9,16 @@ app can drive.
   decoded
 * `docs/SE-SERIAL-PROTOCOL.md` — the PC ⇄ instrument link, program upload,
   console and file service, plus why USB adapters misbehave
-* `docs/SERVICE-PLAN.md` — the proposed piano service (library, playback,
+* `docs/SERVICE-PLAN.md` — the piano service (library, playback,
   recording, web UI, later an iPhone app), with its open decisions
+* `docs/SUITE-PROGRAMS.md` — the suite's other programs, the firmware and
+  the piano's EEPROM table, decoded; `docs/STAHNKE-EDITOR.md` — Stahnke's
+  own performance editor, decoded
+* `docs/SETTINGS-EDITOR.md` — editing the piano's settings from the app
+* `docs/RECORDING-EDITOR.md` — the piano-roll editor, the Key check and the
+  per-key recording corrections
+* `docs/OVERNIGHT-2026-11-24.md` — what the overnight build added, and what
+  to try at the piano
 * `CLAUDE.md` — working notes for Claude Code sessions: hardware setup, rules,
   and pitfalls
 
@@ -32,7 +39,10 @@ own copy of `play.exe`), and serve files. That is what `sehost` does.
 | Link protocol (`link`) | **Works with the real instrument** (57600 baud). Byte-identical to the original host's frames. Regression tests replay real captures from both `play.exe` and the piano. |
 | Host (`sehost`) | **Plays on the real piano** from a Raspberry Pi 4 through a PL2303 USB adapter. Rachmaninoff's Prelude in C♯ minor (3:49) ran with the piano's clock at 799.99 of 800 ticks/s, file replies within 4 ms and no link errors, and sounded right. Keystrokes not yet tried. |
 | Sniffer (`sesniff`) | Decodes captures and live taps, and finds the baud rate. Used on real `play.exe` traffic. |
-| Piano service (`sepianod`) | **Phase 1 built and installed on the Pi**: library, play/pause/stop/restart, level, recording, upload/download, a phone web app, all tested against a simulated piano. Its idle link to the real piano is up and clean; playing through the service still needs a check at the piano. See `docs/SERVICE-PLAN.md`. |
+| Piano service (`sepianod`) | **Installed on the Pi and playing on the real piano**: the library, albums and play lists played continuously, play/pause/stop/next, level, recording (as `record.exe` does it), upload/download. It runs as a web app on a phone or, with a side bar, on a computer (`http://raspberrypi.local/`). See `docs/SERVICE-PLAN.md`. |
+| The piano's settings | A read-only Piano tab with backups (`getlut`), comparing and **restoring** them; software voicing tried by ear. `docs/SETTINGS-EDITOR.md`. |
+| Every suite program | All 24 usable from the app: the service runs play, record and getlut, and the Tools run the other 21 as consoles. Anything that writes the piano's settings is confirmed and backed up before and after. |
+| Recording tools | A piano-roll editor (notes, timing, loudness, damper, soft and sostenuto pedals, time ranges, copy and paste, chords, compare with the original), the Key check (velocity, press and release timing by key), a guided sensor test, and per-key corrections applied when recordings play. `docs/RECORDING-EDITOR.md`. |
 
 ## Tools
 
@@ -51,6 +61,7 @@ go build -o bin/ ./cmd/...        # or: GOOS=linux GOARCH=arm64 go build -o bin-
 | `sesniff -pc a.bin -piano b.bin` / `-tap-pc P1 -tap-piano P2` | decode traffic |
 | `sepianod` | the piano service: API and web UI on port 80 (`-simulate` runs it without a piano) |
 | `sepianod import DIR` | add the `.kb/.lp/.sp` sets in DIR to a running service |
+| `sepianod tag DIR` | fill in albums, tracks and titles from the album `.bat` catalogs and name lists in DIR (`-n` for a dry run) |
 
 `sehost` needs a suite executable to take the Z80 program from. It is
 installed on the XP machine. You can also unpack
