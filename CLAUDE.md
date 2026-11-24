@@ -91,7 +91,9 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   `http://raspberrypi.local/` on port 80, and keeps an idle link to the piano
   on `/dev/sepiano-piano` (a udev symlink to the PL2303).
 - Data: `/var/lib/sepiano/{library,programs,staging,settings.json}`.
-  `play.exe`, `record.exe` and `getlut.exe` are installed in `programs/`. All 24 suite
+  `play.exe`, `record.exe`, `getlut.exe` and the eight tools (anykey,
+  anyham, midiin, sustain, adjust, cal, silent, setup; installed
+  2026-11-23) are in `programs/`. All 24 suite
   programs are in `~/sepiano-data/suite/` for `sehost`.
 - **It owns the serial port.** Before using `sehost` by hand:
   `sudo systemctl stop sepianod`; afterwards `sudo systemctl start sepianod`.

@@ -443,7 +443,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 func (s *Server) installProgram(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := ProgramFiles[name]; !ok {
-		fail(w, 404, "program must be play, record or getlut")
+		fail(w, 404, "no such program: "+name)
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
