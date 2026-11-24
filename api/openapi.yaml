@@ -565,6 +565,15 @@ paths:
                       outliers: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
                   recorded_here: { type: boolean, description: "A recording made on this piano, or an edited copy of one" }
                   corrected: { type: boolean, description: The recording corrections are already in it }
+                  presses:
+                    type: object
+                    description: Press timing in chords, as releases but on the presses
+                    properties:
+                      chords: { type: integer }
+                      threshold_ms: { type: integer }
+                      window_ms: { type: integer }
+                      keys: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
+                      outliers: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
                   suggestions: { type: array, items: { $ref: "#/components/schemas/Suggestion" } }
         "404": { $ref: "#/components/responses/Error" }
 
@@ -599,7 +608,11 @@ paths:
                   damper_period: { type: integer, example: 8 }
                   soft: { type: array, items: { type: integer, minimum: 0, maximum: 255 } }
                   soft_period: { type: integer, example: 16 }
-                  kept: { type: integer }
+                  kept: { type: integer, description: How many events are not notes }
+                  others:
+                    type: array
+                    description: "The events that are not notes: [tick, key, 1 if down, velocity]. Key 0 is the sostenuto pedal (down 1, up 0), 126 a cue mark, others marks outside the keyboard (Zenph's key 11)."
+                    items: { type: array, items: { type: integer }, minItems: 4, maxItems: 4 }
         "404": { $ref: "#/components/responses/Error" }
 
   /pieces/{id}/edits:
@@ -672,6 +685,33 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+
+  /keycheck:
+    get:
+      summary: Several recordings checked together
+      description: |
+        The same answer as /pieces/{id}/keys, over several pieces laid end
+        to end (no chord spans two), with `pieces` in place of `piece`.
+        More takes give firmer suggestions.
+      parameters:
+        - { name: pieces, in: query, required: true, schema: { type: string }, description: "Piece ids, comma-separated (at most 50)" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  pieces: { type: array, items: { type: object } }
+                  check: { type: object }
+                  releases: { type: object }
+                  presses: { type: object }
+                  recorded_here: { type: boolean }
+                  corrected: { type: boolean }
+                  suggestions: { type: array, items: { $ref: "#/components/schemas/Suggestion" } }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
 
   /corrections:
     get:
@@ -788,6 +828,7 @@ paths:
                         accept: { type: string, description: File types for an upload }
                         result: { type: string, enum: [performance, table], description: "performance: what it writes joins the library; table: the piano's table is checked against the one restored" }
                         phrase: { type: string, description: A word to type to confirm }
+                        help: { type: array, items: { type: array, items: { type: string }, minItems: 2, maxItems: 2 }, description: "A command reference: what to type, what it does" }
                         present: { type: boolean }
                         banner: { type: string }
                         error: { type: string }
@@ -862,7 +903,7 @@ paths:
             schema:
               type: object
               properties:
-                key: { type: string, enum: [space, enter, esc, up, down, left, right] }
+                key: { type: string, enum: [space, enter, esc, backspace, up, down, left, right] }
                 text: { type: string }
       responses:
         "204": { description: Sent }
@@ -995,6 +1036,7 @@ components:
         track: { type: integer, description: Track number on the album, 0 when none }
         from_recording: { type: boolean, description: An edited copy of a recording made on this piano }
         corrected: { type: boolean, description: The recording corrections are in this copy }
+        edited_from: { type: string, description: The piece an edited or corrected copy was made from }
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
         meta_version: { type: integer, description: Version of the parser that described the piece }
         added_at: { type: string, format: date-time }
@@ -1225,6 +1267,12 @@ components:
         end: { type: integer, description: The end of the performance in ticks; later notes extend it }
         title: { type: string, description: "A new copy's title (default: the original's, with \" (edited)\")" }
         replace: { type: boolean, description: Save over this piece, which must be an edited copy }
+        corrected: { type: boolean, description: The recording corrections are in these notes }
+        others:
+          type: array
+          description: "The events that are not notes, as GET gives them, moved with the time edits: [tick, key, 1 if down, velocity]. Key 0 is the sostenuto pedal, 126 a cue mark; never a note's key (21–108) or the filler (127). Left out, they stay as they are."
+          items: { type: array, items: { type: integer }, minItems: 4, maxItems: 4 }
+        to: { type: integer, description: "preview only: stop here, in ticks, then ring off for a second" }
 
     Corrections:
       type: object
@@ -1239,6 +1287,7 @@ components:
               note: { type: integer, minimum: 21, maximum: 108 }
               name: { type: string }
               speed: { type: integer, minimum: -50, maximum: 100, description: "% hammer speed; positive is louder" }
+              press_ms: { type: integer, minimum: -300, maximum: 300, description: positive goes down later }
               release_ms: { type: integer, minimum: -1000, maximum: 1000, description: positive lets go later }
         active: { type: boolean, readOnly: true }
         summary: { type: string, readOnly: true }
@@ -1250,5 +1299,6 @@ components:
         note: { type: integer }
         name: { type: string }
         speed: { type: integer }
+        press_ms: { type: integer }
         release_ms: { type: integer }
         why: { type: string }

@@ -1174,7 +1174,7 @@ function libraryHead(active) {
 }
 
 // Kept across visits so coming back from a piece restores search and scroll.
-const libState = { q: '', composer: '', performer: '', instrument: '', scroll: 0 };
+const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', scroll: 0 };
 
 function libraryScreen(root, _params, ctx) {
   let alive = true;
@@ -1207,6 +1207,7 @@ function libraryScreen(root, _params, ctx) {
     filterSelect('composer', 'All composers'),
     filterSelect('performer', 'All performers'),
     filterSelect('instrument', 'All instruments'),
+    filterSelect('origin', 'All kinds'),
   ];
   const clearBtn = h('button', { class: 'chip-clear', type: 'button', hidden: true, onclick: clearAll }, 'Clear');
   const countEl = h('p', { class: 'lib-count', 'aria-live': 'polite' });
@@ -1236,7 +1237,7 @@ function libraryScreen(root, _params, ctx) {
     const all = cur && !values.includes(cur) ? [cur, ...values] : values;
     fill(f.sel,
       h('option', { value: '' }, f.allLabel),
-      all.map((v) => h('option', { value: v }, f.key === 'instrument' ? instrumentLabel(v) : v)));
+      all.map((v) => h('option', { value: v }, f.key === 'instrument' ? instrumentLabel(v) : f.key === 'origin' ? (ORIGINS[v] || v) : v)));
     f.sel.value = cur;
     f.el.classList.toggle('active', !!cur);
   }
@@ -1245,7 +1246,8 @@ function libraryScreen(root, _params, ctx) {
   function matches(p, except) {
     return (except === 'composer' || !libState.composer || p.composer === libState.composer)
       && (except === 'performer' || !libState.performer || p.performer === libState.performer)
-      && (except === 'instrument' || !libState.instrument || p.instrument === libState.instrument);
+      && (except === 'instrument' || !libState.instrument || p.instrument === libState.instrument)
+      && (except === 'origin' || !libState.origin || p.origin === libState.origin);
   }
 
   async function load() {
@@ -1303,7 +1305,7 @@ function libraryScreen(root, _params, ctx) {
   function render() {
     if (!pieces || !alive) return;
     for (const f of filters) fillSelect(f, uniqSorted(pieces.filter((p) => matches(p, f.key)).map((p) => p[f.key])));
-    const anyFilter = !!(libState.composer || libState.performer || libState.instrument);
+    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin);
     clearBtn.hidden = !anyFilter;
 
     const items = rows();
@@ -1413,6 +1415,7 @@ function libraryScreen(root, _params, ctx) {
     libState.composer = '';
     libState.performer = '';
     libState.instrument = '';
+    libState.origin = '';
     if (libState.q) {
       libState.q = '';
       search.value = '';
@@ -1852,6 +1855,28 @@ function playlistScreen(root, [id]) {
 
 // ======================================================================= Piece
 
+// The piece an edited or corrected copy was made from, and the copies made
+// from a piece. Hidden when there are none.
+function versionsCard(p) {
+  const body = h('div');
+  const card = h('section', { class: 'card', hidden: true },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Versions')), body);
+  getAllPieces().then((pieces) => {
+    const from = p.edited_from ? pieces.find((x) => x.id === p.edited_from) : null;
+    const copies = pieces.filter((x) => x.edited_from === p.id).sort((a, b) => cmpText(b.added_at, a.added_at));
+    if (!p.edited_from && !copies.length) return;
+    fill(body,
+      from && h('p', null, 'Made from ', h('a', { href: pieceHref(from.id) }, from.title || 'Untitled'), '.'),
+      p.edited_from && !from && h('p', { class: 'muted small' }, 'Made from a piece that is no longer in the library.'),
+      copies.length > 0 && h('p', { class: 'label' }, copies.length === 1 ? 'A copy made from it' : `${copies.length} copies made from it`),
+      copies.length > 0 && h('ul', { class: 'corr-rec-list' }, copies.map((c) => h('li', null,
+        h('a', { href: pieceHref(c.id) }, c.title || 'Untitled'),
+        h('span', { class: 'muted small' }, ` · ${c.corrected ? 'corrected' : 'edited'} · ${fmtDateTime(c.added_at)}`)))));
+    card.hidden = false;
+  }, () => {});
+  return card;
+}
+
 function pieceScreen(root, [id]) {
   let alive = true;
   let piece = null;
@@ -1925,6 +1950,7 @@ function pieceScreen(root, [id]) {
           h('a', { class: 'btn btn-small', href: toolHref('edit', id) }, 'His editor (edit.exe)'),
           p.has_midi_source && h('a', { class: 'btn btn-small', href: toolHref('playmidi', id) }, 'Play the original MIDI with his MIDI player'),
           h('a', { class: 'btn btn-small', href: toolHref('dump', id) }, 'Dump to tape'))),
+      versionsCard(p),
       renderingsSection,
       h('div', { class: 'danger-zone' },
         h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete this piece')));

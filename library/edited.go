@@ -52,12 +52,12 @@ func (l *Library) AddEdited(from Piece, perf *se.Performance, c EditedCopy) (p P
 	}); err != nil {
 		return p, false, err
 	}
-	p, err = l.setFlags(p.ID, from.RecordedHere(), c.Corrected)
+	p, err = l.setFlags(p.ID, from.RecordedHere(), c.Corrected, from.ID)
 	return p, false, err
 }
 
-// setFlags sets the recording flags of a piece.
-func (l *Library) setFlags(id string, fromRecording, corrected bool) (Piece, error) {
+// setFlags sets the recording flags of a piece, and what it was made from.
+func (l *Library) setFlags(id string, fromRecording, corrected bool, editedFrom string) (Piece, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	p, ok := l.pieces[id]
@@ -65,7 +65,7 @@ func (l *Library) setFlags(id string, fromRecording, corrected bool) (Piece, err
 		return Piece{}, ErrNotFound
 	}
 	q := *p
-	q.FromRecording, q.Corrected = fromRecording, corrected
+	q.FromRecording, q.Corrected, q.EditedFrom = fromRecording, corrected, editedFrom
 	if err := l.writeMeta(&q); err != nil {
 		return Piece{}, err
 	}

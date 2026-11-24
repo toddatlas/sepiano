@@ -72,6 +72,8 @@ type Piece struct {
 	// Corrected says the per-key recording corrections are already in the
 	// performance, so they are not applied again when it plays.
 	Corrected bool `json:"corrected,omitempty"`
+	// EditedFrom is the piece an edited or corrected copy was made from.
+	EditedFrom string `json:"edited_from,omitempty"`
 
 	// Locked lists the fields set by hand or from a catalog (by Update);
 	// re-deriving metadata from the files never changes them.
