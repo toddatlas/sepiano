@@ -101,6 +101,8 @@ export function editorScreen(root, [id], ui) {
   let saving = false;
   let corr = null; // the recording corrections (GET /corrections)
   let range = null; // a time range {a, b} in ticks: a drag along the ruler
+  let ghost = null; // the original's notes [key, on, off, vel], for comparing
+  let showGhost = false;
   const view = { t0: 0, ppt: 0.05, rowH: 10, y: 0 };
   let cssW = 0;
   let cssH = 0;
@@ -270,6 +272,7 @@ export function editorScreen(root, [id], ui) {
     tb.save = button('Save', () => save(false), { title: 'Ctrl+S' });
     tb.copy = button('Save as new copy', () => save(true));
     tb.apply = button('Apply corrections', applyCorrections, { title: 'Put the recording corrections into the notes (undoable)' });
+    tb.ghost = button('Show the original', toggleGhost, { title: 'Draw the notes of the piece this copy was made from, as outlines' });
     fill(bar,
       h('div', { class: 'ed-group' }, tb.undo, tb.redo),
       h('div', { class: 'ed-group' },
@@ -277,7 +280,7 @@ export function editorScreen(root, [id], ui) {
         button('+', () => zoomAt(1.6, GUTTER + (cssW - GUTTER) / 2), { title: 'Zoom in (+)', aria: 'Zoom in' }),
         button('Whole piece', fitAll, { title: 'Show the whole piece (0)' })),
       h('div', { class: 'ed-group' }, tb.play, tb.stop),
-      h('div', { class: 'ed-group' }, tb.apply),
+      h('div', { class: 'ed-group' }, tb.apply, tb.ghost),
       h('div', { class: 'ed-group ed-save' }, tb.save, tb.copy));
   }
 
@@ -294,6 +297,9 @@ export function editorScreen(root, [id], ui) {
     tb.copy.hidden = !isCopy();
     tb.copy.disabled = saving;
     tb.apply.hidden = !recordedHere() || doc.corrected || corrEmpty();
+    tb.ghost.hidden = !piece.edited_from;
+    tb.ghost.setAttribute('aria-pressed', showGhost ? 'true' : 'false');
+    tb.ghost.classList.toggle('btn-primary', showGhost);
     const key = `${piece.title}|${piece.origin}|${dirty()}|${doc.notes.length}|${doc.end}|${doc.corrected}|${corr ? corr.summary + corr.on : ''}|${(doc.others || []).length}`;
     if (key !== headKey) { headKey = key; renderHead(); }
   }
@@ -657,6 +663,24 @@ export function editorScreen(root, [id], ui) {
       corrected: !!doc.corrected,
       others: (doc.others || []).map((o) => [o.tick, o.key, o.on ? 1 : 0, o.vel]),
     };
+  }
+
+  // toggleGhost shows or hides the notes of the piece this copy was made
+  // from, loading them the first time.
+  async function toggleGhost() {
+    if (!piece.edited_from) return;
+    if (!ghost) {
+      try {
+        const r = await api('GET', '/pieces/' + encodeURIComponent(piece.edited_from) + '/performance');
+        ghost = r.notes.slice().sort((a, b) => a[1] - b[1]);
+      } catch (err) {
+        toast('The original could not be loaded: ' + err.message, 'error');
+        return;
+      }
+    }
+    showGhost = !showGhost;
+    renderBar();
+    schedule();
   }
 
   // applyCorrections puts the recording corrections into the notes, as
@@ -1327,6 +1351,23 @@ export function editorScreen(root, [id], ui) {
     }
     gridLines(c, L.rollTop, rollH, step);
     const rh = Math.max(2, view.rowH - 2);
+    // The original's notes, as outlines, when comparing.
+    if (ghost && showGhost) {
+      c.strokeStyle = colors.ink2;
+      c.globalAlpha = 0.45;
+      c.lineWidth = 1;
+      c.setLineDash([3, 2]);
+      for (const g of ghost) {
+        if (g[1] > tb) break;
+        if (g[2] < ta) continue;
+        const y = rowTop(g[0]) + 1;
+        if (y > L.rollBottom || y + rh < L.rollTop) continue;
+        const x1 = xOf(g[1]);
+        c.strokeRect(x1 + 0.5, y + 0.5, Math.max(1, xOf(g[2]) - x1 - 1), Math.max(1, rh - 1));
+      }
+      c.setLineDash([]);
+      c.globalAlpha = 1;
+    }
     for (const pass of [false, true]) {
       for (const n of doc.notes) {
         if (n.on > tb) break;
