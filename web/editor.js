@@ -74,6 +74,17 @@ function msText(ticks) {
   return `${ms > 0 ? '+' : ms < 0 ? '−' : ''}${Math.abs(ms)} ms`;
 }
 
+// parseKey reads a key as a note name (C4, F#3, Bb5) or a MIDI number.
+function parseKey(s) {
+  s = String(s).trim();
+  if (/^\d+$/.test(s)) return Number(s);
+  const m = /^([A-Ga-g])([#♯b♭]?)(-?\d)$/.exec(s);
+  if (!m) return NaN;
+  const pc = { c: 0, d: 2, e: 4, f: 5, g: 7, a: 9, b: 11 }[m[1].toLowerCase()];
+  const acc = m[2] === '#' || m[2] === '♯' ? 1 : m[2] === 'b' || m[2] === '♭' ? -1 : 0;
+  return (Number(m[3]) + 1) * 12 + pc + acc;
+}
+
 function median(values) {
   if (!values.length) return 0;
   const s = [...values].sort((a, b) => a - b);
@@ -414,7 +425,32 @@ export function editorScreen(root, [id], ui) {
           button('All', () => select(doc.notes, false)),
           button('Velocity 0', () => select(doc.notes.filter((n) => n.vel === 0), false), { title: 'Presses with no hammer reading' }),
           button('Silent', () => select(doc.notes.filter((n) => n.vel >= SILENT), false), { title: 'Silent presses (velocity 640 or more)' }),
-          sel.size > 0 && button('Invert', () => select(doc.notes.filter((n) => !sel.has(n)), false)))));
+          sel.size > 0 && button('Invert', () => select(doc.notes.filter((n) => !sel.has(n)), false))),
+        selectByForm()));
+  }
+
+  // Select the notes on keys lo to hi (names or MIDI numbers) with a
+  // velocity between vlo and vhi (left empty: any), within the range if one
+  // is marked.
+  function selectByForm() {
+    const field = (label, value, width) => h('input', { class: 'input ed-num-input', type: 'text', value, 'aria-label': label, style: `width:${width}px` });
+    const lo = field('Lowest key', 'A0', 56);
+    const hi = field('Highest key', 'C8', 56);
+    const vlo = field('Velocity from', '', 56);
+    const vhi = field('Velocity to', '', 56);
+    return h('form', { class: 'ed-num', onsubmit: (e) => {
+      e.preventDefault();
+      const a = parseKey(lo.value);
+      const b = parseKey(hi.value);
+      if (!Number.isFinite(a) || !Number.isFinite(b)) { toast('Keys are note names (C4, F#3) or MIDI numbers.', 'error'); return; }
+      const v1 = vlo.value.trim() === '' ? 0 : Number(vlo.value);
+      const v2 = vhi.value.trim() === '' ? MAX_VEL : Number(vhi.value);
+      const found = doc.notes.filter((n) => n.key >= Math.min(a, b) && n.key <= Math.max(a, b) && n.vel >= v1 && n.vel <= v2
+        && (!range || (n.on >= range.a && n.on < range.b)));
+      select(found, false);
+      toast(`${found.length} notes selected.`);
+    } },
+    h('label', null, 'keys ', lo, ' to ', hi, ', velocity ', vlo, ' to ', vhi), h('button', { class: 'btn btn-small', type: 'submit', title: 'Velocity is the SE scale: bigger is softer. Within the range, if one is marked.' }, 'Select'));
   }
 
   // A crescendo or diminuendo: louder (or softer, below zero) by one
