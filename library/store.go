@@ -37,6 +37,7 @@ const (
 	OriginUpload   = "upload"
 	OriginMIDI     = "midi"
 	OriginRecorded = "recorded"
+	OriginEdited   = "edited" // a copy changed in the editor
 )
 
 // DefaultInstrument is the rendering this piano is.
@@ -91,6 +92,10 @@ func (p *Piece) locked(field string) bool {
 // leaving locked fields alone. It reports whether anything changed.
 func (p *Piece) describe() bool {
 	m := Describe(p.SourceName, p.HeaderText)
+	if p.Origin == OriginEdited {
+		// Its own row in the library, not another rendering of the original.
+		m.PerfKey = "edited|" + p.ID
+	}
 	changed := p.MetaVersion != metaVersion
 	for _, f := range []struct {
 		name string

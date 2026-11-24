@@ -518,12 +518,18 @@ paths:
 
   /pieces/{id}/keys:
     get:
-      summary: The velocities each key has in a piece (for a recording, what each hammer sensor measured)
+      summary: How each key plays in a piece (for a recording, what its sensors measured)
       description: |
-        Per key: how often it plays, its velocities' range and median, and how
-        far its median hammer speed (128000 / velocity) stands from its
-        neighbours'. Outliers are keys at least `threshold` % apart. Record
-        each key a few times at the same loudness to check the sensors.
+        `check`, velocity: per key, how often it plays, its velocities' range
+        and median, and how far its median hammer speed (128000 / velocity)
+        stands from its neighbours'. Outliers are keys at least `threshold` %
+        apart. `no_reading` counts the presses with velocity 0 (the recorder
+        measured no hammer speed; the player strikes them as hard as it can).
+
+        `releases`: chords (three or more keys pressed within `window_ms`),
+        and each key's release against the middle release of its chord, in
+        ms (minus is early). Outliers are keys early or late by
+        `threshold_ms` or more in at least two thirds of their chords.
       parameters:
         - { name: id, in: path, required: true, schema: { type: string } }
       responses:
@@ -544,7 +550,125 @@ paths:
                       threshold: { type: number }
                       keys: { type: array, items: { $ref: "#/components/schemas/KeyStat" } }
                       outliers: { type: array, items: { $ref: "#/components/schemas/KeyStat" } }
+                      no_reading:
+                        type: array
+                        items:
+                          type: object
+                          properties: { note: { type: integer }, name: { type: string }, count: { type: integer } }
+                  releases:
+                    type: object
+                    properties:
+                      chords: { type: integer }
+                      threshold_ms: { type: integer }
+                      window_ms: { type: integer }
+                      keys: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
+                      outliers: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
         "404": { $ref: "#/components/responses/Error" }
+
+  /pieces/{id}/performance:
+    get:
+      summary: A piece as the piano-roll editor sees it
+      description: |
+        Notes (each press paired with its release) and the pedal curves.
+        Times are ticks (1/800 s); velocity is the SE scale (bigger is
+        softer, 640 or more a silent press, 0 no hammer reading). Key events
+        outside the keyboard (Zenph's marks) are not listed; `kept` counts
+        them, and saving keeps them as they are. docs/RECORDING-EDITOR.md.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  piece: { $ref: "#/components/schemas/Piece" }
+                  tick_hz: { type: integer, example: 800 }
+                  end: { type: integer, description: The end of the performance, in ticks }
+                  text: { type: string, description: The header text }
+                  notes:
+                    type: array
+                    description: "[key, on, off, velocity]: key 21 to 108, times in ticks"
+                    items: { type: array, items: { type: integer }, minItems: 4, maxItems: 4 }
+                  damper: { type: array, items: { type: integer, minimum: 0, maximum: 255 } }
+                  damper_period: { type: integer, example: 8 }
+                  soft: { type: array, items: { type: integer, minimum: 0, maximum: 255 } }
+                  soft_period: { type: integer, example: 16 }
+                  kept: { type: integer }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /pieces/{id}/edits:
+    post:
+      summary: Save an edited performance
+      description: |
+        Saves the notes and pedal curves given, applied to the piece's own
+        performance (which keeps its header and the marks outside the
+        keyboard). By default it adds a new edited copy (origin `edited`,
+        its metadata locked from the original); the original never changes.
+        With `replace`, it saves over the piece, which must itself be an
+        edited copy. A pedal left out (or null) is unchanged.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EditedPerformance" }
+      responses:
+        "200":
+          description: Saved over the edited copy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  piece: { $ref: "#/components/schemas/Piece" }
+                  replaced: { type: boolean }
+        "201":
+          description: Saved as a new edited copy (or, with `duplicate`, the library already held the same performance)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  piece: { $ref: "#/components/schemas/Piece" }
+                  duplicate: { type: boolean }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /pieces/{id}/preview:
+    post:
+      summary: Play an edited performance from a point, without saving it
+      description: |
+        Plays from tick `from`, after a second in which the pedals take
+        their places. Notes already sounding at `from` are left out.
+        Software voicing applies. The status shows the piece with performer
+        "Editor preview".
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              allOf:
+                - { $ref: "#/components/schemas/EditedPerformance" }
+                - type: object
+                  properties:
+                    from: { type: integer, description: Where to start, in ticks }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Status" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
 
   /tools:
     get:
@@ -732,7 +856,7 @@ components:
         perf_key: { type: string, description: "Same value for every rendering of one performance; group by it" }
         duration_ms: { type: integer }
         notes: { type: string }
-        origin: { type: string, enum: [import, upload, midi, recorded] }
+        origin: { type: string, enum: [import, upload, midi, recorded, edited] }
         source_name: { type: string, description: The original file base name }
         header_text: { type: string, description: Text stored in the .kb header (often a copyright line) }
         kb_sha256: { type: string }
@@ -945,3 +1069,27 @@ components:
         median: { type: integer }
         spread: { type: number, description: "the middle half's range in hammer speed, % of the median" }
         deviation: { type: number, description: "% hammer speed against the neighbouring keys; positive records louder" }
+
+    ReleaseStat:
+      type: object
+      properties:
+        note: { type: integer }
+        name: { type: string }
+        count: { type: integer, description: chords the key is in }
+        median_ms: { type: integer, description: "typical release against its chords' middle release; minus is early" }
+        min_ms: { type: integer }
+        max_ms: { type: integer }
+
+    EditedPerformance:
+      type: object
+      required: [notes]
+      properties:
+        notes:
+          type: array
+          description: "[key, on, off, velocity]: key 21 to 108, times in ticks (1/800 s), velocity 0 to 1023"
+          items: { type: array, items: { type: integer }, minItems: 4, maxItems: 4 }
+        damper: { type: [array, "null"], items: { type: integer, minimum: 0, maximum: 255 } }
+        soft: { type: [array, "null"], items: { type: integer, minimum: 0, maximum: 255 } }
+        end: { type: integer, description: The end of the performance in ticks; later notes extend it }
+        title: { type: string, description: "A new copy's title (default: the original's, with \" (edited)\")" }
+        replace: { type: boolean, description: Save over this piece, which must be an edited copy }

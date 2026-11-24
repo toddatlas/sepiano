@@ -19,6 +19,8 @@
 //                piece, upload, record, status
 //   boot
 
+import { editorScreen, editHref } from './editor.js';
+
 const API = '/api/v1';
 const MINUS = '−';
 const CONSOLE_MAX = 500;
@@ -88,6 +90,8 @@ const ICONS = {
   download: { stroke: ['M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14'] },
   edit: { stroke: ['M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z'] },
   trash: { stroke: ['M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5'] },
+  undo: { stroke: ['M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 0 11H11'] },
+  redo: { stroke: ['M15 14l5-5-5-5M20 9H9.5a5.5 5.5 0 0 0 0 11H13'] },
   search: { stroke: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4'] },
   back: { stroke: ['M15 5l-7 7 7 7'] },
   forward: { stroke: ['M9 5l7 7-7 7'] },
@@ -174,6 +178,7 @@ const ORIGINS = {
   upload: 'Uploaded',
   midi: 'Converted from MIDI',
   recorded: 'Recorded on this piano',
+  edited: 'Edited copy',
 };
 function originText(p) {
   let t = ORIGINS[p.origin] || p.origin || '';
@@ -807,6 +812,9 @@ function frame() {
 
 // ====================================================================== router
 
+// What the editor (editor.js) uses from this file.
+const UI = { h, fill, setText, icon, api, command, toast, noteName, isBlackKey, app, isStatus, applyReplyStatus, pieceHref };
+
 // `back: true` goes to the library section last shown; an object names its own.
 const ROUTES = [
   { name: 'now', re: /^\/$/, tab: 'now', title: 'Now Playing', screen: nowPlayingScreen },
@@ -816,7 +824,8 @@ const ROUTES = [
   { name: 'album', re: /^\/album\/([^/]+)$/, tab: 'library', title: 'Album', back: { href: '#/albums', label: 'Albums' }, screen: albumScreen },
   { name: 'playlist', re: /^\/playlist\/([^/]+)$/, tab: 'library', title: 'Play list', back: { href: '#/playlists', label: 'Play lists' }, screen: playlistScreen },
   { name: 'piece', re: /^\/piece\/([^/]+)$/, tab: 'library', title: 'Piece', back: true, screen: pieceScreen },
-  { name: 'piece-keys', re: /^\/piece\/([^/]+)\/keys$/, tab: 'library', title: 'Velocity by key', back: true, screen: pieceKeysScreen },
+  { name: 'piece-keys', re: /^\/piece\/([^/]+)\/keys$/, tab: 'library', title: 'Key check', back: true, screen: pieceKeysScreen },
+  { name: 'edit', re: /^\/piece\/([^/]+)\/edit$/, tab: 'library', title: 'Editor', back: true, screen: (root, params) => editorScreen(root, params, UI) },
   { name: 'upload', re: /^\/upload$/, tab: 'library', title: 'Upload', back: true, screen: uploadScreen },
   { name: 'record', re: /^\/record$/, tab: 'record', title: 'Record', screen: recordScreen },
   { name: 'piano', re: /^\/piano$/, tab: 'piano', title: 'Piano', screen: pianoScreen },
@@ -840,8 +849,9 @@ let libSection = '#/library'; // the Library tab returns to the section last sho
 
 // Where the top bar's back link goes. A piece opened from an album or play
 // list goes back to it.
-function backLink(r, prev, prevPath) {
+function backLink(r, prev, prevPath, params) {
   if (!r.back) return null;
+  if (r.name === 'edit') return { href: pieceHref(params[0]), label: 'Piece' };
   if (r.name === 'piece' && prev && (prev.name === 'album' || prev.name === 'playlist')) {
     return { href: '#' + prevPath, label: prev.title };
   }
@@ -890,7 +900,7 @@ function route() {
     if (on) a.setAttribute('aria-current', 'page');
     else a.removeAttribute('aria-current');
   }
-  const back = backLink(r, prev, prevPath);
+  const back = backLink(r, prev, prevPath, params);
   els.back.hidden = !back;
   if (back) {
     els.back.href = back.href;
@@ -1892,8 +1902,14 @@ function pieceScreen(root, [id]) {
           h('a', { class: 'btn', href: downloadBase + 'se', download: '' }, icon('download'), 'SE files (.zip)'),
           h('a', { class: 'btn', href: downloadBase + 'midi', download: '' }, icon('download'), 'MIDI'))),
       h('section', { class: 'card' },
-        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity by key')),
-        h('p', { class: 'muted small' }, 'How loudly each key plays in this piece. For a recording, what each key’s sensor measured.'),
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Piano roll')),
+        h('p', { class: 'muted small' }, p.origin === 'edited'
+          ? 'Change notes, timing, loudness and pedals, and hear it from any point. Saving writes over this edited copy.'
+          : 'Change notes, timing, loudness and pedals, and hear it from any point. Saving makes an edited copy; this piece stays as it is. Easiest on a computer.'),
+        h('a', { class: 'btn', href: editHref(id) }, icon('edit'), 'Open in the editor')),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Key check')),
+        h('p', { class: 'muted small' }, 'How loudly each key plays in this piece, and in chords, when each key lets go. For a recording, what each key’s sensors measured.'),
         h('a', { class: 'btn', href: pieceKeysHref(id) }, 'Open')),
       renderingsSection,
       h('div', { class: 'danger-zone' },
@@ -2288,7 +2304,7 @@ function recordScreen(root) {
       titleInput,
       h('p', { class: 'hint' }, 'Optional. You can rename it later.')),
     armBtn,
-    h('p', { class: 'hint rec-check-hint' }, 'To check the key sensors, record each key a few times at the same loudness, one after another, then open the recording’s Velocity by key: keys that record louder or softer than their neighbours are listed.'));
+    h('p', { class: 'hint rec-check-hint' }, 'To check the key sensors, record each key a few times at the same loudness, one after another, then open the recording’s Key check: keys that record louder or softer than their neighbours are listed.'));
 
   const stage = h('div', { class: 'rec-stage' });
   const errorBox = h('div', { class: 'message message-error', role: 'alert', hidden: true });
@@ -2413,7 +2429,8 @@ function recordScreen(root) {
       h('div', { class: 'btn-row' },
         h('button', { class: 'btn btn-primary', type: 'button', onclick: (e) => playPiece(sv.id, e.currentTarget) }, icon('play'), 'Play it'),
         h('a', { class: 'btn', href: pieceHref(sv.id) }, 'Details'),
-        h('a', { class: 'btn', href: pieceKeysHref(sv.id) }, 'Velocity by key')));
+        h('a', { class: 'btn', href: pieceKeysHref(sv.id) }, 'Key check'),
+        h('a', { class: 'btn', href: editHref(sv.id) }, 'Edit')));
   }
 
   function tick(pos) {
@@ -3051,25 +3068,49 @@ function pianoBackupsScreen(root) {
   return { unmount() { alive = false; } };
 }
 
-// ============================================================ Velocity by key
+// =================================================================== Key check
 
-// How loudly each key plays in a piece. For a recording, it is what each
-// key's hammer sensor measured: record each key a few times at the same
-// loudness, and the keys that record louder or softer than their
-// neighbours stand out.
+// How each key plays in a piece. For a recording, it is what each key's
+// sensors measured. Velocity: record each key a few times at the same
+// loudness, and the keys that record louder or softer than their neighbours
+// stand out. Release: record chords pressed and let go together, and the
+// keys that come up regularly before or after the rest stand out.
 function pieceKeysScreen(root, [id]) {
   let alive = true;
-  root.append(h('h1', { class: 'screen-title' }, 'Velocity by key'), h('p', { class: 'muted center' }, 'Loading…'));
+  root.append(h('h1', { class: 'screen-title' }, 'Key check'), h('p', { class: 'muted center' }, 'Loading…'));
   api('GET', piecePath(id) + '/keys').then((r) => { if (alive) render(r); }, (err) => {
-    if (alive) fill(root, h('h1', { class: 'screen-title' }, 'Velocity by key'), h('div', { class: 'message message-error' }, h('p', null, err.message)));
+    if (alive) fill(root, h('h1', { class: 'screen-title' }, 'Key check'), h('div', { class: 'message message-error' }, h('p', null, err.message)));
   });
+
+  function signedMs(ms) { return `${ms > 0 ? '+' : ms < 0 ? MINUS : ''}${Math.abs(ms)} ms`; }
+
+  function releaseCard(rc) {
+    const head = h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Release timing'));
+    if (!rc || !rc.chords) {
+      return h('section', { class: 'card' }, head,
+        h('p', null, 'No chords of three or more keys in this piece.'),
+        h('p', { class: 'hint' }, 'To check the release sensors, record chords pressed and let go together, several times each.'));
+    }
+    const outliers = rc.outliers.map((k) => h('div', { class: 'message message-warn' }, h('p', null,
+      `${k.name} lets go ${Math.abs(k.median_ms)} ms ${k.median_ms < 0 ? 'before' : 'after'} the rest of its chords (typically; ${k.count} chords, from ${signedMs(k.min_ms)} to ${signedMs(k.max_ms)}).`)));
+    return h('section', { class: 'card' }, head,
+      outliers.length ? h('div', { class: 'piano-notes' }, outliers) : h('p', null, `No key lets go ${rc.threshold_ms} ms or more before or after the rest of its chords.`),
+      h('table', { class: 'piano-table' },
+        h('thead', null, h('tr', null, h('th', null, 'Key'), h('th', null, 'Chords'), h('th', null, 'Typical'), h('th', null, 'Range'))),
+        h('tbody', null, rc.keys.map((k) => h('tr', null,
+          h('td', null, h('a', { href: keyHref(k.note) }, k.name)),
+          h('td', null, String(k.count)),
+          h('td', { class: Math.abs(k.median_ms) >= rc.threshold_ms && k.count >= 2 ? 'at-limit' : null }, signedMs(k.median_ms)),
+          h('td', null, k.min_ms === k.max_ms ? signedMs(k.min_ms) : `${signedMs(k.min_ms)} to ${signedMs(k.max_ms)}`))))),
+      h('p', { class: 'hint' }, `${rc.chords} chords (keys pressed within ${rc.window_ms} ms of each other). Each key’s release is compared with the middle release of its chord: minus is early. A sensor that fires early or late does it every time; a finger varies. To check the release sensors, record chords pressed and let go together, several times each. In the `, h('a', { href: editHref(id) }, 'editor'), ', a key’s releases can be moved: click the key at the left for all its notes, then Release.'));
+  }
 
   function render(r) {
     const c = r.check;
     const title = r.piece.title || 'Untitled';
-    document.title = `Velocity by key · ${title} · Piano`;
-    if (!c.notes) {
-      fill(root, h('h1', { class: 'screen-title' }, 'Velocity by key'), h('p', { class: 'muted' }, 'This piece has no notes.'));
+    document.title = `Key check · ${title} · Piano`;
+    if (!c.notes && !(c.no_reading || []).length) {
+      fill(root, h('h1', { class: 'screen-title' }, 'Key check'), h('p', { class: 'muted' }, 'This piece has no notes.'));
       return;
     }
     const byNote = new Map(c.keys.map((k) => [k.note, k]));
@@ -3086,20 +3127,24 @@ function pieceKeysScreen(root, [id]) {
     }
     const outliers = c.outliers.map((k) => h('div', { class: 'message message-warn' }, h('p', null,
       `${k.name} records ${k.deviation > 0 ? 'louder' : 'softer'} than its neighbours: ${signedPct(k.deviation)} hammer speed (typical velocity ${k.median}, ${k.count} notes).`)));
+    const none = c.no_reading || [];
     fill(root,
-      h('h1', { class: 'screen-title' }, 'Velocity by key'),
-      h('p', { class: 'piano-sub' }, h('a', { href: pieceHref(id) }, title), r.origin === 'recorded' ? ' · recorded on this piano' : ''),
+      h('h1', { class: 'screen-title' }, 'Key check'),
+      h('p', { class: 'piano-sub' }, h('a', { href: pieceHref(id) }, title), r.origin === 'recorded' ? ' · recorded on this piano' : '', ' · ', h('a', { href: editHref(id) }, 'open in the editor')),
+      none.length > 0 && h('div', { class: 'message message-error' },
+        h('p', null, `${none.reduce((a, k) => a + k.count, 0)} notes have no hammer reading (velocity 0): ${none.map((k) => (k.count > 1 ? `${k.name} ×${k.count}` : k.name)).join(', ')}. The key went down but the recorder measured no hammer speed. On playback the player strikes such a note as hard as it can; in the editor, set its loudness.`)),
       h('section', { class: 'card' },
-        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Keys that stand out')),
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity: keys that stand out')),
         outliers.length ? h('div', { class: 'piano-notes' }, outliers) : h('p', null, `No key stands more than ${c.threshold}% apart from its neighbours.`),
         h('p', { class: 'hint' }, `${c.notes} notes on ${c.keys.length} keys; typical velocity ${c.median}. Velocity is the SE scale: bigger is softer. A key is compared with up to four played keys on each side, in hammer speed (128000 ÷ velocity).`)),
       h('section', { class: 'card' },
-        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Against the neighbours')),
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity against the neighbours')),
         strip,
         h('div', { class: 'kb-axis' }, h('span', null, 'A0'), h('span', null, 'C4'), h('span', null, 'C8')),
         h('p', { class: 'hint' }, 'Bar height: how far each key stands from its neighbours. Blue: softer; red: beyond the limit.')),
+      releaseCard(r.releases),
       h('section', { class: 'card' },
-        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Every key')),
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity, every key')),
         h('table', { class: 'piano-table' },
           h('thead', null, h('tr', null, h('th', null, 'Key'), h('th', null, 'Notes'), h('th', null, 'Typical'), h('th', null, 'Range'), h('th', null, 'Vs neighbours'))),
           h('tbody', null, c.keys.map((k) => h('tr', null,

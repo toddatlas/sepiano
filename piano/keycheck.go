@@ -4,6 +4,7 @@ import (
 	"math"
 	"sort"
 
+	"sepiano/edit"
 	"sepiano/lut"
 	"sepiano/se"
 )
@@ -20,6 +21,18 @@ type KeyCheck struct {
 	Keys      []KeyStat `json:"keys"`      // keys that play, low to high
 	Outliers  []KeyStat `json:"outliers"`  // keys that stand apart, worst first
 	Threshold float64   `json:"threshold"` // the hammer-speed difference counted as standing apart (%)
+
+	// NoReading counts, by key, the presses with velocity 0: the key went
+	// down but the recorder measured no hammer speed. The player strikes
+	// such a note as hard as the table allows (FW#71 clamps it).
+	NoReading []KeyCount `json:"no_reading"`
+}
+
+// KeyCount is a number of notes on one key.
+type KeyCount struct {
+	Note  int    `json:"note"`
+	Name  string `json:"name"`
+	Count int    `json:"count"`
 }
 
 // KeyStat is one key's velocities. Velocity is the SE scale (bigger is
@@ -46,15 +59,25 @@ const neighbours = 4
 // CheckKeys gathers the velocities of every note-on in p.
 func CheckKeys(p *se.Performance) KeyCheck {
 	byKey := map[int][]int{}
+	zero := map[int]int{}
 	var all []int
 	for _, e := range p.KB.Events {
-		if !e.On || e.Filler() || e.Vel == 0 {
+		if !e.On || e.Filler() {
+			continue
+		}
+		if e.Vel == 0 {
+			zero[int(e.Key)]++
 			continue
 		}
 		byKey[int(e.Key)] = append(byKey[int(e.Key)], int(e.Vel))
 		all = append(all, int(e.Vel))
 	}
-	c := KeyCheck{Notes: len(all), Threshold: CheckThreshold, Keys: []KeyStat{}, Outliers: []KeyStat{}}
+	c := KeyCheck{Notes: len(all), Threshold: CheckThreshold, Keys: []KeyStat{}, Outliers: []KeyStat{}, NoReading: []KeyCount{}}
+	for n := 0; n < 128; n++ {
+		if zero[n] > 0 {
+			c.NoReading = append(c.NoReading, KeyCount{Note: n, Name: lut.NoteName(n), Count: zero[n]})
+		}
+	}
 	if len(all) == 0 {
 		return c
 	}
@@ -108,3 +131,109 @@ func median(v []int) int {
 }
 
 func round1(x float64) float64 { return math.Round(x*10) / 10 }
+
+// ReleaseCheck compares when each key lets go with the other keys of the
+// chords it is played in. Its use is a recording made to check the release
+// sensors: chords pressed and released together, several times. A key whose
+// releases come regularly before or after the rest of its chords has a
+// release sensor that fires early or late; one played that way by hand
+// varies from chord to chord instead.
+type ReleaseCheck struct {
+	Chords    int           `json:"chords"`       // chords of three or more keys
+	Keys      []ReleaseStat `json:"keys"`         // keys in those chords, low to high
+	Outliers  []ReleaseStat `json:"outliers"`     // keys regularly early or late, worst first
+	Threshold int           `json:"threshold_ms"` // how early or late counts
+	Window    int           `json:"window_ms"`    // presses this close together make a chord
+}
+
+// ReleaseStat is one key's releases against the median release of each
+// chord it is in, in milliseconds: negative is early.
+type ReleaseStat struct {
+	Note   int    `json:"note"`
+	Name   string `json:"name"`
+	Count  int    `json:"count"`
+	Median int    `json:"median_ms"`
+	Min    int    `json:"min_ms"`
+	Max    int    `json:"max_ms"`
+}
+
+// Release check limits: presses within ChordWindow ticks (70 ms) of a
+// chord's first make one chord, and a key whose median release is
+// ReleaseThreshold ms or more from its chords' counts as early or late.
+const (
+	ChordWindow      = 56
+	ReleaseThreshold = 50
+)
+
+// CheckReleases finds the chords in p and how each key lets go in them.
+func CheckReleases(p *se.Performance) ReleaseCheck {
+	notes := edit.FromPerformance(p).Notes
+	c := ReleaseCheck{Threshold: ReleaseThreshold, Window: ChordWindow * 1000 / se.TicksPerSecond,
+		Keys: []ReleaseStat{}, Outliers: []ReleaseStat{}}
+	byKey := map[int][]int{}
+	for i := 0; i < len(notes); {
+		j := i + 1
+		for j < len(notes) && notes[j].On-notes[i].On <= ChordWindow {
+			j++
+		}
+		chord := notes[i:j]
+		i = j
+		seen := map[uint8]bool{}
+		var offs []int
+		var keys []int
+		for _, n := range chord {
+			if !seen[n.Key] {
+				seen[n.Key] = true
+				offs = append(offs, int(n.Off))
+				keys = append(keys, int(n.Key))
+			}
+		}
+		if len(offs) < 3 {
+			continue
+		}
+		c.Chords++
+		ref := median(offs)
+		for k, off := range offs {
+			byKey[keys[k]] = append(byKey[keys[k]], (off-ref)*1000/se.TicksPerSecond)
+		}
+	}
+	var keys []int
+	for n := range byKey {
+		keys = append(keys, n)
+	}
+	sort.Ints(keys)
+	for _, n := range keys {
+		d := byKey[n]
+		sort.Ints(d)
+		mid := d[len(d)/2]
+		if len(d)%2 == 0 {
+			mid = (d[len(d)/2-1] + mid) / 2
+		}
+		s := ReleaseStat{Note: n, Name: lut.NoteName(n), Count: len(d), Median: mid, Min: d[0], Max: d[len(d)-1]}
+		c.Keys = append(c.Keys, s)
+		// Early or late, and so in at least two thirds of its chords: a key
+		// early once and late once is the hand, not the sensor.
+		early, late := 0, 0
+		for _, x := range d {
+			if x <= -ReleaseThreshold/2 {
+				early++
+			} else if x >= ReleaseThreshold/2 {
+				late++
+			}
+		}
+		if s.Count >= 2 && ((s.Median <= -ReleaseThreshold && 3*early >= 2*s.Count) || (s.Median >= ReleaseThreshold && 3*late >= 2*s.Count)) {
+			c.Outliers = append(c.Outliers, s)
+		}
+	}
+	sort.Slice(c.Outliers, func(a, b int) bool {
+		return abs(c.Outliers[a].Median) > abs(c.Outliers[b].Median)
+	})
+	return c
+}
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}

@@ -1,6 +1,7 @@
 package piano
 
 import (
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -208,5 +209,33 @@ func TestCheckKeys(t *testing.T) {
 	}
 	if e := CheckKeys(&se.Performance{KB: &se.KB{}}); e.Notes != 0 || len(e.Keys) != 0 {
 		t.Errorf("empty %+v", e)
+	}
+}
+
+func TestCheckReleases(t *testing.T) {
+	// Four chords of G3, B3, D4, G4, all let go together, except G3, which
+	// comes up 300 ms early every time.
+	var ev []se.Event
+	for c := 0; c < 4; c++ {
+		at := uint32(800 + c*1600)
+		for i, k := range []uint8{55, 59, 62, 67} {
+			ev = append(ev, se.Event{Tick: at + uint32(i*8), Key: k, On: true, Vel: 200})
+		}
+		for _, k := range []uint8{55, 59, 62, 67} {
+			off := at + 800
+			if k == 55 {
+				off -= 240
+			}
+			ev = append(ev, se.Event{Tick: off, Key: k})
+		}
+	}
+	sort.SliceStable(ev, func(i, j int) bool { return ev[i].Tick < ev[j].Tick })
+	p := &se.Performance{KB: &se.KB{Events: ev, End: 8000}}
+	c := CheckReleases(p)
+	if c.Chords != 4 || len(c.Keys) != 4 {
+		t.Fatalf("%d chords, %d keys", c.Chords, len(c.Keys))
+	}
+	if len(c.Outliers) != 1 || c.Outliers[0].Name != "G3" || c.Outliers[0].Median != -300 || c.Outliers[0].Count != 4 {
+		t.Errorf("outliers %+v", c.Outliers)
 	}
 }

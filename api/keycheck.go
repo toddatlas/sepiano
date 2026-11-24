@@ -29,5 +29,5 @@ func (s *Server) pieceKeys(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	c := piano.CheckKeys(perf)
-	writeJSON(w, 200, map[string]any{"piece": ref(p), "origin": p.Origin, "check": c})
+	writeJSON(w, 200, map[string]any{"piece": ref(p), "origin": p.Origin, "check": c, "releases": piano.CheckReleases(perf)})
 }

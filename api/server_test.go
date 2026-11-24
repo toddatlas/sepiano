@@ -556,3 +556,82 @@ func TestPieceKeys(t *testing.T) {
 		t.Errorf("missing piece: %d", code)
 	}
 }
+
+func TestEditor(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(20 * se.TicksPerSecond).Encode()
+	r := e.upload(map[string][]byte{"Edit_Me.kb": kb, "Edit_Me.lp": lp, "Edit_Me.sp": sp})
+	id := r.Added[0].ID
+
+	code, b := e.do("GET", "/api/v1/pieces/"+id+"/performance", nil)
+	var perf struct {
+		Piece  library.Piece `json:"piece"`
+		End    int64         `json:"end"`
+		Notes  [][4]int64    `json:"notes"`
+		Damper []int         `json:"damper"`
+		Soft   []int         `json:"soft"`
+	}
+	if code != 200 || json.Unmarshal(b, &perf) != nil || len(perf.Notes) == 0 || len(perf.Damper) == 0 {
+		t.Fatalf("performance: %d %.300s", code, b)
+	}
+
+	// Louder first note, damper down for a second: saved as a copy.
+	perf.Notes[0][3] = 100
+	for i := 0; i < 100 && i < len(perf.Damper); i++ {
+		perf.Damper[i] = 255
+	}
+	body := map[string]any{"notes": perf.Notes, "damper": perf.Damper, "soft": perf.Soft, "end": perf.End}
+	code, b = e.do("POST", "/api/v1/pieces/"+id+"/edits", body)
+	var saved struct {
+		Piece library.Piece `json:"piece"`
+	}
+	if code != 201 || json.Unmarshal(b, &saved) != nil {
+		t.Fatalf("save: %d %s", code, b)
+	}
+	cp := saved.Piece
+	if cp.ID == id || cp.Origin != library.OriginEdited || cp.Title != perf.Piece.Title+" (edited)" || !strings.Contains(cp.Notes, "Edited from") {
+		t.Fatalf("copy %+v", cp)
+	}
+	if cp.PerfKey == perf.Piece.PerfKey {
+		t.Error("the copy shares the original's library row")
+	}
+	code, b = e.do("GET", "/api/v1/pieces/"+cp.ID+"/performance", nil)
+	var again struct {
+		Notes  [][4]int64 `json:"notes"`
+		Damper []int      `json:"damper"`
+	}
+	if code != 200 || json.Unmarshal(b, &again) != nil || again.Notes[0][3] != 100 || again.Damper[50] != 255 {
+		t.Fatalf("copy's performance: %d %.200s", code, b)
+	}
+
+	// The original is never saved over; the copy is.
+	body["replace"] = true
+	if code, b := e.do("POST", "/api/v1/pieces/"+id+"/edits", body); code != 409 {
+		t.Errorf("replace the original: %d %s", code, b)
+	}
+	perf.Notes = perf.Notes[1:]
+	body["notes"] = perf.Notes
+	if code, b := e.do("POST", "/api/v1/pieces/"+cp.ID+"/edits", body); code != 200 {
+		t.Fatalf("replace the copy: %d %s", code, b)
+	}
+	code, b = e.do("GET", "/api/v1/pieces/"+cp.ID+"/performance", nil)
+	if code != 200 || json.Unmarshal(b, &again) != nil || len(again.Notes) != len(perf.Notes) {
+		t.Fatalf("after replace: %d notes, want %d", len(again.Notes), len(perf.Notes))
+	}
+
+	// Bad notes are refused.
+	bad := map[string]any{"notes": [][4]int64{{60, 100, 50, 200}}}
+	if code, _ := e.do("POST", "/api/v1/pieces/"+id+"/edits", bad); code != 400 {
+		t.Errorf("note ending before it starts: %d", code)
+	}
+
+	// Heard from the middle, without saving.
+	body["from"] = 4 * se.TicksPerSecond
+	if code, b := e.do("POST", "/api/v1/pieces/"+id+"/preview", body); code != 202 {
+		t.Fatalf("preview: %d %s", code, b)
+	}
+	st := e.waitState("playing")
+	if st.Piece == nil || st.Piece.Performer != PreviewPerformer {
+		t.Errorf("playing %+v", st.Piece)
+	}
+}

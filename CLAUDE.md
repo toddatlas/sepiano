@@ -11,7 +11,8 @@ Stahnke SE reproducing piano. The piano is a Steinway with the SE system
 - `docs/SUITE-PROGRAMS.md` is the suite's other programs, the firmware, and the
   piano's EEPROM table, decoded. `docs/SETTINGS-EDITOR.md` is the design
   for editing that table from the app, with the owner's decisions (steps 1
-  and 2 are built).
+  and 2 are built). `docs/RECORDING-EDITOR.md` is the piano-roll editor for
+  recordings, and what the first recording showed.
 - `docs/SERVICE-PLAN.md` is the piano service, `sepianod`: a daemon on the
   Raspberry Pi hidden in the piano, with a web UI and later an iPhone app.
   Phase 1 is built and installed on the Pi. **The piano's owner decides what
@@ -42,8 +43,9 @@ in plain words, and say what they should see or hear at the piano.
   are the lasting record.
 - **The order of work**, as the owner set it (2026-11-23):
   1. Playback, albums and play lists. Done and confirmed at the piano.
-  2. The suite's other programs. Unpacked and decoded. Recording,
-     Velocity by key and Tools are built but not yet tried at the piano.
+  2. The suite's other programs. Unpacked and decoded. Recording, the
+     Key check and Tools are built. One short test recording was made
+     (2026-11-23); formal tests at the piano wait until it can make noise.
   3. The piano's own settings. The read-only Piano tab and software
      voicing are built.
 
@@ -55,8 +57,11 @@ in plain words, and say what they should see or hear at the piano.
 
      First the owner wants to learn from recordings which keys record at
      the wrong velocity.
-  4. Later: an app that controls and edits, a musical editor, and an
-     iPhone app.
+  4. The recording editor (asked for 2026-11-23, while the formal tests
+     wait). The piano roll is built (docs/RECORDING-EDITOR.md). The
+     detailed work is done on a computer, so every screen also has a
+     wide-screen layout.
+  5. Later: an iPhone app.
 
   Finish and verify one stage before starting the next. Ask before
   starting large work.
@@ -89,6 +94,7 @@ and a file server (channel 2: the Z80 asks for blocks of `.kb/.lp/.sp`).
 | `web/` | the PWA: plain HTML/CSS/JS, no build step, embedded in `sepianod` |
 | `z80/` | Z80 decoder and tracer, for studying the suite's programs (and later the firmware) |
 | `lut/` | the instrument's EEPROM lookup table: header, settings, sections (`selut` prints and compares) |
+| `edit/` | a performance as notes and pedal curves for the piano-roll editor, and back; "play from here" |
 | `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod`, `sesuite` (survey of the suite's programs and the firmware), `selut` (lookup tables), `semon` (memory dumps through the monitor) |
 | `deploy/` | systemd unit, udev rule, avahi file, `install.sh` (on the Pi), `deploy.sh` (from here) |
 
@@ -357,3 +363,28 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   (`deck.StartTool`, keys through `POST /tools/key`). Writing tools (cal,
   silent, setup) need a confirmation and back up the EEPROM first. None
   has been run on the real piano.
+
+## Status (fifth part, 2026-11-23: the recording editor)
+
+- The owner made one short test recording. It seemed reliable, but
+  releases seemed out of sync. Formal tests wait until the piano can make
+  noise. What the Key check found in it:
+  - G3 let go 305 and 568 ms before the rest of its chords;
+  - two presses have velocity 0, which the player strikes at the hardest
+    drive (docs/RECORDING-EDITOR.md, docs/SUITE-PROGRAMS.md).
+- **Key check** (was "Velocity by key"): velocity against the neighbours,
+  presses with no hammer reading, and release timing in chords
+  (`piano.CheckReleases`).
+- **Piano-roll editor** (`edit/`, `api/editor.go`, `web/editor.js`):
+  - it edits notes (time, release, key, loudness, add, delete), the
+    damper and the soft pedal, with undo;
+  - "Play from cursor" plays the edited version without saving;
+  - saving makes an edited copy, and an original is never changed.
+
+  The SE format has no release speed; the piano's table sets it.
+- **Wide screens**: at 1000 px or more the tab bar becomes a side bar. The
+  editor uses the whole width, with its selection panel beside the roll
+  from 1280 px. From a laptop: `http://raspberrypi.local/` in a browser.
+- Checked in the simulator with the owner's test recording: select, drag,
+  release shift by key, pedal drawing, undo and redo, save as copy, play
+  from cursor, and phone and laptop layouts. Not yet tried at the piano.

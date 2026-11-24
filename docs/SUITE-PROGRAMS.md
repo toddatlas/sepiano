@@ -103,10 +103,19 @@ While recording, it reads the key and hammer sensors (FW#9 to FW#15) and the
 pedals. It writes key events as their **measured** velocities. Section 12's
 word at data offset 4 scales them (256/256 on this piano). **There is no
 per-key correction**, so a key whose sensor reads high or low records too
-loud or too soft. The app's "Velocity by key" (`GET /pieces/{id}/keys`)
-finds such keys in a recording: record each key a few times at the same
-loudness. Each key is compared, in hammer speed, with the median of up to
-four played keys on each side; keys 12% or more apart are listed.
+loud or too soft. The app's Key check (`GET /pieces/{id}/keys`) finds such
+keys in a recording: record each key a few times at the same loudness. Each
+key is compared, in hammer speed, with the median of up to four played keys
+on each side; keys 12% or more apart are listed. It also compares each
+key's releases with the rest of its chords (docs/RECORDING-EDITOR.md).
+
+**Velocity 0.** At 0405H–0421H the recorder writes a press with velocity 0
+(FW#12, then FW#13 carries; `B=FF, HL=0` to the event writer at 05FAH). No
+hammer timing is used on that path. The first recording on this piano
+(2026-11-23) has two such presses. The player's lookup (FW#71) takes 0
+below the first breakpoint (30 on this table) and gives strike level 0, the
+hardest drive. So a velocity-0 note plays as loud as the piano can. What
+FW#12 and FW#13 read exactly is not traced yet.
 
 ## The instrument's EEPROM ("lookup table")
 
