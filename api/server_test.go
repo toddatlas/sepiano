@@ -975,3 +975,26 @@ func TestEditorOthers(t *testing.T) {
 		t.Errorf("a note among the others: %d", code)
 	}
 }
+
+// TestPreviewRange plays only a range: a second of lead-in, the range, and
+// a second to ring off.
+func TestPreviewRange(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(20 * se.TicksPerSecond).Encode()
+	id := e.upload(map[string][]byte{"Range.kb": kb, "Range.lp": lp, "Range.sp": sp}).Added[0].ID
+	_, b := e.do("GET", "/api/v1/pieces/"+id+"/performance", nil)
+	var perf struct {
+		Notes [][4]int64 `json:"notes"`
+	}
+	json.Unmarshal(b, &perf)
+	body := map[string]any{"notes": perf.Notes, "from": 4 * se.TicksPerSecond, "to": 7 * se.TicksPerSecond}
+	if code, b := e.do("POST", "/api/v1/pieces/"+id+"/preview", body); code != 202 {
+		t.Fatalf("preview: %d %s", code, b)
+	}
+	st := e.waitState("playing")
+	if st.DurationMs < 4900 || st.DurationMs > 5100 {
+		t.Errorf("a 3 s range plays for %d ms, want about 5000 (1 s lead, 3 s, 1 s tail)", st.DurationMs)
+	}
+	e.do("POST", "/api/v1/deck/stop", nil)
+	e.waitState("idle")
+}
