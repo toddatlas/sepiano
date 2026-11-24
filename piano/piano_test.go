@@ -239,3 +239,23 @@ func TestCheckReleases(t *testing.T) {
 		t.Errorf("outliers %+v", c.Outliers)
 	}
 }
+
+func TestCheckPresses(t *testing.T) {
+	// Four chords; E4 goes down 40 ms after the rest every time.
+	var ev []se.Event
+	for c := 0; c < 4; c++ {
+		at := uint32(800 + c*1600)
+		for i, k := range []uint8{60, 64, 67} {
+			on := at + uint32(i*2)
+			if k == 64 {
+				on = at + 32
+			}
+			ev = append(ev, se.Event{Tick: on, Key: k, On: true, Vel: 200}, se.Event{Tick: at + 800, Key: k})
+		}
+	}
+	sort.SliceStable(ev, func(i, j int) bool { return ev[i].Tick < ev[j].Tick })
+	c := CheckPresses(&se.Performance{KB: &se.KB{Events: ev, End: 8000}})
+	if c.Chords != 4 || len(c.Outliers) != 1 || c.Outliers[0].Name != "E4" || c.Outliers[0].Median < 35 {
+		t.Errorf("%d chords, outliers %+v", c.Chords, c.Outliers)
+	}
+}

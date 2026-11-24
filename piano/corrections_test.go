@@ -57,11 +57,11 @@ func TestCorrectionsClean(t *testing.T) {
 func TestSuggest(t *testing.T) {
 	kc := KeyCheck{Outliers: []KeyStat{{Note: 55, Name: "G3", Count: 2, Deviation: -34.9}, {Note: 43, Name: "G2", Count: 6, Deviation: 46}}}
 	rc := ReleaseCheck{Outliers: []ReleaseStat{{Note: 55, Name: "G3", Count: 2, Median: -436}}}
-	s := Suggest(kc, rc)
+	s := Suggest(kc, rc, ReleaseCheck{Outliers: []ReleaseStat{{Note: 43, Name: "G2", Count: 3, Median: 32}}})
 	if len(s) != 2 || s[0].Name != "G2" || s[1].Name != "G3" {
 		t.Fatalf("%+v", s)
 	}
-	if s[0].Speed != -32 || s[0].Release != 0 { // 1/1.46 - 1
+	if s[0].Speed != -32 || s[0].Release != 0 || s[0].Press != -30 { // 1/1.46 - 1; 32 ms late, to the nearest 5
 		t.Errorf("G2 %+v", s[0])
 	}
 	if s[1].Speed != 54 || s[1].Release != 435 || s[1].Why == "" { // 1/0.651 - 1; 436 to the nearest 5
@@ -86,5 +86,30 @@ func TestCorrectionsStore(t *testing.T) {
 	}
 	if got.Summary() != "G3 release +400 ms" {
 		t.Errorf("summary %q", got.Summary())
+	}
+}
+
+func TestPressCorrection(t *testing.T) {
+	c := Corrections{On: true, Keys: map[int]KeyCorrection{60: {Speed: 50, Press: -50}}}
+	d := edit.Doc{Notes: []edit.Note{
+		{Key: 60, On: 800, Off: 1200, Vel: 300},
+		{Key: 60, On: 2000, Off: 2400, Vel: 700}, // a silent press stays silent
+		{Key: 60, On: 10, Off: 12, Vel: 300},     // not before zero, and at least 4 ticks long
+	}}
+	c.Apply(&d)
+	if d.Notes[0] != (edit.Note{Key: 60, On: 760, Off: 1200, Vel: 200}) {
+		t.Errorf("note %+v", d.Notes[0])
+	}
+	if d.Notes[1].Vel != 700 || d.Notes[1].On != 1960 {
+		t.Errorf("silent press %+v", d.Notes[1])
+	}
+	if d.Notes[2].On != 0 || d.Notes[2].Off != 12 {
+		t.Errorf("early note %+v", d.Notes[2])
+	}
+	if s := c.Summary(); s != "C4 loudness +50%, press -50 ms" {
+		t.Errorf("summary %q", s)
+	}
+	if _, err := (Corrections{Keys: map[int]KeyCorrection{60: {Press: 301}}}).Clean(); err == nil {
+		t.Error("press out of range accepted")
 	}
 }

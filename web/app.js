@@ -3105,9 +3105,9 @@ function pianoBackupsScreen(root) {
 // stand out. Release: record chords pressed and let go together, and the
 // keys that come up regularly before or after the rest stand out.
 // Several recordings checked together: #/keys/id1,id2,…
-function keysManyScreen(root, [ids]) { return pieceKeysScreen(root, [ids], true); }
+function keysManyScreen(root, [ids]) { return pieceKeysScreen(root, [ids], null, true); }
 
-function pieceKeysScreen(root, [id], many = false) {
+function pieceKeysScreen(root, [id], _ctx, many = false) {
   let alive = true;
   root.append(h('h1', { class: 'screen-title' }, 'Key check'), h('p', { class: 'muted center' }, 'Loading…'));
   api('GET', many ? '/keycheck?pieces=' + encodeURIComponent(id) : piecePath(id) + '/keys').then((r) => { if (alive) render(r); }, (err) => {
@@ -3136,6 +3136,27 @@ function pieceKeysScreen(root, [id], many = false) {
           h('td', { class: flagged.has(k.note) ? 'at-limit' : null }, signedMs(k.median_ms)),
           h('td', null, k.min_ms === k.max_ms ? signedMs(k.min_ms) : `${signedMs(k.min_ms)} to ${signedMs(k.max_ms)}`))))),
       h('p', { class: 'hint' }, `${rc.chords} chords (keys pressed within ${rc.window_ms} ms of each other). Each key’s release is compared with the middle release of its chord: minus is early. A sensor that fires early or late does it every time; a finger varies. To check the release sensors, record chords pressed and let go together, several times each.`, !many && [' In the ', h('a', { href: editHref(id) }, 'editor'), ', a key’s releases can be moved: click the key at the left for all its notes, then Release.']));
+  }
+
+  // Press timing: the same comparison as releases, on when each key goes
+  // down. Shown only when there are chords.
+  function pressCard(pc) {
+    if (!pc || !pc.chords) return null;
+    const flagged = new Set(pc.outliers.map((k) => k.note));
+    const outliers = pc.outliers.map((k) => h('div', { class: 'message message-warn' }, h('p', null,
+      `${k.name} goes down ${Math.abs(k.median_ms)} ms ${k.median_ms < 0 ? 'before' : 'after'} the rest of its chords (typically; ${k.count} chords, from ${signedMs(k.min_ms)} to ${signedMs(k.max_ms)}).`)));
+    const late = pc.keys.filter((k) => Math.abs(k.median_ms) >= pc.threshold_ms / 2);
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Press timing')),
+      outliers.length ? h('div', { class: 'piano-notes' }, outliers) : h('p', null, `No key goes down ${pc.threshold_ms} ms or more before or after the rest of its chords.`),
+      late.length > 0 && h('table', { class: 'piano-table' },
+        h('thead', null, h('tr', null, h('th', null, 'Key'), h('th', null, 'Chords'), h('th', null, 'Typical'), h('th', null, 'Range'))),
+        h('tbody', null, late.map((k) => h('tr', null,
+          h('td', null, h('a', { href: keyHref(k.note) }, k.name)),
+          h('td', null, String(k.count)),
+          h('td', { class: flagged.has(k.note) ? 'at-limit' : null }, signedMs(k.median_ms)),
+          h('td', null, k.min_ms === k.max_ms ? signedMs(k.min_ms) : `${signedMs(k.min_ms)} to ${signedMs(k.max_ms)}`))))),
+      h('p', { class: 'hint' }, `Each key’s press is compared with the middle press of its chord (keys pressed within ${pc.window_ms} ms of each other): minus is early. A careful hand spreads a chord by 10 to 20 ms; a key regularly ${pc.threshold_ms} ms or more apart may have a press sensor that fires early or late. The table lists the keys ${pc.threshold_ms / 2} ms or more apart.`));
   }
 
   function render(r) {
@@ -3178,6 +3199,7 @@ function pieceKeysScreen(root, [id], many = false) {
         h('div', { class: 'kb-axis' }, h('span', null, 'A0'), h('span', null, 'C4'), h('span', null, 'C8')),
         h('p', { class: 'hint' }, 'Bar height: how far each key stands from its neighbours. Blue: softer; red: beyond the limit.')),
       releaseCard(r.releases),
+      pressCard(r.presses),
       r.recorded_here && !r.corrected && suggestionsCard(r),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity, every key')),
@@ -3232,7 +3254,7 @@ async function saveCorrections() {
   try {
     corrState.c = await api('PUT', '/corrections', {
       on: c.on, fill_zero: c.fill_zero,
-      keys: c.keys.map((k) => ({ note: k.note, speed: k.speed, release_ms: k.release_ms })),
+      keys: c.keys.map((k) => ({ note: k.note, speed: k.speed, press_ms: k.press_ms || 0, release_ms: k.release_ms })),
     });
   } catch (err) {
     toast(err.message, 'error');
@@ -3278,7 +3300,7 @@ function correctionsScreen(root) {
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Keys')),
         listEl,
         h('div', { class: 'corr-add' }, addSelect, h('button', { class: 'btn btn-small', type: 'button', onclick: addKey }, icon('plus'), 'Add a key')),
-        h('p', { class: 'hint' }, 'Loudness is in hammer speed: +20% makes the key’s notes 20% faster, so louder. Release moves when the key lets go: plus is later. A recording’s Key check suggests both.')),
+        h('p', { class: 'hint' }, 'Loudness is in hammer speed: +20% makes the key’s notes 20% faster, so louder. Press moves when the key goes down, and Release when it lets go: plus is later. Silent presses stay silent. A recording’s Key check suggests all three.')),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Recordings made here')),
         h('p', { class: 'muted small' }, 'Open a recording’s Key check to see which keys stand out, and use its suggestions; or tick several and check them together. The ', h('a', { href: '#/record/test' }, 'sensor test'), ' guides the recordings to make.'),
@@ -3309,13 +3331,14 @@ function correctionsScreen(root) {
       return;
     }
     fill(listEl,
-      h('div', { class: 'corr-row corr-head', 'aria-hidden': 'true' }, h('span', null, 'Key'), h('span', null, 'Loudness'), h('span', null, 'Release'), h('span')),
+      h('div', { class: 'corr-row corr-head', 'aria-hidden': 'true' }, h('span', null, 'Key'), h('span', null, 'Loudness'), h('span', null, 'Press'), h('span', null, 'Release'), h('span')),
       c.keys.map((k) => row(k)));
   }
 
   function row(k) {
     const speedWordsEl = h('span', { class: 'corr-words' }, speedWords(k.speed));
     const relWordsEl = h('span', { class: 'corr-words' }, releaseWords(k.release_ms));
+    const pressWordsEl = h('span', { class: 'corr-words' }, releaseWords(k.press_ms || 0));
     const field = (label, value, step, min, max, unit, set, wordsEl, words) => {
       const input = h('input', { class: 'input corr-num', type: 'number', step: String(step), min: String(min), max: String(max), value: String(value), 'aria-label': `${noteName(k.note)}: ${label}` });
       input.addEventListener('change', () => {
@@ -3331,6 +3354,7 @@ function correctionsScreen(root) {
     return h('div', { class: 'corr-row' },
       h('a', { class: 'corr-key', href: keyHref(k.note) }, k.name || noteName(k.note)),
       field('loudness', k.speed, 5, -50, 100, '%', (e, v) => { e.speed = v; }, speedWordsEl, speedWords),
+      field('press', k.press_ms || 0, 5, -300, 300, 'ms', (e, v) => { e.press_ms = v; }, pressWordsEl, releaseWords),
       field('release', k.release_ms, 10, -1000, 1000, 'ms', (e, v) => { e.release_ms = v; }, relWordsEl, releaseWords),
       h('button', { class: 'btn btn-small btn-danger', type: 'button', 'aria-label': `Remove ${noteName(k.note)}`,
         onclick: () => changeCorrections((c) => { c.keys = c.keys.filter((q) => q.note !== k.note); }) }, 'Remove'));
@@ -3340,7 +3364,7 @@ function correctionsScreen(root) {
     const n = Number(addSelect.value);
     changeCorrections((c) => {
       if (!c.keys.some((k) => k.note === n)) {
-        c.keys.push({ note: n, name: noteName(n), speed: 0, release_ms: 0 });
+        c.keys.push({ note: n, name: noteName(n), speed: 0, press_ms: 0, release_ms: 0 });
         c.keys.sort((a, b) => a.note - b.note);
       }
     });
@@ -3366,10 +3390,11 @@ function suggestionsCard(r) {
       const box = h('input', { type: 'checkbox', checked: true });
       boxes.push({ box, s });
       const what = [s.speed && `loudness ${s.speed > 0 ? '+' : MINUS}${Math.abs(s.speed)}% (${speedWords(s.speed)})`,
+        s.press_ms && `press ${s.press_ms > 0 ? '+' : MINUS}${Math.abs(s.press_ms)} ms (${releaseWords(s.press_ms)})`,
         s.release_ms && `release ${s.release_ms > 0 ? '+' : MINUS}${Math.abs(s.release_ms)} ms (${releaseWords(s.release_ms)})`].filter(Boolean).join(', ');
       const cur = c.keys.find((k) => k.note === s.note);
       return h('label', { class: 'corr-check' }, box, h('span', null, h('strong', null, `${s.name}: ${what}. `), `It ${s.why}.`,
-        cur ? ` Now: loudness ${signedNum(cur.speed)}%, release ${signedNum(cur.release_ms)} ms.` : ''));
+        cur ? ` Now: loudness ${signedNum(cur.speed)}%, press ${signedNum(cur.press_ms || 0)} ms, release ${signedNum(cur.release_ms)} ms.` : ''));
     });
     let fillBox = null;
     if (none.length && !c.fill_zero) {
@@ -3394,7 +3419,7 @@ function suggestionsCard(r) {
       changeCorrections((cc) => {
         for (const s of chosen) {
           const k = cc.keys.find((q) => q.note === s.note);
-          if (k) { k.speed = s.speed; k.release_ms = s.release_ms; } else cc.keys.push({ note: s.note, name: s.name, speed: s.speed, release_ms: s.release_ms });
+          if (k) { k.speed = s.speed; k.press_ms = s.press_ms || 0; k.release_ms = s.release_ms; } else cc.keys.push({ note: s.note, name: s.name, speed: s.speed, press_ms: s.press_ms || 0, release_ms: s.release_ms });
         }
         cc.keys.sort((a, b) => a.note - b.note);
         if (fillZero) cc.fill_zero = true;

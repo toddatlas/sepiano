@@ -26,6 +26,7 @@ type correctionJSON struct {
 	Note    int    `json:"note"`
 	Name    string `json:"name"`
 	Speed   int    `json:"speed"`
+	Press   int    `json:"press_ms"`
 	Release int    `json:"release_ms"`
 }
 
@@ -42,7 +43,7 @@ func toCorrectionsJSON(c piano.Corrections) correctionsJSON {
 	out := correctionsJSON{On: c.On, FillZero: c.FillZero, Keys: []correctionJSON{}, Active: c.Active(), Summary: c.Summary()}
 	for _, n := range c.Notes() {
 		k := c.Keys[n]
-		out.Keys = append(out.Keys, correctionJSON{Note: n, Name: lut.NoteName(n), Speed: k.Speed, Release: k.Release})
+		out.Keys = append(out.Keys, correctionJSON{Note: n, Name: lut.NoteName(n), Speed: k.Speed, Press: k.Press, Release: k.Release})
 	}
 	if !c.Updated.IsZero() {
 		t := c.Updated
@@ -83,7 +84,7 @@ func (s *Server) putCorrections(w http.ResponseWriter, r *http.Request) {
 			fail(w, 400, fmt.Sprintf("%s is listed twice", lut.NoteName(k.Note)))
 			return
 		}
-		c.Keys[k.Note] = piano.KeyCorrection{Speed: k.Speed, Release: k.Release}
+		c.Keys[k.Note] = piano.KeyCorrection{Speed: k.Speed, Press: k.Press, Release: k.Release}
 	}
 	saved, err := s.Corrections.Save(c, time.Now())
 	if err != nil {

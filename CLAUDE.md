@@ -426,3 +426,22 @@ usable from the app, then more editing tools.
   so before and after can be compared.
 - `deck.StartTool` returns a channel that reports when the tool ends.
   `sim` imitates the installers and the tape loader.
+- **Editing tools** (`web/edittools.js`, commit 6c88a01): time ranges
+  (play, select, copy, delete, crop, stretch, pedals over them), insert
+  silence, paste (mixed in or into a gap; across pieces), chords started
+  and let go together, loudness ramps and evening out, lengths, legato,
+  note names.
+- **Stahnke's editor decoded** (docs/STAHNKE-EDITOR.md, by a helper; the
+  key facts were checked by hand):
+  - its LOUDER, SOFTER and LEVEL write the trims, so the tool is now gated
+    like setup;
+  - **key 0 is the sostenuto pedal** (0x80 down, 0x00 up). Joining, the
+    editor, corrections and previews had dropped it; `KB.Playable` keeps
+    it. MIDI carries it as CC66;
+  - **velocity 0 is a silent press**, not the hardest strike: corrected in
+    the docs and the app;
+  - header byte 1 is read (a velocity factor).
+- **Sensor test** (Record → Sensor test): two guided recordings, each
+  opening its Key check. Several recordings can be checked together
+  (`/keycheck?pieces=`). The Key check has **press timing** too, and
+  corrections a per-key **press** shift.

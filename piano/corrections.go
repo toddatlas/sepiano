@@ -42,6 +42,8 @@ type KeyCorrection struct {
 	Speed int `json:"speed"`
 	// Release moves the key's releases, in milliseconds: positive is later.
 	Release int `json:"release_ms"`
+	// Press moves the key's presses, in milliseconds: positive is later.
+	Press int `json:"press_ms"`
 }
 
 // Limits of a correction.
@@ -49,6 +51,7 @@ const (
 	MinSpeed   = -50
 	MaxSpeed   = 100
 	MaxRelease = 1000 // ms, either way
+	MaxPress   = 300  // ms, either way
 )
 
 // FillWindow is how near (in ticks, either side) the notes are whose
@@ -80,6 +83,8 @@ func (c Corrections) Clean() (Corrections, error) {
 			return out, fmt.Errorf("%s: loudness %+d%% is out of range (%d to %+d)", lut.NoteName(n), k.Speed, MinSpeed, MaxSpeed)
 		case k.Release < -MaxRelease || k.Release > MaxRelease:
 			return out, fmt.Errorf("%s: release %+d ms is out of range (±%d)", lut.NoteName(n), k.Release, MaxRelease)
+		case k.Press < -MaxPress || k.Press > MaxPress:
+			return out, fmt.Errorf("%s: press %+d ms is out of range (±%d)", lut.NoteName(n), k.Press, MaxPress)
 		}
 		out.Keys[n] = k
 	}
@@ -105,6 +110,9 @@ func (c Corrections) Summary() string {
 		if k.Speed != 0 {
 			what = append(what, fmt.Sprintf("loudness %+d%%", k.Speed))
 		}
+		if k.Press != 0 {
+			what = append(what, fmt.Sprintf("press %+d ms", k.Press))
+		}
 		if k.Release != 0 {
 			what = append(what, fmt.Sprintf("release %+d ms", k.Release))
 		}
@@ -126,9 +134,11 @@ func clampVel(v float64) uint16 {
 }
 
 // Apply corrects the notes of d and returns how many it changed. Each
-// key's velocities and releases are corrected first; then, with FillZero,
-// each press with no hammer reading takes the median velocity of the
-// corrected notes within FillWindow of it (silent presses left out).
+// key's velocities, presses and releases are corrected first (a silent
+// press, velocity 640 or more, keeps its velocity: it stays silent); then,
+// with FillZero, each press with no hammer reading takes the median
+// velocity of the corrected notes within FillWindow of it (silent presses
+// left out).
 func (c Corrections) Apply(d *edit.Doc) int {
 	changed := make([]bool, len(d.Notes))
 	for i := range d.Notes {
@@ -137,9 +147,18 @@ func (c Corrections) Apply(d *edit.Doc) int {
 		if !ok {
 			continue
 		}
-		if k.Speed != 0 && n.Vel > 0 {
+		if k.Speed != 0 && n.Vel > 0 && n.Vel < SilentVelocity {
 			if v := clampVel(float64(n.Vel) * 100 / float64(100+k.Speed)); v != n.Vel {
 				n.Vel, changed[i] = v, true
+			}
+		}
+		if k.Press != 0 {
+			on := max(0, int64(n.On)+int64(k.Press)*se.TicksPerSecond/1000)
+			if uint32(on) != n.On {
+				n.On, changed[i] = uint32(on), true
+				if n.Off < n.On+4 {
+					n.Off = n.On + 4
+				}
 			}
 		}
 		if k.Release != 0 {
@@ -221,15 +240,17 @@ type Suggestion struct {
 	Note    int    `json:"note"`
 	Name    string `json:"name"`
 	Speed   int    `json:"speed"`
+	Press   int    `json:"press_ms"`
 	Release int    `json:"release_ms"`
 	Why     string `json:"why"`
 }
 
 // Suggest turns the keys that stand out in a recording into corrections:
 // a key that records d% off its neighbours in hammer speed gets the speed
-// that brings it back, and a key that lets go early or late in its chords
-// gets its typical difference the other way, rounded to 5 ms.
-func Suggest(kc KeyCheck, rc ReleaseCheck) []Suggestion {
+// that brings it back, and a key that goes down or lets go early or late
+// in its chords gets its typical difference the other way, rounded to 5 ms
+// (presses checked by pc, releases by rc).
+func Suggest(kc KeyCheck, rc, pc ReleaseCheck) []Suggestion {
 	by := map[int]*Suggestion{}
 	get := func(n int, name string) *Suggestion {
 		if by[n] == nil {
@@ -258,6 +279,22 @@ func Suggest(kc KeyCheck, rc ReleaseCheck) []Suggestion {
 			word = "late"
 		}
 		why := fmt.Sprintf("lets go %d ms %s in its chords (%d chords)", abs(k.Median), word, k.Count)
+		if s.Why != "" {
+			s.Why += "; " + why
+		} else {
+			s.Why = why
+		}
+	}
+	for _, k := range pc.Outliers {
+		ms := -int(math.Round(float64(k.Median)/5)) * 5
+		ms = max(-MaxPress, min(MaxPress, ms))
+		s := get(k.Note, k.Name)
+		s.Press = ms
+		word := "early"
+		if k.Median > 0 {
+			word = "late"
+		}
+		why := fmt.Sprintf("goes down %d ms %s in its chords (%d chords)", abs(k.Median), word, k.Count)
 		if s.Why != "" {
 			s.Why += "; " + why
 		} else {

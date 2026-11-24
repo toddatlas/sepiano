@@ -152,7 +152,11 @@ They are kept in one list, `data/corrections.json` (`piano.Corrections`).
 - **For each key**:
   - **Loudness**, in % hammer speed. +20 makes the key's notes 20% faster
     (velocity ÷ 1.2), so louder. The limits are −50 to +100.
+  - **Press**, in ms. Plus goes down later. The limit is ±300. (Added
+    2026-11-24, with the Key check's press timing.)
   - **Release**, in ms. Plus lets go later. The limit is ±1000.
+  - A silent press (velocity 640 or more) keeps its velocity, so it stays
+    silent.
 - **Fill in notes with no hammer reading.** The player plays a velocity-0
   press as a silent press. Where the key really sounded and its hammer
   sensor missed it, the note would be lost. With "fill in", a velocity-0
@@ -181,7 +185,7 @@ They are kept in one list, `data/corrections.json` (`piano.Corrections`).
 - **Suggestions**. A recording's Key check suggests corrections (`piano.Suggest`):
   - a key d% off its neighbours gets the speed that brings it back
     (1 / (1 + d) − 1);
-  - a key that lets go early or late in its chords gets its typical
+  - a key that goes down or lets go early or late in its chords gets its typical
     difference the other way, rounded to 5 ms;
   - "fill in" is suggested when there are velocity-0 presses.
 
@@ -199,6 +203,51 @@ They are kept in one list, `data/corrections.json` (`piano.Corrections`).
 
 From the first test recording, for example, "G3 loudness +54%, release
 +435 ms" is suggested. That rests on only two notes and two chords.
+
+## The sensor test and checking together (2026-11-24)
+
+- **Record → Sensor test** guides two recordings:
+  - loudness: each key four times at one loudness;
+  - releases: chords pressed and let go together, three times each, up the
+    keyboard.
+
+  "Get ready" arms the recorder with a title ("Sensor test: loudness, …").
+  When the recording is saved, its Key check opens by itself.
+- **Several recordings checked together** (`GET /keycheck?pieces=a,b`;
+  `#/keys/a,b`; ticked on the Sensor test or Corrections screen). The
+  pieces are laid end to end, so no chord spans two; more takes give
+  firmer suggestions.
+- The Key check now also has **press timing** (`piano.CheckPresses`): each
+  key's press against the middle press of its chord, flagged at 25 ms or
+  more in two thirds of its chords.
+
+## More editing tools (2026-11-24)
+
+The editor's operations live in `web/edittools.js`.
+
+- **Time ranges.** Drag along the time ruler; a click there moves the
+  cursor. A range can be:
+  - played on its own (the preview's `to`);
+  - selected (its notes), copied (notes and pedals), deleted (the time
+    removed), kept alone (cropped), or stretched (25% to 400%);
+  - given a damper (down, half, up) or soft pedal.
+- **At the cursor:**
+  - insert silence;
+  - paste, either mixed in or into a gap opened for it, with its pedals.
+
+  The copy lasts while the app is open, so it can go into another piece.
+- **On selected notes:**
+  - copy, cut, duplicate;
+  - start together and let go together, chord by chord (presses within
+    70 ms);
+  - a loudness ramp from one percentage to another (a crescendo or
+    diminuendo);
+  - even out (towards the median, 0 to 100%);
+  - all one length; legato.
+  - Selecting: all, velocity 0, silent presses, invert.
+- **Note names** are drawn in notes when rows are tall enough (Alt+wheel).
+- **Shortcuts:** Ctrl+C, X, V (Shift+V inserts), D duplicates, and Esc
+  clears. Undo covers ranges too.
 
 ## Next steps, for the owner to choose
 

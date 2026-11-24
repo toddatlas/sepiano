@@ -168,8 +168,26 @@ const (
 
 // CheckReleases finds the chords in p and how each key lets go in them.
 func CheckReleases(p *se.Performance) ReleaseCheck {
+	return chordTiming(p, ReleaseThreshold, func(n edit.Note) uint32 { return n.Off })
+}
+
+// PressThreshold is how early or late (ms) a key's press must be against
+// the rest of its chords to count. A chord's presses all fall within
+// ChordWindow, and a careful hand spreads them by 10 to 20 ms.
+const PressThreshold = 25
+
+// CheckPresses compares when each key goes down with the other keys of the
+// chords it is played in: a key whose press sensor fires early or late
+// does so in every chord. The same check as CheckReleases, on presses.
+func CheckPresses(p *se.Performance) ReleaseCheck {
+	return chordTiming(p, PressThreshold, func(n edit.Note) uint32 { return n.On })
+}
+
+// chordTiming finds the chords in p and how each key's press or release
+// (pick) lies against the middle of its chord's.
+func chordTiming(p *se.Performance, threshold int, pick func(edit.Note) uint32) ReleaseCheck {
 	notes := edit.FromPerformance(p).Notes
-	c := ReleaseCheck{Threshold: ReleaseThreshold, Window: ChordWindow * 1000 / se.TicksPerSecond,
+	c := ReleaseCheck{Threshold: threshold, Window: ChordWindow * 1000 / se.TicksPerSecond,
 		Keys: []ReleaseStat{}, Outliers: []ReleaseStat{}}
 	byKey := map[int][]int{}
 	for i := 0; i < len(notes); {
@@ -185,7 +203,7 @@ func CheckReleases(p *se.Performance) ReleaseCheck {
 		for _, n := range chord {
 			if !seen[n.Key] {
 				seen[n.Key] = true
-				offs = append(offs, int(n.Off))
+				offs = append(offs, int(pick(n)))
 				keys = append(keys, int(n.Key))
 			}
 		}
@@ -216,13 +234,13 @@ func CheckReleases(p *se.Performance) ReleaseCheck {
 		// early once and late once is the hand, not the sensor.
 		early, late := 0, 0
 		for _, x := range d {
-			if x <= -ReleaseThreshold/2 {
+			if x <= -threshold/2 {
 				early++
-			} else if x >= ReleaseThreshold/2 {
+			} else if x >= threshold/2 {
 				late++
 			}
 		}
-		if s.Count >= 2 && ((s.Median <= -ReleaseThreshold && 3*early >= 2*s.Count) || (s.Median >= ReleaseThreshold && 3*late >= 2*s.Count)) {
+		if s.Count >= 2 && ((s.Median <= -threshold && 3*early >= 2*s.Count) || (s.Median >= threshold && 3*late >= 2*s.Count)) {
 			c.Outliers = append(c.Outliers, s)
 		}
 	}

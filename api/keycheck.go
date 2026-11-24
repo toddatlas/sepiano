@@ -33,11 +33,12 @@ func (s *Server) pieceKeys(w http.ResponseWriter, r *http.Request) {
 	}
 	c := piano.CheckKeys(perf)
 	rc := piano.CheckReleases(perf)
+	pc := piano.CheckPresses(perf)
 	writeJSON(w, 200, map[string]any{
 		"piece": ref(p), "origin": p.Origin, "check": c, "releases": rc,
 		// Corrections the stand-out keys suggest, for a recording made here.
 		"recorded_here": p.RecordedHere(), "corrected": p.Corrected,
-		"suggestions": piano.Suggest(c, rc),
+		"presses": pc, "suggestions": piano.Suggest(c, rc, pc),
 	})
 }
 
@@ -85,9 +86,10 @@ func (s *Server) keyCheckMany(w http.ResponseWriter, r *http.Request) {
 	}
 	c := piano.CheckKeys(all)
 	rc := piano.CheckReleases(all)
+	pc := piano.CheckPresses(all)
 	writeJSON(w, 200, map[string]any{
 		"pieces": refs, "check": c, "releases": rc,
 		"recorded_here": recordedHere, "corrected": corrected,
-		"suggestions": piano.Suggest(c, rc),
+		"presses": pc, "suggestions": piano.Suggest(c, rc, pc),
 	})
 }
