@@ -3734,9 +3734,8 @@ function toolScreen(root, [name, arg]) {
         h('button', { class: 'btn btn-small', type: 'button', onclick: () => { choice.file = ''; renderNeeds(); update(); } }, 'Change')));
     } else {
       if (need === 'piece' || need === 'midi') {
-        card.append(
-          need === 'midi' && h('p', { class: 'muted small' }, 'A piece converted from MIDI keeps its original file:'),
-          piecePicker((p) => { choice.piece = p; renderNeeds(); update(); }, need === 'midi' ? (p) => p.has_midi_source : null));
+        if (need === 'midi') card.append(h('p', { class: 'muted small' }, 'A piece converted from MIDI keeps its original file:'));
+        card.append(piecePicker((p) => { choice.piece = p; renderNeeds(); update(); }, need === 'midi' ? (p) => p.has_midi_source : null));
       }
       if (need === 'file' || need === 'midi') {
         const fileInput = h('input', { type: 'file', accept: tool.accept || '', 'aria-label': 'File to upload' });
