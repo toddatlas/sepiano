@@ -84,20 +84,27 @@ func firmware(path, orgHex, tableHex string, extra []uint16, list bool) int {
 	for _, k := range pk {
 		fmt.Printf("  %-8s ×%d\n", k, len(ports[k]))
 	}
-	// Per entry: what its code reaches.
-	fmt.Println("entries (target: ports, then fixed memory read/written, through calls):")
+	// Per entry: what its own code reaches, stopping at other entries.
+	fmt.Println("entries (target, instructions, ports, entries it calls, fixed memory):")
 	for i, t := range targets {
-		ps, mem, n := reach(p, t)
-		fmt.Printf("  FW#%-3d %04X  %3d instr  %s  %s\n", i, t, n, strings.Join(ps, " "), strings.Join(mem, " "))
+		r := reach(p, t, entryOf)
+		fmt.Printf("  FW#%-3d %04X %4d  %-24s %-28s %s\n", i, t, r.n, strings.Join(r.ports, " "), strings.Join(r.calls, " "), strings.Join(r.mem, " "))
 	}
 	return 0
 }
 
+type reached struct {
+	ports, calls, mem []string
+	n                 int
+}
+
 // reach walks the code from start, following jumps and calls inside the
-// image, and lists the ports and absolute memory operands it meets.
-func reach(p *z80.Program, start uint16) (ports, mem []string, n int) {
+// image but not into other table entries (they are listed as calls), and
+// lists the ports and absolute memory operands it meets.
+func reach(p *z80.Program, start uint16, entryOf map[uint16]int) reached {
+	var r reached
 	seen := map[uint16]bool{}
-	ps, ms := map[string]bool{}, map[string]bool{}
+	ps, cs, ms := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	work := []uint16{start}
 	for len(work) > 0 {
 		pc := work[len(work)-1]
@@ -108,7 +115,7 @@ func reach(p *z80.Program, start uint16) (ports, mem []string, n int) {
 				break
 			}
 			seen[pc] = true
-			n++
+			r.n++
 			if in.Port >= 0 {
 				d := "in"
 				if in.Out {
@@ -128,7 +135,11 @@ func reach(p *z80.Program, start uint16) (ports, mem []string, n int) {
 			}
 			switch in.Flow {
 			case z80.Jump, z80.Branch, z80.Call:
-				work = append(work, in.Target)
+				if e, ok := entryOf[in.Target]; ok && in.Target != start {
+					cs[fmt.Sprintf("#%d", e)] = true
+				} else {
+					work = append(work, in.Target)
+				}
 			}
 			if in.Flow == z80.Jump || in.Flow == z80.Return || in.Flow == z80.Stop {
 				break
@@ -141,15 +152,19 @@ func reach(p *z80.Program, start uint16) (ports, mem []string, n int) {
 		}
 	}
 	for k := range ps {
-		ports = append(ports, k)
+		r.ports = append(r.ports, k)
+	}
+	for k := range cs {
+		r.calls = append(r.calls, k)
 	}
 	for k := range ms {
-		mem = append(mem, k)
+		r.mem = append(r.mem, k)
 	}
-	sort.Strings(ports)
-	sort.Strings(mem)
-	if len(mem) > 12 {
-		mem = append(mem[:12], fmt.Sprintf("…+%d", len(mem)-12))
+	sort.Strings(r.ports)
+	sort.Strings(r.calls)
+	sort.Strings(r.mem)
+	if len(r.mem) > 10 {
+		r.mem = append(r.mem[:10], fmt.Sprintf("…+%d", len(r.mem)-10))
 	}
-	return ports, mem, n
+	return r
 }

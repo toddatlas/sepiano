@@ -113,16 +113,16 @@ note first; a grid of n × 88 is stored row by row.
 |--:|-------:|-----:|-------|---------|------------|
 | 0 | 34H | 16 | 8 words | FW#71 | **Breakpoints**: SE velocities, ending in 0. 25 40 64 100 160 256 400 in the prototype, 30 40 64 … in the piano |
 | 1 | 44H | 616 | 7 × 88 | FW#71 | **Lead time** per key at each breakpoint: how far before the strike the actuation is scheduled (`midiin` subtracts it from the strike time). Prototype rows 28 36 48 64 80 108 136 |
-| 2 | 2ACH | 616 | 7 × 88 | FW#71 | A second value per key at each breakpoint, sent with the actuation event: probably its drive. Prototype rows 18 30 48 68 100 128 160 |
+| 2 | 2ACH | 616 | 7 × 88 | FW#71 | **Strike drive** per key at each breakpoint: the value `play.exe` writes to the key's actuator in strike mode (larger for softer notes). Prototype rows 18 30 48 68 100 128 160 |
 | 3 | 514H | 2 | word | FW#77 | `0120H`, returned with section 4 |
 | 4 | 516H | 88 | per key | FW#77 | Used by `silent`: probably the silent actuate level. 29 in the prototype, 28–29 in the piano |
 | 5 | 56EH | 6 | words | FW#74, #75 | 60 and 120, returned with section 6's two rows |
 | 6 | 574H | 176 | 2 × 88 | FW#74, #75 | Calibrated per key by `cal`. Prototype rows 46 and 38 |
-| 7 | 624H | 88 | per key | FW#72, #73 | Calibrated per key by `cal`. Prototype 44 |
+| 7 | 624H | 88 | per key | FW#72, #73 | Calibrated per key by `cal`: the value `play.exe` sets just before each strike (a mode-00 event). Prototype 44 |
 | 8 | 67CH | 1 | | FW#73 | `FF`, returned with section 7 |
-| 9 | 67DH | 90 | | FW#76, FW#71 | A byte (100); then the trims' on/off flag; then **a signed velocity trim per key**, applied by FW#71 before the lookup when the flag isn't 0 |
+| 9 | 67DH | 90 | | FW#76, FW#71 | A byte (100: **the hold value**, set after the strike when holding is on); then the trims' on/off flag; then **a signed velocity trim per key**, applied by FW#71 before the lookup when the flag isn't 0 |
 | 10 | 6D7H | 9 | length + 8 | FW#78; setup | +1 first and +2 last adjustment/calibration note, +4 first calibration |
-| 11 | 6E0H | 91 | length + 90 | FW#79 | Not decoded |
+| 11 | 6E0H | 91 | length + 90 | FW#79 | **The player's constants** (below) |
 | 12 | 73BH | 13 | length + 12 | FW#80; setup | +2 piano serial number |
 | 13 | 748H | 9 | length + 8 | FW#81; setup | +1 discard silent notes, +2 German note names |
 
@@ -139,6 +139,56 @@ SE velocity (bigger is softer), the firmware:
 
 `play.exe`, `midiin` and `cal` call it. `lut.Table.Lookup` does steps 2–4
 the same way.
+
+**How the player drives a key.** Each key's actuator has two parts:
+- a 2-bit **mode**: 00, 01 (strike), 11 (hold) or 10;
+- an 8-bit **value**, written through ports 33H (register address) and 34H
+  (data).
+
+FW#17, #19, #20 and #21 set a key's mode to 01, 11, 10 and 00 with a
+value; #19 and #20 act only on a key that is already active. `play.exe`
+keeps a time-ordered list of events (type 1, 2, 4 or 8 becomes mode 01,
+11, 10 or 00) and runs them from its timer interrupt. For each note at
+strike time T it:
+1. Prepares the velocity:
+   - it scales it by a factor for the subdue level (section 11);
+   - it can replace it with a uniform value or add an offset to it.
+2. Calls FW#71, which returns the lead time (section 1) and the strike
+   drive (section 2).
+3. Schedules these events:
+
+| When | Event | Value |
+|------|-------|-------|
+| T − lead − 30 ticks (64 for some keys) | mode 00 | the key's section 7 value |
+| T − lead | **strike**: mode 01 | the strike drive (section 2) |
+| T − lead × 16/256 | a check event | |
+| T + lead × 32/256, when section 11 allows it | **hold**: mode 11 | section 9's first byte (100) |
+
+When a key's sensor reports during the strike, the player switches that key
+to mode 11, with the strike drive as its value. For a soft note (velocity
+over 128) it scales the drive by section 11's word 32 / 256 first. Ending
+notes (FW#22 and the note-off events) use section 6's two rows, with section
+5's two words. The ticks are the 800 Hz performance clock; the player runs
+its timer at 6,400 Hz (FW#32 divides a 2.048 MHz clock).
+
+Section 11, as `play.exe` reads it (its data, after the length byte;
+little-endian words):
+
+| Offset | Steinway B-SE | Used for |
+|-------:|--------------:|----------|
+| 0 | 800 | the performance clock, ticks per second |
+| 6 | 80 | the uniform velocity, when that option is on |
+| 8 | 16 | the velocity offset, when that option is on |
+| 12 | 16 | when the check event comes: lead × n/256 before the strike |
+| 16 | 256 | a velocity limit for re-strikes |
+| 18, 20 | 30, 64 | ticks between the mode-00 event and the strike (64 for keys marked 2) |
+| 22 | 32 | when the hold starts: lead × n/256 after the strike (0 = no hold) |
+| 30 | 128 | above this velocity (softer), the drive after the sensor is scaled… |
+| 32 | 224 (**160 in this piano**) | …by n/256 |
+| 58–65 | bytes 40 11 10 07 05 02 01 00 | level thresholds |
+| 74–89 | 240 256 256 256 256 256 288 480 | the velocity factor (/256) for each threshold |
+
+The other words (2, 4, 10, 14, 24–28, 34–40) are not traced yet.
 
 `setup` edits these six settings, each one byte:
 
@@ -173,7 +223,8 @@ the repository.
   The others:
   - the settings;
   - the first breakpoint (25 → 30);
-  - one byte in section 11 (not decoded);
+  - section 11's word 32, 224 → 160: soft notes keep less of their
+    strike drive after the sensor sees the hammer;
   - **a velocity trim of +7 on G3** in section 9. Trims are switched on;
     it is the only one.
 - Keys that stand out:
@@ -240,8 +291,30 @@ not in the repository (they are Stahnke's code).
   byte) and 36H (high byte), and the data byte is read or written at 37H.
   A write is checked against a timer (ports 39H and 3BH, an 8254-style
   counter).
-- Other ports it uses, not identified yet: 28H–31H, 3CH, 3DH, B8H–BBH,
-  CAH, CBH, D8H, D9H, E0H, F0H.
+- The rest of the hardware, by the entries that use it. "Probably" marks
+  inferences from which programs call what:
+
+| Ports | Entries | What |
+|-------|---------|------|
+| 28H–2FH (in) | FW#3–#15 | key and hammer sensors: `record`, `cal`, `anykey`, `anyham`, and the player's sensor loop (FW#9–#11) |
+| 30H–34H | FW#16–#22 | the actuators. FW#16 sets them up for the key count, 4 keys per group and 5 registers per group, all off. 33H is the register address and 34H the data. Per key: a 2-bit mode and an 8-bit value |
+| 30H, 31H (in), 33H/34H | FW#23–#30 | probably the pedals (two of them, state in D4FDH and D4FEH; `sustain` raises the dampers through FW#24) |
+| 38H–3BH | FW#31, #32, #34, #43 | an 8254-style timer on a 2.048 MHz clock (FW#32 takes a rate in Hz); also the EEPROM write timeout |
+| 3CH, 3DH | FW#35–#41, #45, #46 | not identified (3DH is set up with 6 bytes from a table) |
+| 35H–37H | FW#42, #43 | the EEPROM |
+| BAH, BBH | FW#107–#113, #147–#156, #193 | a serial channel: the PC link (the exit and error paths use it) |
+| B8H, B9H | FW#114–#120, #157–#167, #194 | a second serial channel, probably MIDI (`midiin` uses it) |
+| D8H, D9H | FW#141–#145 | probably the interrupt controller (masks around the serial routines) |
+| CAH, CBH | FW#129–#132 | not identified (used with the pedals and by `sustain`) |
+| E0H, F0H | FW#133, #134 | not identified |
+
+  Other entries without ports:
+  - FW#87–#106 are the link's buffers. FW#97 tests for a key, FW#99 reads
+    one and FW#101 prints a character on the console; FW#104 and FW#106
+    receive and send on the file channel.
+  - FW#121–#128 are arithmetic.
+  - FW#137 and FW#138 set and read one of 8 interrupt vectors; FW#139 and
+    FW#140 set and read the NMI handler.
 
 `sesuite -fw IMAGE -org A000 -table B82A` reports, entry by entry, the
 ports and fixed memory each one reaches; `-list` prints the listing.
@@ -273,5 +346,10 @@ ports and fixed memory each one reaches; `-list` prints the listing.
    bytes at known places, written through `setup.exe` or `putlut`.
    Calibration (`cal`, `silent`) rewrites many values. Run it only when the
    owner wants a recalibration, and with a backup to return to.
-5. **Read the firmware** (done 2026-11-23, `semon`). Next in it: the event
-   executor (what section 2's value drives) and the remaining entries.
+5. **Read the firmware** (done 2026-11-23, `semon`; decoded: the hardware
+   map, the actuator modes, how `play.exe` schedules a note, section 11).
+   Still open:
+   - what modes 10 and 00 do physically;
+   - sections 4, 6 and 7 in physical terms;
+   - the untraced words of section 11;
+   - the ports marked "not identified".

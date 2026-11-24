@@ -68,6 +68,7 @@ func main() {
 	org := flag.String("org", "A000", "with -fw: the image's first address, hex")
 	table := flag.String("table", "", "with -fw: the firmware jump table's address, hex (the operand of the JP at 0000H)")
 	list := flag.Bool("list", false, "with -fw: print the listing instead of the report")
+	sweep := flag.String("sweep", "", "with -dis: decode `START,END` (hex) straight through instead of tracing (for code reached through tables)")
 	flag.Parse()
 	if *fw != "" {
 		os.Exit(firmware(*fw, *org, *table, parseEntries(*extra), *list))
@@ -113,7 +114,11 @@ func main() {
 		}
 		if *dis != "" {
 			if strings.EqualFold(*dis, name) {
-				fmt.Print(a.code.Listing(a.label))
+				if r := parseEntries(*sweep); len(r) == 2 {
+					linear(a, r[0], r[1])
+				} else {
+					fmt.Print(a.code.Listing(a.label))
+				}
 			}
 			continue
 		}
@@ -327,4 +332,29 @@ func parseEntries(s string) []uint16 {
 		out = append(out, uint16(v))
 	}
 	return out
+}
+
+// linear decodes start..end instruction after instruction, skipping the
+// inline text after calls to the print routine.
+func linear(a *analysis, start, end uint16) {
+	p := a.code
+	for pc := start; pc <= end && p.In(pc); {
+		in := z80.Decode(a.img, a.org, pc)
+		text := in.Text
+		if l := a.label(in.Target); l != "" && (in.Flow == z80.Call || in.Flow == z80.Jump || in.Flow == z80.Branch) {
+			text += "  ; " + l
+		}
+		fmt.Printf("  %04X  %s\n", pc, text)
+		next := pc + uint16(in.Len)
+		if in.Flow == z80.Call {
+			if n := inlineText(p, in.Target, next); n > 0 {
+				fmt.Printf("  %04X  DB %q\n", next, string(a.img[next-a.org:next-a.org+uint16(n)]))
+				next += uint16(n)
+			}
+		}
+		if next <= pc {
+			break
+		}
+		pc = next
+	}
 }

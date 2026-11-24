@@ -252,5 +252,14 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   - section 9 holds per-key velocity trims (G3 +7 on this piano).
 
   `lut.Table.Lookup` and `selut -key` reproduce the lookup.
+- Decoded further (same day):
+  - the hardware map (sensors, actuators, pedals, timer, two serial
+    channels, EEPROM);
+  - each key's actuator has a 2-bit mode (strike 01, hold 11) and an
+    8-bit value;
+  - `play.exe` schedules each note as events from FW#71: section 2 is the
+    strike drive;
+  - section 11 holds the player's constants (800 = the clock). This
+    piano's one change there is word 32, 224 → 160.
 - Next: a "Tools" console in the app for the other programs, then an
   editor for the settings.
