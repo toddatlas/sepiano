@@ -119,6 +119,39 @@ export function stretch(doc, a, b, f) {
   const grow = (b - a) * (f - 1);
   const map = (t) => (t <= a ? t : t <= b ? a + (t - a) * f : t + grow);
   const unmap = (t) => (t <= a ? t : t <= a + (b - a) * f ? a + (t - a) / f : t - grow);
+  retime(doc, map, unmap);
+}
+
+// tempoRamp changes the tempo gradually across ticks a to b: time there
+// passes f0 times as long at a, easing to f1 times at b (1 to 1.3 is a
+// ritardando that ends 30% slower; 1 to 0.8 an accelerando). What comes
+// after moves with it. It returns where b ends up.
+export function tempoRamp(doc, a, b, f0, f1) {
+  if (!(b > a) || !(f0 > 0) || !(f1 > 0) || (f0 === 1 && f1 === 1)) return b;
+  const len = b - a;
+  const k = (f1 - f0) / (2 * len); // map(t) = a + f0·s + k·s², s = t − a
+  const newLen = (len * (f0 + f1)) / 2;
+  const grow = newLen - len;
+  const map = (t) => {
+    if (t <= a) return t;
+    if (t >= b) return t + grow;
+    const s = t - a;
+    return a + f0 * s + k * s * s;
+  };
+  const unmap = (u) => {
+    if (u <= a) return u;
+    if (u >= a + newLen) return u - grow;
+    const v = u - a;
+    const s = Math.abs(k) < 1e-12 ? v / f0 : (-f0 + Math.sqrt(Math.max(0, f0 * f0 + 4 * k * v))) / (2 * k);
+    return a + s;
+  };
+  retime(doc, map, unmap);
+  return Math.round(a + newLen);
+}
+
+// retime moves every note, mark and pedal through map, a time warp that
+// only ever moves later times later; unmap is its inverse, for the pedals.
+function retime(doc, map, unmap) {
   for (const n of doc.notes) {
     n.on = Math.round(map(n.on));
     n.off = Math.max(n.on + MIN_LEN, Math.round(map(n.off)));
@@ -129,7 +162,7 @@ export function stretch(doc, a, b, f) {
     const arr = doc[name];
     const out = new Array(Math.floor(end / p) + 1);
     for (let i = 0; i < out.length; i++) {
-      out[i] = arr.length ? arr[Math.min(arr.length - 1, Math.floor(unmap(i * p) / p))] : 0;
+      out[i] = arr.length ? arr[Math.max(0, Math.min(arr.length - 1, Math.floor(unmap(i * p) / p)))] : 0;
     }
     doc[name] = out;
   }

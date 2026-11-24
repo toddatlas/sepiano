@@ -393,7 +393,8 @@ export function editorScreen(root, [id], ui) {
             if (!(pct >= 25 && pct <= 400)) { toast('Stretch between 25% and 400%.', 'error'); return; }
             const f = pct / 100;
             rangeEdit(() => T.stretch(doc, a, b, f), { a, b: Math.round(a + (b - a) * f) }, `Range now ${pct}% as long.`);
-          }, '%', 'Apply')),
+          }, '%', 'Apply'),
+          rampForm(a, b)),
         group('Damper',
           button('Down', () => rangeEdit(() => T.setPedal(doc, 'damper', a, b, 255), range)),
           button('Half', () => rangeEdit(() => T.setPedal(doc, 'damper', a, b, 128), range)),
@@ -465,6 +466,23 @@ export function editorScreen(root, [id], ui) {
       if (Number.isFinite(x) && Number.isFinite(y)) tool((n) => T.shapeLoudness(n, x, y), 'notes reshaped');
     } },
     h('label', null, 'louder from ', from, ' % to ', to, ' %'), h('button', { class: 'btn btn-small', type: 'submit', title: 'Gradually, first note to last: a crescendo (or, with negative numbers, a diminuendo)' }, 'Apply'));
+  }
+
+  // rampForm changes the tempo gradually across the range: a ritardando
+  // (100 to 130: it ends 30% slower) or an accelerando (100 to 80).
+  function rampForm(a, b) {
+    const from = h('input', { class: 'input ed-num-input', type: 'number', step: '5', value: '100', 'aria-label': 'Time at the start of the range (%)' });
+    const to = h('input', { class: 'input ed-num-input', type: 'number', step: '5', value: '130', 'aria-label': 'Time at the end of the range (%)' });
+    return h('form', { class: 'ed-num', onsubmit: (e) => {
+      e.preventDefault();
+      const x = parseFloat(from.value);
+      const y = parseFloat(to.value);
+      if (!(x >= 25 && x <= 400 && y >= 25 && y <= 400)) { toast('Use 25% to 400% at each end.', 'error'); return; }
+      const nr = { a, b }; // the range afterwards: its end moves
+      rangeEdit(() => { nr.b = T.tempoRamp(doc, a, b, x / 100, y / 100); }, nr,
+        y > x ? 'Slowing down across the range.' : y < x ? 'Speeding up across the range.' : `Range now ${x}% as long.`);
+    } },
+    h('label', null, 'gradually ', from, ' to ', to, ' %'), h('button', { class: 'btn btn-small', type: 'submit', title: 'Time passes this much slower (over 100) or faster (under 100) at each end of the range, easing between them. 100 to 130: a ritardando that ends 30% slower.' }, 'Apply'));
   }
 
   // tool runs an operation on the selected notes as one undoable step.

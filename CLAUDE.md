@@ -477,3 +477,6 @@ usable from the app, then more editing tools.
     - time edits snap to the pedals' 16-tick grid, so the pedals can't
       drift;
     - previews pair the sostenuto.
+- Also: the Restore screen lists what a chosen backup would change from
+  the newest backup, and the editor has a gradual tempo change over a
+  range (`tempoRamp`: ritardando, accelerando).

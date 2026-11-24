@@ -57,6 +57,8 @@ Safety:
   word ERASE typed. You should not need them; restoring a backup is the
   way back.
 - **Restore a backup.** It is also on each backup in Piano → Backups.
+  - When you choose a backup, it lists what restoring it would change
+    from the newest backup (or says that nothing would change).
   - It writes only a whole, valid table for this piano's model.
   - It backs up first.
   - Afterwards it reads the piano back and tells you whether it now
@@ -79,6 +81,8 @@ New since yesterday:
   - delete it (the time is removed and what follows moves up);
   - **keep only it** (make an excerpt);
   - **stretch it** (for example 110% to slow that passage by 10%);
+  - **slow down or speed up gradually** across it: "gradually 100 to
+    130 %" is a ritardando that ends 30% slower; 100 to 80 speeds up;
   - set the damper (down, half, up), the soft pedal or the sostenuto over
     it.
 - **Copy and paste.** Ctrl+C copies the selected notes (or the range with

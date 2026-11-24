@@ -231,6 +231,10 @@ The editor's operations live in `web/edittools.js`.
   - played on its own (the preview's `to`);
   - selected (its notes), copied (notes and pedals), deleted (the time
     removed), kept alone (cropped), or stretched (25% to 400%);
+  - slowed down or sped up gradually (`tempoRamp`): time passes f0 times
+    as long at the start and f1 at the end, easing between them. 100 to
+    130 is a ritardando that ends 30% slower; 100 to 80 an accelerando.
+    Notes, pedals and marks move together;
   - given a damper (down, half, up) or soft pedal.
 - **At the cursor:**
   - insert silence;
@@ -269,8 +273,7 @@ built (above, and docs/STAHNKE-EDITOR.md).
 1. **Formal tests at the piano** (velocity, press and release timing,
    playback), with Record → Sensor test, then the Key check and its
    suggested corrections.
-2. **More editing**, if wanted: tempo curves (a gradual slowing, not one
-   stretch), a velocity curve drawn across a passage, and markers with
-   names.
+2. **More editing**, if wanted: a velocity curve drawn across a
+   passage, and markers with names. (Gradual tempo changes are built.)
 3. **Writing trims to the piano** (`putlut`), deferred by the owner until
    the recordings show which keys need it.
