@@ -4,8 +4,9 @@ What each program of *SE Program Suite v0.95* does, how it talks to the
 instrument, and what it can change. Found by tracing the Z80 program each
 one uploads (`cmd/sesuite`, `z80/`), from the owner's copy of
 `se_program_suite_v0.95_setup.exe` (an NSIS 2.25 installer; 7-Zip unpacks
-it). Only `play.exe` and `getlut.exe` (one read-only backup) have been run on
-the piano.
+it). Only `play.exe`, `getlut.exe` (one read-only backup) and
+`monitor.exe` (dump commands only, through `semon`) have been run on the
+piano.
 
 `sesuite FOLDER` prints the survey; `sesuite -dis NAME FOLDER` a listing.
 Keep listings, images and the programs out of the repository: they are
@@ -67,54 +68,77 @@ interface; they are of historical interest only.
 
 ## The instrument's EEPROM ("lookup table")
 
-The piano keeps its calibration and settings in an EEPROM, which the
-firmware reads and writes a byte at a time:
+The piano keeps its calibration and settings in a 2048-byte EEPROM. The
+firmware reaches it through I/O ports (see "The firmware" below), and every
+program goes through these firmware entries. They are confirmed in the
+firmware itself:
 
-| Entry | Does | Evidence |
-|-------|------|----------|
-| FW#42 | A ← EEPROM[HL] | `getlut` sends what it returns to the file; `put*` verify with it |
-| FW#43 | EEPROM[HL] ← A; carry set when it worked | `put*` and `putlut` write with it, "EEPROM ERROR AT ADDRESS" on no carry |
-| FW#44 | HL ← the EEPROM's size in bytes | the loop count of every whole-table read and write; the installers hold exactly 2048 bytes of table and padding |
-| FW#47 | HL ← offset of the version word (0) | `put*` print "PROTOTYPE LOOKUP TABLE, V" from it |
-| FW#65 | HL ← offset of the model name | `put*` print the name from it |
-| FW#51 … FW#64 | HL ← the offset of section 0 … 13 (FW#51 + n gives section n) | `setup`'s fields land exactly on the bytes that differ in sections 10, 12 and 13 of the piano's table (below) |
-| FW#67, #68 | A ← the instrument's bottom and top note | `setup` prints them next to the calibration range |
+| Entry | Does |
+|-------|------|
+| FW#42 | A ← EEPROM[HL]; an address of 0800H or more is a fatal error |
+| FW#43 | EEPROM[HL] ← A; carry set when it worked. **It writes nothing when the byte already holds A**; otherwise it writes, then polls until the chip reads back A or a timer runs out |
+| FW#44 | HL ← 0800H, the EEPROM's size |
+| FW#47, #48, #49, #50 | HL ← 0, 2, 4, 5: where the version, the length, the bottom note and the top note are |
+| FW#51 … FW#64 | HL ← the offset of section 0 … 13, read from the directory (FW#51 + n gives section n) |
+| FW#65 | HL ← 22H, where the model name is |
+| FW#66 | loads and checks the table: notes, key count and section offsets into RAM (D503H–D522H); a bad key range is fatal |
+| FW#67, #68, #69 | A ← the bottom note, the top note, the number of keys |
+| FW#70 | A ← the key index of note A (fatal outside the keyboard) |
+| FW#71 | the velocity lookup: note A, SE velocity HL → L from section 1, A from section 2 (below) |
+| FW#72, #73 | section 7's value for a key, and section 8's byte |
+| FW#74, #75 | section 6's first or second row for a key, with section 5's first or second word |
+| FW#76 | section 9's first byte |
+| FW#77 | section 4's value for a key, with section 3's word |
+| FW#78 … FW#81 | copy section 10, 11, 12 or 13 (each starts with its own length) into RAM |
 
-The EEPROM is 2048 bytes. The prototype tables in `put*.exe`, and the
-piano's own table, share this layout (little-endian words):
+The layout (little-endian words), the same in the prototype tables of
+`put*.exe` and in the piano:
 
 | Offset | Holds |
 |--------|-------|
 | 0 | table version, `3017H` (V30.17) |
 | 2 | the table's length in bytes: 1873 for the Steinway B-SE, 2048 for the 290SE |
-| 4 | a word, not understood yet (`6C15H` for the Steinway B-SE) |
+| 4, 5 | the bottom and top note (MIDI numbers): 21 and 108 (A0–C8, 88 keys) on the Steinway B and Yamaha C-7, 12–108 (97 keys) on the Bösendorfer 290, 17–108 (92) on the 225 and 275 |
 | 6 | 14 offsets of the table's sections, increasing |
 | 22H | the model's name, then CR LF 7FH (`Steinway B-SE`) |
-| 32H | a word, not understood yet |
+| after the name | a word: where section 9's velocity trims start (`067EH`) |
 | sections | below |
 
 The installers fill the rest of the EEPROM with `FF`.
 
-The Steinway B-SE's sections. "Per key" means 88 values, A0 first; a grid
-of n × 88 is stored row by row. The users are the programs that ask for the
-section's offset.
+The Steinway B-SE's sections. "Per key" means one value per key, bottom
+note first; a grid of n × 88 is stored row by row.
 
-| # | Offset | Size | Shape | Used by | What we know |
-|--:|-------:|-----:|-------|---------|--------------|
-| 0 | 34H | 16 | 8 words | cal | Breakpoints, ending in 0: 25 40 64 100 160 256 400 in the prototype |
-| 1 | 44H | 616 | 7 × 88 | cal | One row per breakpoint. Prototype rows are constants (28 36 48 64 80 108 136); calibrated per key in the piano |
-| 2 | 2ACH | 616 | 7 × 88 | cal | The same shape. Prototype rows 18 30 48 68 100 128 160; calibrated per key |
-| 3 | 514H | 2 | | | `20 01` |
-| 4 | 516H | 88 | per key | silent | Probably the silent actuate level ("SILENT ACTUATE"): 29 in the prototype, 28–29 in the piano |
-| 5 | 56EH | 6 | | cal | `3C 00 78 00 00 00` |
-| 6 | 574H | 176 | 2 × 88 | cal | Prototype rows 46 and 38; calibrated per key |
-| 7 | 624H | 88 | per key | cal | Prototype 44; calibrated per key |
-| 8 | 67CH | 1 | | | `FF` |
-| 9 | 67DH | 90 | | | Not per key (mostly 0) |
-| 10 | 6D7H | 9 | | setup, cal | +1 first and +2 last adjustment/calibration note, +4 first calibration |
-| 11 | 6E0H | 91 | | | Not per key |
-| 12 | 73BH | 13 | | setup | +2 piano serial number |
-| 13 | 748H | 9 | | setup | +1 discard silent notes, +2 German note names |
+| # | Offset | Size | Shape | Read by | What it is |
+|--:|-------:|-----:|-------|---------|------------|
+| 0 | 34H | 16 | 8 words | FW#71 | **Breakpoints**: SE velocities, ending in 0. 25 40 64 100 160 256 400 in the prototype, 30 40 64 … in the piano |
+| 1 | 44H | 616 | 7 × 88 | FW#71 | **Lead time** per key at each breakpoint: how far before the strike the actuation is scheduled (`midiin` subtracts it from the strike time). Prototype rows 28 36 48 64 80 108 136 |
+| 2 | 2ACH | 616 | 7 × 88 | FW#71 | A second value per key at each breakpoint, sent with the actuation event: probably its drive. Prototype rows 18 30 48 68 100 128 160 |
+| 3 | 514H | 2 | word | FW#77 | `0120H`, returned with section 4 |
+| 4 | 516H | 88 | per key | FW#77 | Used by `silent`: probably the silent actuate level. 29 in the prototype, 28–29 in the piano |
+| 5 | 56EH | 6 | words | FW#74, #75 | 60 and 120, returned with section 6's two rows |
+| 6 | 574H | 176 | 2 × 88 | FW#74, #75 | Calibrated per key by `cal`. Prototype rows 46 and 38 |
+| 7 | 624H | 88 | per key | FW#72, #73 | Calibrated per key by `cal`. Prototype 44 |
+| 8 | 67CH | 1 | | FW#73 | `FF`, returned with section 7 |
+| 9 | 67DH | 90 | | FW#76, FW#71 | A byte (100); then the trims' on/off flag; then **a signed velocity trim per key**, applied by FW#71 before the lookup when the flag isn't 0 |
+| 10 | 6D7H | 9 | length + 8 | FW#78; setup | +1 first and +2 last adjustment/calibration note, +4 first calibration |
+| 11 | 6E0H | 91 | length + 90 | FW#79 | Not decoded |
+| 12 | 73BH | 13 | length + 12 | FW#80; setup | +2 piano serial number |
+| 13 | 748H | 9 | length + 8 | FW#81; setup | +1 discard silent notes, +2 German note names |
+
+**How a note's loudness becomes an actuation (FW#71).** Given a key and an
+SE velocity (bigger is softer), the firmware:
+1. Applies the key's trim from section 9, if trims are on.
+2. Finds the two breakpoints around the velocity (past either end, it
+   extends the first or last interval).
+3. Reads the key's values at those two breakpoints from section 1, and
+   interpolates linearly. It rounds to the nearest whole number. If the
+   next row is lower, it treats the interval as flat. The result is clamped
+   to 0–255, and an interpolation step over 255 is a fatal error.
+4. Does the same with section 2.
+
+`play.exe`, `midiin` and `cal` call it. `lut.Table.Lookup` does steps 2–4
+the same way.
 
 `setup` edits these six settings, each one byte:
 
@@ -127,8 +151,9 @@ section's offset.
 | last adjustment/calibration note | section 10 + 2 | 108 (C8) |
 | first calibration (0 = true, 1 = false) | section 10 + 4 | true |
 
-`selut TABLE [OTHER]` prints a table this way, key by key, and lists every
-difference from another table.
+`selut TABLE [OTHER]` prints a table key by key and lists every difference
+from another table. `selut -key E1 TABLE` shows what FW#71 gives one key
+across velocities.
 
 ### This piano's table (backed up 2026-11-23)
 
@@ -145,11 +170,16 @@ the repository.
   first calibration **false** (it has been calibrated).
 - 1,537 of the 2,048 bytes differ from the prototype. Nearly all are the
   per-key values of sections 1, 2, 4, 6 and 7: the piano's calibration.
-  The others are the settings, the first breakpoint (25 → 30) and one byte
-  each in sections 9 and 11.
+  The others:
+  - the settings;
+  - the first breakpoint (25 → 30);
+  - one byte in section 11 (not decoded);
+  - **a velocity trim of +7 on G3** in section 9. Trims are switched on;
+    it is the only one.
 - Keys that stand out:
   - **E1** and **C#3** reach 255, the largest value a byte holds, in the
-    top rows of section 2.
+    top rows of section 2. For E1 that is every velocity from 400 (soft)
+    up, so its soft end is at the table's limit.
   - **A#0** is high in sections 6 and 7.
 
   E1 is also the only key in the calibration range, so the last
@@ -166,11 +196,13 @@ will damage the table. No other program has this check.
 ## The monitor
 
 `monitor.exe` loads at A000H, prints `/` as its prompt and takes one-letter
-commands with hex arguments:
+commands. The hex arguments follow the letter **with no space**, separated
+from each other by a space or a comma (`D0000 00FF`). `D` prints lines of
+`AAAA=XX XX … ` and then the same bytes as text.
 
 | Command | Does | Safe? |
 |---------|------|-------|
-| `D start [end]` | dump memory, hex and text | yes: reads only |
+| `Dstart [end]` | dump memory, hex and text (128 bytes without an end) | yes: reads only |
 | `H a b` | print a+b and a−b | yes |
 | `T addr` | copy the whole EEPROM table into RAM at addr | yes for the EEPROM (writes RAM) |
 | `V start end dest` | compare two memory blocks | yes |
@@ -185,8 +217,34 @@ commands with hex arguments:
 | `R`, `W start end [entry]` | read and write memory as a recording ("BEGIN READING", "BEGIN WRITING"), probably through the tape interface: they share firmware entries with `load` | needs a tape deck |
 | `Q` | quit | |
 
-The monitor is the way to read the firmware itself: `D` over the console,
-at about 3.8 KB/s of text. Nothing in it reads or writes PC files.
+The monitor is the way to read the firmware itself: `D` over the console
+gives about 850 bytes of memory a second. Nothing in it reads or writes PC
+files. `semon` drives it and types nothing but `D` and `Q`.
+
+## The firmware (read 2026-11-23)
+
+Read with `semon`, with the owner's OK, through the monitor's `D`: page
+zero and A000H–FFFFH. It took 29 seconds for 24 KB, and nothing moved.
+The dump's first 3,901 bytes are the monitor itself and match the uploaded
+image byte for byte, so the read path is exact. The images are on the Pi in
+`~/sepiano-data/firmware/` and in the owner's `Desktop\SE\Firmware dumps\`,
+not in the repository (they are Stahnke's code).
+
+- It is the **"STAHNKE BOOTSTRAP LOADER, V43.47"**, "(FOR USE WITH
+  BOSENDORFER SE/PC AND MULTIBUS PROCESSOR)", © 2009.
+- `0000H` holds `JP B82AH`, and **B82AH** is the jump table: 195 entries,
+  all `JP`. Its text and code follow at BA73H, up to about E172H. Its
+  variables are around D4C3H–D540H, E273H–E672H and EE80H (the player's
+  level). Apart from the jump, page zero holds leftover bytes: it is RAM.
+- **The EEPROM sits behind I/O ports:** the address goes to ports 35H (low
+  byte) and 36H (high byte), and the data byte is read or written at 37H.
+  A write is checked against a timer (ports 39H and 3BH, an 8254-style
+  counter).
+- Other ports it uses, not identified yet: 28H–31H, 3CH, 3DH, B8H–BBH,
+  CAH, CBH, D8H, D9H, E0H, F0H.
+
+`sesuite -fw IMAGE -org A000 -table B82A` reports, entry by entry, the
+ports and fixed memory each one reaches; `-list` prints the listing.
 
 ## What this means for sepiano
 
@@ -204,9 +262,9 @@ at about 3.8 KB/s of text. Nothing in it reads or writes PC files.
    The file comes back as `name.$$$` and is renamed when complete; a file
    of the same name is replaced, so use a new name. Keep a copy off the Pi
    too. `putlut` can write it back.
-2. **Read the table** (started: `selut`, above). Next: what each section
-   means. Section 1 and 2 are the heart of the calibration. The firmware
-   (through the monitor's `D`) will say how it uses them.
+2. **Read the table** (done: `selut`, and the section map above, from the
+   firmware). Still open: sections 2, 4, 6, 7 and 11 in physical terms, and
+   how the actuation event uses section 2's value.
 3. **Run any program from the app.** `sepianod` runs `play` and `record`
    today. A "Tools" screen could run any installed program as a console:
    its text, its keys, and a file folder of its own. R and M programs first;
@@ -215,5 +273,5 @@ at about 3.8 KB/s of text. Nothing in it reads or writes PC files.
    bytes at known places, written through `setup.exe` or `putlut`.
    Calibration (`cal`, `silent`) rewrites many values. Run it only when the
    owner wants a recalibration, and with a backup to return to.
-5. **Read the firmware** with the monitor's `D`, to name the remaining
-   firmware entries and decode the table's sections.
+5. **Read the firmware** (done 2026-11-23, `semon`). Next in it: the event
+   executor (what section 2's value drives) and the remaining entries.

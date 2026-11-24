@@ -1,9 +1,6 @@
 // Package lut reads the SE instrument's lookup table: the EEPROM image that
-// getlut.exe retrieves and putlut.exe installs (docs/SUITE-PROGRAMS.md).
-//
-// The table holds the piano's calibration and settings. Its header is
-// understood; the meaning of most sections is still being worked out, so
-// they are exposed as bytes with their shapes.
+// getlut.exe retrieves and putlut.exe installs. docs/SUITE-PROGRAMS.md
+// describes the layout, as the firmware itself uses it.
 package lut
 
 import (
@@ -17,13 +14,6 @@ import (
 // other, it overwrites the table's first 256 bytes.
 const Version = 0x3017
 
-// Keys is the number of keys the per-key sections cover, bottom note first.
-const Keys = 88
-
-// BottomNote is the MIDI note of the first key (A0). The prototype tables'
-// calibration range runs from it to 108 (C8).
-const BottomNote = 21
-
 const nameOffset = 0x22
 
 // Table is a parsed lookup table.
@@ -31,25 +21,31 @@ type Table struct {
 	Raw      []byte  // the whole EEPROM image
 	Version  uint16  // word 0
 	Length   int     // word 1: the table's length in bytes
-	Word2    uint16  // word 2: not understood yet
+	Bottom   int     // byte 4: the MIDI note of the first key (21, A0, on a Steinway)
+	Top      int     // byte 5: the MIDI note of the last key (108, C8)
 	Sections [14]int // offsets of the sections, from the directory at 6
 	Name     string  // the model's name, at 22H
+	TrimAt   int     // the word after the name: where section 9's trims start (their on/off flag)
 }
 
-// Parse checks the header and reads the directory.
+// Parse checks the header and reads the directory, as the firmware's
+// table check (FW#66) does.
 func Parse(b []byte) (*Table, error) {
 	if len(b) < 0x40 {
 		return nil, errors.New("lut: too short for a table header")
 	}
 	t := &Table{Raw: b}
-	w := func(i int) uint16 { return binary.LittleEndian.Uint16(b[i:]) }
-	t.Version, t.Length, t.Word2 = w(0), int(w(2)), w(4)
+	w := func(i int) int { return int(binary.LittleEndian.Uint16(b[i:])) }
+	t.Version, t.Length, t.Bottom, t.Top = uint16(w(0)), w(2), int(b[4]), int(b[5])
 	if t.Length > len(b) || t.Length < 0x40 {
 		return nil, fmt.Errorf("lut: length %d does not fit the %d-byte image", t.Length, len(b))
 	}
+	if t.Top < t.Bottom || t.Top-t.Bottom+1 > 255 {
+		return nil, fmt.Errorf("lut: key range %d-%d", t.Bottom, t.Top)
+	}
 	prev := nameOffset
 	for i := range t.Sections {
-		t.Sections[i] = int(w(6 + 2*i))
+		t.Sections[i] = w(6 + 2*i)
 		if t.Sections[i] < prev || t.Sections[i] > t.Length {
 			return nil, fmt.Errorf("lut: section %d offset %#x out of order", i, t.Sections[i])
 		}
@@ -60,8 +56,14 @@ func Parse(b []byte) (*Table, error) {
 		end++
 	}
 	t.Name = strings.TrimRight(string(b[nameOffset:end]), "\r\n")
+	if end+2 < t.Sections[0] {
+		t.TrimAt = w(end + 1)
+	}
 	return t, nil
 }
+
+// Keys is the number of keys the per-key sections hold, bottom note first.
+func (t *Table) Keys() int { return t.Top - t.Bottom + 1 }
 
 // Section returns section i's bytes: from its offset to the next section,
 // or to the end of the table.
@@ -73,16 +75,17 @@ func (t *Table) Section(i int) []byte {
 	return t.Raw[t.Sections[i]:end]
 }
 
-// SectionOf says which section holds byte offset off, or -1 for the header.
+// SectionOf says which section holds byte offset off, -1 for the header,
+// or len(Sections) past the table.
 func (t *Table) SectionOf(off int) int {
+	if off >= t.Length {
+		return len(t.Sections)
+	}
 	s := -1
 	for i, o := range t.Sections {
 		if off >= o {
 			s = i
 		}
-	}
-	if off >= t.Length {
-		return len(t.Sections)
 	}
 	return s
 }
@@ -97,8 +100,8 @@ type Settings struct {
 	FirstCalibration bool // true until the first calibration has been done
 }
 
-// The firmware gives setup.exe its fields as offsets from sections 10, 12
-// and 13 (firmware entries 61, 63 and 64).
+// Sections 10 to 13 are length-prefixed blocks the programs copy into
+// memory (FW#78 to FW#81); setup.exe's fields are bytes in 10, 12 and 13.
 const (
 	secRange   = 10
 	secSerial  = 12
@@ -121,8 +124,8 @@ func (t *Table) Settings() Settings {
 	}
 }
 
-// Breakpoints is section 0: a list of words ending in 0. There are as many
-// as the rows of the 7×88 sections.
+// Breakpoints is section 0: SE velocities, ending in 0. Sections 1 and 2
+// have one row per breakpoint.
 func (t *Table) Breakpoints() []int {
 	s := t.Section(0)
 	var out []int
@@ -136,19 +139,82 @@ func (t *Table) Breakpoints() []int {
 	return out
 }
 
-// Grid returns a section as rows of Keys values (row-major, one row per
-// breakpoint or per quantity), or nil when its size isn't a multiple of
-// Keys.
+// Grid returns a section as rows of Keys values (row-major), or nil when
+// its size isn't a multiple of Keys.
 func (t *Table) Grid(i int) [][]byte {
-	s := t.Section(i)
-	if len(s) == 0 || len(s)%Keys != 0 {
+	s, k := t.Section(i), t.Keys()
+	if len(s) == 0 || len(s)%k != 0 {
 		return nil
 	}
 	var rows [][]byte
-	for r := 0; r < len(s); r += Keys {
-		rows = append(rows, s[r:r+Keys])
+	for r := 0; r < len(s); r += k {
+		rows = append(rows, s[r:r+k])
 	}
 	return rows
+}
+
+// Trims returns section 9's per-key velocity trims (signed) and whether
+// the firmware applies them (their flag byte is not 0).
+func (t *Table) Trims() (on bool, trims []int8) {
+	if t.TrimAt == 0 || t.TrimAt+t.Keys() >= t.Length {
+		return false, nil
+	}
+	on = t.Raw[t.TrimAt] != 0
+	for k := 0; k < t.Keys(); k++ {
+		trims = append(trims, int8(t.Raw[t.TrimAt+1+k]))
+	}
+	return on, trims
+}
+
+// Lookup computes what the firmware's FW#71 gives a player for a key and
+// an SE velocity, before any trim: a value from section 1 (the lead time:
+// how far ahead of the strike the actuation is scheduled) and one from
+// section 2 (passed with the actuation; probably its drive), each
+// interpolated linearly between the two breakpoints around the velocity,
+// or extrapolated from the end ones. Like the firmware it never lets a row
+// fall between breakpoints, rounds to nearest, and fails above 255.
+func (t *Table) Lookup(note, velocity int) (lead, drive int, err error) {
+	k := note - t.Bottom
+	if k < 0 || k >= t.Keys() {
+		return 0, 0, fmt.Errorf("lut: note %d is outside %d-%d", note, t.Bottom, t.Top)
+	}
+	bp := t.Breakpoints()
+	if len(bp) < 2 {
+		return 0, 0, errors.New("lut: fewer than two breakpoints")
+	}
+	i := 0
+	for i+1 < len(bp) && velocity >= bp[i+1] {
+		i++
+	}
+	if i == len(bp)-1 {
+		i-- // past the last breakpoint: extend the last interval
+	}
+	width := bp[i+1] - bp[i]
+	dv, below := velocity-bp[i], false
+	if dv < 0 {
+		dv, below = -dv, true
+	}
+	one := func(sec int) (int, error) {
+		g := t.Grid(sec)
+		if len(g) <= i+1 {
+			return 0, fmt.Errorf("lut: section %d has %d rows", sec, len(g))
+		}
+		a, b := int(g[i][k]), int(g[i+1][k])
+		rise := max(b-a, 0)
+		step := (2*dv*rise + width) / (2 * width) // rounded to nearest
+		if step > 255 {
+			return 0, fmt.Errorf("lut: step %d overflows (the firmware stops with an error)", step)
+		}
+		if below {
+			return max(a-step, 0), nil
+		}
+		return min(a+step, 255), nil
+	}
+	if lead, err = one(1); err != nil {
+		return 0, 0, err
+	}
+	drive, err = one(2)
+	return lead, drive, err
 }
 
 var noteNames = [12]string{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}

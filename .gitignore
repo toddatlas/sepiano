@@ -26,5 +26,9 @@
 *.LUT
 *.$$$
 
+# memory and firmware dumps (semon): Stahnke's code
+mem-*.bin
+page0.bin
+
 # sepianod -simulate data
 /devdata/

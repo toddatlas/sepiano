@@ -39,7 +39,7 @@ and a file server (channel 2: the Z80 asks for blocks of `.kb/.lp/.sp`).
 | `web/` | the PWA: plain HTML/CSS/JS, no build step, embedded in `sepianod` |
 | `z80/` | Z80 decoder and tracer, for studying the suite's programs (and later the firmware) |
 | `lut/` | the instrument's EEPROM lookup table: header, settings, sections (`selut` prints and compares) |
-| `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod`, `sesuite` (survey of the suite's programs), `selut` |
+| `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod`, `sesuite` (survey of the suite's programs and the firmware), `selut` (lookup tables), `semon` (memory dumps through the monitor) |
 | `deploy/` | systemd unit, udev rule, avahi file, `install.sh` (on the Pi), `deploy.sh` (from here) |
 
 ## Commands
@@ -128,6 +128,7 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   - Stahnke's programs (`*.exe`, extracted Z80 images);
   - the recordings (`.kb/.lp/.sp`, `.mid`);
   - EEPROM tables (`.lut`, from `getlut`);
+  - memory and firmware dumps (`semon`);
   - **full session captures** (`sehost -capture` `.tx` files contain the
     uploaded Z80 program).
 
@@ -236,6 +237,20 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   - E1 and C#3 at the maximum (255) in section 2.
 
   `selut` decodes it; the sections are mapped in `docs/SUITE-PROGRAMS.md`.
-- Next: a "Tools" console in the app for the other programs. Then read the
-  firmware with the monitor's `D` to learn what the sections mean, before
-  editing anything.
+- **Firmware read (2026-11-23, with the owner's OK):** `semon` typed only
+  `D` and `Q` into the monitor; page zero and A000H–FFFFH were dumped in
+  29 s, and the monitor area matched its image exactly. The firmware is
+  "STAHNKE BOOTSTRAP LOADER, V43.47" (Multibus, 2009), with its jump table
+  at B82AH. Dumps: `~/sepiano-data/firmware/` on the Pi and the owner's
+  `Desktop\SE\Firmware dumps\`.
+- From the firmware:
+  - the EEPROM is behind ports 35H, 36H and 37H;
+  - FW#43 skips bytes that are already right;
+  - the bytes at offsets 4 and 5 are the key range;
+  - FW#71 interpolates sections 1 and 2 between section 0's velocity
+    breakpoints (section 1 is the lead time);
+  - section 9 holds per-key velocity trims (G3 +7 on this piano).
+
+  `lut.Table.Lookup` and `selut -key` reproduce the lookup.
+- Next: a "Tools" console in the app for the other programs, then an
+  editor for the settings.

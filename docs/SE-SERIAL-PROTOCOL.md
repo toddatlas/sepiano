@@ -21,8 +21,8 @@ reaches the hardware (link I/O, actuators, sensors, the EEPROM) only through
 the resident firmware's jump table. It first copies a block of 3-byte
 entries from the address held at 0x0001 to just past itself (the player's
 copy is at 0x2D10–0x2F58, so its calls land in 0x2D10–0x2EB7), and calls
-through that copy. The firmware itself is not in any file here.
-`monitor.exe` uploads a Z80 monitor at 0xA000 that can read it out. See
+through that copy. The firmware is not in any file here; it was read out
+through `monitor.exe` (a Z80 monitor at 0xA000) with `semon`. See
 `SUITE-PROGRAMS.md` for every program, the firmware entries and the
 EEPROM.
 

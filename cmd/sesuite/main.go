@@ -64,7 +64,14 @@ func main() {
 	out := flag.String("out", "", "also write each Z80 program image to `DIR` as NAME-LOAD.bin (keep it out of the repository)")
 	dis := flag.String("dis", "", "print a listing of the program `NAME` (e.g. getlut) instead of the report")
 	extra := flag.String("entries", "", "more entry points to trace from, as `HEX,HEX,...` (e.g. a command table's targets)")
+	fw := flag.String("fw", "", "instead, study a memory `IMAGE` read from the instrument (semon): -org, -table")
+	org := flag.String("org", "A000", "with -fw: the image's first address, hex")
+	table := flag.String("table", "", "with -fw: the firmware jump table's address, hex (the operand of the JP at 0000H)")
+	list := flag.Bool("list", false, "with -fw: print the listing instead of the report")
 	flag.Parse()
+	if *fw != "" {
+		os.Exit(firmware(*fw, *org, *table, parseEntries(*extra), *list))
+	}
 	if flag.NArg() == 0 {
 		fmt.Fprintln(os.Stderr, "usage: sesuite [-out DIR] [-dis NAME] FOLDER...")
 		os.Exit(2)
