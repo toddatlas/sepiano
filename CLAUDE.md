@@ -20,6 +20,52 @@ Stahnke SE reproducing piano. The piano is a Steinway with the SE system
 - `api/openapi.yaml` is the service's API contract; keep it in step with
   `api/server.go`.
 
+## Working with the owner
+
+The piano's owner directs this project and is not a programmer. Explain
+in plain words, and say what they should see or hear at the piano.
+
+- **Where the work goes.** Push to the owner's repository,
+  `toddatlas/sepiano` (`origin`), on `main`. `brbkr/sepiano` (`upstream`)
+  belongs to Jeff Brubaker, who started the project. Pull from it only to
+  bring in his changes. brbkr/sepiano#1 offers him the Phase 1 work; it is
+  a side channel. Commit as `toddatlas` with
+  `121987941+toddatlas@users.noreply.github.com`, so no real email enters
+  the public history.
+- **Save progress at every step.** The owner asked for this: "Throughout
+  the process I need you to be saving your progress". After each tested
+  change:
+  - commit and push;
+  - update this file's status section and the docs in `docs/`.
+
+  The working copy may be in a temporary folder. GitHub and these docs
+  are the lasting record.
+- **The order of work**, as the owner set it (2026-11-23):
+  1. Playback, albums and play lists. Done and confirmed at the piano.
+  2. The suite's other programs. Unpacked and decoded. Recording,
+     Velocity by key and Tools are built but not yet tried at the piano.
+  3. The piano's own settings. The read-only Piano tab and software
+     voicing are built.
+
+     **Deferred by the owner:**
+     - writing trims to the piano (`putlut`);
+     - setting calibration values by hand (the calibrator sometimes fails
+       on a note, and that stops the whole run);
+     - per-key recording corrections.
+
+     First the owner wants to learn from recordings which keys record at
+     the wrong velocity.
+  4. Later: an app that controls and edits, a musical editor, and an
+     iPhone app.
+
+  Finish and verify one stage before starting the next. Ask before
+  starting large work.
+- **The piano is a Steinway**: a model B, "Steinway B-SE" in its table.
+  Prefer Steinway renderings.
+- **At the piano.** Don't play, record or run tools on the real piano
+  without asking; the owner tries new features there. Writing the EEPROM
+  needs the owner's explicit OK and a verified backup (see Hard rules).
+
 ## How it works, in one paragraph
 
 `play.exe` is not really a player. It uploads a Z80 program (Stahnke's) into
@@ -59,6 +105,8 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - On Windows, Git Bash's `ssh` can't use keys held by the Windows ssh-agent.
   Use Windows' OpenSSH: `SSH=/c/Windows/System32/OpenSSH/ssh.exe
   SCP=/c/Windows/System32/OpenSSH/scp.exe deploy/deploy.sh`.
+- On the owner's Windows PC, Go is in `C:\Program Files\Go\bin`. A shell
+  started before Go was installed may need it added to `PATH`.
 - Git for Windows defaults to `core.autocrlf=true`; `.gitattributes` keeps
   checkouts LF so `gofmt -l .` stays clean.
 
