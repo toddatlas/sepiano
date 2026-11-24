@@ -110,3 +110,22 @@ func TestFrom(t *testing.T) {
 		t.Error("From(0) changed the piece")
 	}
 }
+
+func TestUntil(t *testing.T) {
+	damper := make([]byte, 400)
+	for i := range damper {
+		damper[i] = 200
+	}
+	d := Doc{End: 3200, Damper: damper, Notes: []Note{
+		{Key: 60, On: 100, Off: 900, Vel: 200},
+		{Key: 62, On: 500, Off: 2000, Vel: 200},  // let go at the cut
+		{Key: 64, On: 1600, Off: 1800, Vel: 200}, // after it: left out
+	}}
+	part := d.Until(1600, 800)
+	if len(part.Notes) != 2 || part.Notes[1].Off != 1600 || part.End != 2400 {
+		t.Fatalf("%+v end %d", part.Notes, part.End)
+	}
+	if part.Damper[1600/8-1] != 200 || part.Damper[1600/8] != 0 || len(part.Damper) != 2400/8+1 {
+		t.Errorf("damper %d samples, %v", len(part.Damper), part.Damper[1600/8-2:1600/8+2])
+	}
+}

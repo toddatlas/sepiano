@@ -1355,3 +1355,16 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
 .tool-phrase-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 10px; font-weight: 600; color: var(--danger); }
 .tool-phrase-label .input.tool-phrase { width: 140px; min-height: 40px; }
 .backup-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }
+.ed-section + .ed-section { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--line); }
+.ed-section .ed-tools { margin-bottom: 4px; }
+.ed-insp { min-width: 0; }
+.ed-insp .ed-group { display: flex; flex-wrap: wrap; max-width: 100%; }
+.ed-insp .ed-num { flex-wrap: wrap; max-width: 100%; }
+.ed-insp .ed-num label { flex-wrap: wrap; }
+@media (min-width: 1280px) {
+  .ed-insp .ed-group > .ed-label { flex-basis: 100%; }
+  .ed-insp .ed-num .input.ed-num-input { width: 72px; }
+}
+@media (min-width: 1280px) {
+  .ed-insp { position: sticky; top: calc(var(--topbar-h) + var(--sat) + 8px); max-height: calc(100vh - var(--topbar-h) - var(--sat) - 24px); overflow: auto; }
+}

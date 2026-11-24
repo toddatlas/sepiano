@@ -40,9 +40,12 @@ const L_MAX = Math.log(128000 / 24);
 
 const STEPS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
 
+import * as T from './edittools.js';
+
 const drafts = new Map(); // piece id -> unsaved work, kept while the app is open
 const previews = new Map(); // piece id -> the tick its last preview started from
 let handoff = null; // the view to open a freshly saved copy at
+let clipboard = null; // copied notes (and pedals): pasted into this piece or another
 
 function loud(vel) {
   if (vel <= 0) return 1;
@@ -96,6 +99,7 @@ export function editorScreen(root, [id], ui) {
   let medianVel = 200;
   let saving = false;
   let corr = null; // the recording corrections (GET /corrections)
+  let range = null; // a time range {a, b} in ticks: a drag along the ruler
   const view = { t0: 0, ppt: 0.05, rowH: 10, y: 0 };
   let cssW = 0;
   let cssH = 0;
@@ -118,14 +122,24 @@ export function editorScreen(root, [id], ui) {
     ['Select', 'click a note; drag a box; Shift adds. Click a key at the left for all its notes.'],
     ['Change', 'drag a note to move it, its right end to move the release; drag a stalk in Loudness; draw in Damper or Soft.'],
     ['Add', 'double-click on the roll.'],
-    ['Keys', 'Space plays from the cursor or stops · Delete removes · ←/→ move 10 ms (Shift: 100 ms) · Alt+←/→ move releases · ↑/↓ change key · Ctrl+Z, Ctrl+Y undo and redo · Ctrl+S saves.'],
+    ['Range', 'Drag along the time ruler to mark a stretch of time (a click there moves the cursor): play it, copy it, delete it, keep only it, stretch its tempo, or set the pedals over it.'],
+    ['Copy', 'Ctrl+C copies the selected notes (or the range, with its pedals); Ctrl+V mixes them in at the cursor, Ctrl+Shift+V opens a gap for them; Ctrl+D duplicates. The copy stays while the app is open, so it can go into another piece.'],
+    ['Keys', 'Space plays from the cursor or stops · Delete removes · ←/→ move 10 ms (Shift: 100 ms) · Alt+←/→ move releases · ↑/↓ change key · Ctrl+Z, Ctrl+Y undo and redo · Ctrl+S saves · Esc clears the selection and the range.'],
     ['View', 'wheel scrolls, Shift+wheel goes along; Ctrl+wheel (or pinch) zooms; Alt+wheel makes rows taller; right-drag pans; click the strip at the bottom to jump.'],
   ];
 
   document.body.classList.add('wide-screen');
   root.append(h('p', { class: 'muted center' }, 'Loading the piece…'));
 
-  api('GET', path + '/performance').then((r) => { if (alive) start(r); }, (err) => {
+  api('GET', path + '/performance').then((r) => {
+    if (!alive) return;
+    try {
+      start(r);
+    } catch (err) {
+      console.error(err);
+      fill(root, h('div', { class: 'message message-error' }, h('p', null, 'The editor could not open this piece: ' + err.message)));
+    }
+  }, (err) => {
     if (alive) fill(root, h('div', { class: 'message message-error' }, h('p', null, err.message)));
   });
 
@@ -274,37 +288,195 @@ export function editorScreen(root, [id], ui) {
   }
 
   // The selection: what it is, and what can be done to it.
+  // A number field with its own Set button.
+  function num(label, value, step, apply, unit, set = 'Set') {
+    const input = h('input', { class: 'input ed-num-input', type: 'number', step: String(step), value: String(value), 'aria-label': label });
+    return h('form', { class: 'ed-num', onsubmit: (e) => { e.preventDefault(); const x = parseFloat(input.value); if (Number.isFinite(x)) apply(x); } },
+      h('label', null, label, ' ', input, unit ? ` ${unit}` : ''), h('button', { class: 'btn btn-small', type: 'submit' }, set));
+  }
+
+  function group(label, ...items) {
+    return h('div', { class: 'ed-group' }, label && h('span', { class: 'ed-label' }, label), items);
+  }
+
+  // The panel: what is selected and what can be done to it, then the time
+  // range, then the cursor; with nothing chosen, how to use the editor.
   function renderInspector() {
-    if (!sel.size) {
-      fill(insp,
-        h('p', { class: 'ed-sel' }, `Nothing selected. Cursor at ${fmtClock(cursor)}.`),
-        h('dl', { class: 'ed-help' }, HELP.map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
-      return;
+    const parts = [];
+    if (sel.size) parts.push(selectionTools());
+    if (range) parts.push(rangeTools());
+    parts.push(cursorTools());
+    if (!sel.size && !range) {
+      parts.push(h('dl', { class: 'ed-help' }, HELP.map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
     }
+    fill(insp, parts);
+  }
+
+  function selectionTools() {
     const ns = [...sel];
     const single = ns.length === 1 ? ns[0] : null;
-    const num = (label, value, step, apply, unit) => {
-      const input = h('input', { class: 'input ed-num-input', type: 'number', step: String(step), value: String(value), 'aria-label': label });
-      return h('form', { class: 'ed-num', onsubmit: (e) => { e.preventDefault(); const x = parseFloat(input.value); if (Number.isFinite(x)) apply(x); } },
-        h('label', null, label, ' ', input, unit ? ` ${unit}` : ''), h('button', { class: 'btn btn-small', type: 'submit' }, 'Set'));
-    };
     const vels = ns.map((n) => n.vel);
-    fill(insp,
+    return h('div', { class: 'ed-section' },
       h('p', { class: 'ed-sel' }, selectionText(ns)),
       h('div', { class: 'ed-tools' },
-        h('div', { class: 'ed-group' }, h('span', { class: 'ed-label' }, 'Move'),
+        group('Move',
           button('−10 ms', () => moveBy(-NUDGE)), button('+10 ms', () => moveBy(NUDGE)),
           num('by', 0, 1, (ms) => moveBy(Math.round((ms * TICK_HZ) / 1000)), 'ms')),
-        h('div', { class: 'ed-group' }, h('span', { class: 'ed-label' }, 'Release'),
+        group('Release',
           button('−10 ms', () => releaseBy(-NUDGE)), button('+10 ms', () => releaseBy(NUDGE)),
           num('by', 0, 1, (ms) => releaseBy(Math.round((ms * TICK_HZ) / 1000)), 'ms')),
-        h('div', { class: 'ed-group' }, h('span', { class: 'ed-label' }, 'Loudness'),
+        group('Loudness',
           button('Softer', () => scaleVel(SOFTER)), button('Louder', () => scaleVel(LOUDER)),
           num('velocity', Math.min(...vels) === Math.max(...vels) ? vels[0] : medianOf(vels), 1, (x) => setVel(x))),
-        single && h('div', { class: 'ed-group' }, h('span', { class: 'ed-label' }, 'Note'),
+        single && group('Note',
           num('starts at', (single.on / TICK_HZ).toFixed(3), 0.001, (s) => setStart(single, s), 's'),
           num('length', Math.round(((single.off - single.on) * 1000) / TICK_HZ), 1, (ms) => setLength(single, ms), 'ms')),
-        h('div', { class: 'ed-group' }, button('Delete', removeSelected, { icon: 'trash', cls: 'btn-danger' }))));
+        !single && group('Chords',
+          button('Start together', () => tool((n) => T.alignStarts(n), 'notes moved'), { title: 'Each chord (presses within 70 ms) starts at the middle of its starts' }),
+          button('Let go together', () => tool((n) => T.alignReleases(n), 'releases moved'), { title: 'Each chord lets go at the middle of its releases' })),
+        !single && group('Shape', shapeForm(),
+          num('even out', 50, 10, (x) => tool((n) => T.evenOut(n, x), 'notes evened out'), '%', 'Apply')),
+        !single && group('Lengths',
+          num('all', 250, 10, (ms) => tool((n) => { T.setLengths(n, (ms * TICK_HZ) / 1000); return n.length; }, 'notes'), 'ms'),
+          button('Legato', () => tool((n) => T.legato(n), 'notes held to the next'), { title: 'Hold each note until the next note starts' })),
+        group('Copy',
+          button('Copy', copySelection, { title: 'Ctrl+C' }),
+          button('Cut', cutSelection, { title: 'Ctrl+X' }),
+          button('Duplicate', duplicateSelection, { title: 'Ctrl+D: a copy right after it' }),
+          button('Range from it', () => { range = selectionSpan(); renderInspector(); schedule(); }, { title: 'A time range over these notes' })),
+        group(null, button('Delete', removeSelected, { icon: 'trash', cls: 'btn-danger' }))));
+  }
+
+  function rangeTools() {
+    const { a, b } = range;
+    return h('div', { class: 'ed-section' },
+      h('p', { class: 'ed-sel' }, `Range ${fmtClock(a)} to ${fmtClock(b)} (${((b - a) / TICK_HZ).toFixed(2)} s)`),
+      h('div', { class: 'ed-tools' },
+        group('Range',
+          button('Play it', playRange, { icon: 'play' }),
+          button('Select its notes', () => select(doc.notes.filter((n) => n.on >= a && n.on < b), false)),
+          button('Clear', () => { range = null; renderInspector(); schedule(); })),
+        group('Time',
+          button('Copy', () => { clipboard = T.copyRange(doc, a, b); toast('Range copied, notes and pedals.'); renderInspector(); }),
+          button('Delete it', () => rangeEdit(() => T.deleteTime(doc, a, b), null, 'Time removed: what came after moves back.'), { title: 'Remove this stretch of time; what comes after moves back' }),
+          button('Keep only it', () => rangeEdit(() => T.cropTo(doc, a, b, TICK_HZ / 2), null, 'Cut down to the range.'), { title: 'Crop the piece to this range' })),
+        group('Tempo',
+          num('stretch to', 100, 1, (pct) => {
+            if (!(pct >= 25 && pct <= 400)) { toast('Stretch between 25% and 400%.', 'error'); return; }
+            const f = pct / 100;
+            rangeEdit(() => T.stretch(doc, a, b, f), { a, b: Math.round(a + (b - a) * f) }, `Range now ${pct}% as long.`);
+          }, '%', 'Apply')),
+        group('Damper',
+          button('Down', () => rangeEdit(() => T.setPedal(doc, 'damper', a, b, 255), range)),
+          button('Half', () => rangeEdit(() => T.setPedal(doc, 'damper', a, b, 128), range)),
+          button('Up', () => rangeEdit(() => T.setPedal(doc, 'damper', a, b, 0), range))),
+        group('Soft',
+          button('Down', () => rangeEdit(() => T.setPedal(doc, 'soft', a, b, 255), range)),
+          button('Up', () => rangeEdit(() => T.setPedal(doc, 'soft', a, b, 0), range)))));
+  }
+
+  function cursorTools() {
+    return h('div', { class: 'ed-section' },
+      h('p', { class: 'ed-sel' }, `Cursor at ${fmtClock(cursor)}.`),
+      h('div', { class: 'ed-tools' },
+        group('At the cursor',
+          num('insert', 1, 0.1, (s) => {
+            if (!(s > 0 && s <= 600)) return;
+            rangeEdit(() => T.insertTime(doc, cursor, s * TICK_HZ), null, `${s} s of silence inserted.`);
+          }, 's', 'Insert')),
+        clipboard && group('Paste',
+          button('Mix in', () => pasteClip(false), { title: 'Ctrl+V: add the copied notes at the cursor' }),
+          button('Insert', () => pasteClip(true), { title: 'Ctrl+Shift+V: open a gap at the cursor and put the copy (with its pedals) in it' }),
+          h('span', { class: 'ed-label' }, `${clipboard.notes.length} notes, ${(clipboard.len / TICK_HZ).toFixed(2)} s`)),
+        group('Select',
+          button('All', () => select(doc.notes, false)),
+          button('Velocity 0', () => select(doc.notes.filter((n) => n.vel === 0), false), { title: 'Presses with no hammer reading' }),
+          button('Silent', () => select(doc.notes.filter((n) => n.vel >= SILENT), false), { title: 'Silent presses (velocity 640 or more)' }),
+          sel.size > 0 && button('Invert', () => select(doc.notes.filter((n) => !sel.has(n)), false)))));
+  }
+
+  // A crescendo or diminuendo: louder (or softer, below zero) by one
+  // percentage at the first selected note, gradually to another at the last.
+  function shapeForm() {
+    const from = h('input', { class: 'input ed-num-input', type: 'number', step: '5', value: '0', 'aria-label': 'Loudness change at the first note (%)' });
+    const to = h('input', { class: 'input ed-num-input', type: 'number', step: '5', value: '20', 'aria-label': 'Loudness change at the last note (%)' });
+    return h('form', { class: 'ed-num', onsubmit: (e) => {
+      e.preventDefault();
+      const x = parseFloat(from.value);
+      const y = parseFloat(to.value);
+      if (Number.isFinite(x) && Number.isFinite(y)) tool((n) => T.shapeLoudness(n, x, y), 'notes reshaped');
+    } },
+    h('label', null, 'louder from ', from, ' % to ', to, ' %'), h('button', { class: 'btn btn-small', type: 'submit', title: 'Gradually, first note to last: a crescendo (or, with negative numbers, a diminuendo)' }, 'Apply'));
+  }
+
+  // tool runs an operation on the selected notes as one undoable step.
+  function tool(fn, words) {
+    if (!sel.size) return;
+    begin();
+    const n = fn([...sel]);
+    changed();
+    if (words && Number.isFinite(n)) toast(`${n} ${words}.`);
+  }
+
+  // rangeEdit runs an operation on the whole document as one undoable
+  // step, then keeps the selection to notes that still exist.
+  function rangeEdit(fn, newRange, words) {
+    begin();
+    fn();
+    const live = new Set(doc.notes);
+    sel = new Set([...sel].filter((n) => live.has(n)));
+    if (newRange !== undefined) range = newRange;
+    changed();
+    if (words) toast(words);
+  }
+
+  function selectionSpan() {
+    let a = Infinity;
+    let b = 0;
+    for (const n of sel) { a = Math.min(a, n.on); b = Math.max(b, n.off); }
+    return a < b ? { a, b } : null;
+  }
+
+  function copySelection() {
+    if (sel.size) {
+      clipboard = T.copyNotes([...sel]);
+      toast(`${sel.size} notes copied.`);
+    } else if (range) {
+      clipboard = T.copyRange(doc, range.a, range.b);
+      toast('Range copied, notes and pedals.');
+    } else return;
+    renderInspector();
+  }
+
+  function cutSelection() {
+    if (sel.size) {
+      clipboard = T.copyNotes([...sel]);
+      removeSelected();
+      toast('Notes cut: paste them at the cursor.');
+    } else if (range) {
+      clipboard = T.copyRange(doc, range.a, range.b);
+      const { a, b } = range;
+      rangeEdit(() => T.deleteTime(doc, a, b), null, 'Range cut: paste it at the cursor.');
+    }
+  }
+
+  function duplicateSelection() {
+    if (!sel.size) return;
+    const c = T.copyNotes([...sel]);
+    const span = selectionSpan();
+    begin();
+    const added = T.paste(doc, c, span.b, false);
+    sel = new Set(added);
+    changed();
+  }
+
+  function pasteClip(insert) {
+    if (!clipboard) return;
+    begin();
+    const added = T.paste(doc, clipboard, cursor, insert);
+    sel = new Set(added);
+    changed();
+    toast(insert ? 'Pasted into a gap at the cursor.' : 'Pasted at the cursor.');
   }
 
   function medianOf(v) { return median(v); }
@@ -348,7 +520,7 @@ export function editorScreen(root, [id], ui) {
     const index = new Map(doc.notes.map((n, i) => [n, i]));
     return {
       notes: doc.notes.map((n) => [n.key, n.on, n.off, n.vel]),
-      damper: doc.damper, soft: doc.soft, end: doc.end, corrected: doc.corrected, ver,
+      damper: doc.damper, soft: doc.soft, end: doc.end, corrected: doc.corrected, ver, range,
       sel: [...sel].map((n) => index.get(n)).filter((i) => i !== undefined),
     };
   }
@@ -359,6 +531,7 @@ export function editorScreen(root, [id], ui) {
     doc.soft = s.soft;
     doc.end = s.end;
     doc.corrected = s.corrected;
+    range = s.range || null;
     ver = s.ver;
     sel = new Set(s.sel.map((i) => doc.notes[i]).filter(Boolean));
   }
@@ -530,6 +703,22 @@ export function editorScreen(root, [id], ui) {
 
   function stopPlay() { ui.command('/deck/stop'); }
 
+  // playRange plays the time range only, then lets it ring for a second.
+  async function playRange() {
+    if (!range) return;
+    const body = requestBody();
+    body.from = range.a;
+    body.to = range.b;
+    previews.set(id, range.a);
+    try {
+      const r = await api('POST', path + '/preview', body);
+      if (isStatus(r)) applyReplyStatus(r);
+      toast(`Playing ${fmtClock(range.a, 1)} to ${fmtClock(range.b, 1)}. The piano starts in a few seconds.`);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   function ourPreview(s) {
     return !!s && !!s.piece && s.piece.id === id && s.piece.performer === PREVIEW_PERFORMER && (s.state === 'playing' || s.state === 'paused');
   }
@@ -662,7 +851,11 @@ export function editorScreen(root, [id], ui) {
         return;
       }
     }
-    canvas.setPointerCapture(e.pointerId);
+    try {
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // not a live pointer (a synthetic event): no capture needed
+    }
     const where = region(p.x, p.y);
     const base = { start: p, moved: false, id: e.pointerId };
     if (e.button === 1 || e.button === 2) {
@@ -672,11 +865,12 @@ export function editorScreen(root, [id], ui) {
     }
     if (e.button !== 0) return;
     switch (where) {
-      case 'ruler':
-        cursor = Math.max(0, Math.round(tOf(p.x)));
-        drag = { ...base, mode: 'scrub' };
-        renderInspectorIfEmpty();
+      case 'ruler': {
+        // A drag marks a time range; a click moves the cursor.
+        const t = Math.max(0, Math.round(tOf(p.x)));
+        drag = { ...base, mode: 'range', t, keep: range };
         break;
+      }
       case 'overview':
         drag = { ...base, mode: 'overview' };
         overviewTo(p.x);
@@ -762,6 +956,12 @@ export function editorScreen(root, [id], ui) {
         cursor = Math.max(0, Math.round(tOf(p.x)));
         renderInspectorIfEmpty();
         break;
+      case 'range': {
+        const t = Math.max(0, Math.round(tOf(p.x)));
+        range = { a: Math.min(drag.t, t), b: Math.max(drag.t, t) };
+        renderStatus(`Range ${fmtClock(range.a)} to ${fmtClock(range.b)} (${((range.b - range.a) / TICK_HZ).toFixed(2)} s)`);
+        break;
+      }
       case 'overview':
         overviewTo(p.x);
         break;
@@ -822,6 +1022,19 @@ export function editorScreen(root, [id], ui) {
     const d = drag;
     drag = null;
     const p = pos(e);
+    if (d.mode === 'range') {
+      if (!d.moved) {
+        // A click on the ruler moves the cursor; the range stays.
+        range = d.keep;
+        cursor = d.t;
+      } else if (range && (range.b - range.a) * view.ppt < 4) {
+        range = null;
+      }
+      renderInspector();
+      renderStatus();
+      schedule();
+      return;
+    }
     if (!d.moved) {
       if (d.mode === 'pan' && d.tap !== undefined) {
         if (d.tap) select([d.tap.note], false);
@@ -966,10 +1179,14 @@ export function editorScreen(root, [id], ui) {
     else if (mod && (k === 'y' || k === 'Y')) doRedo();
     else if (mod && (k === 's' || k === 'S')) save(false);
     else if (mod && (k === 'a' || k === 'A')) select(doc.notes, false);
+    else if (mod && (k === 'c' || k === 'C')) copySelection();
+    else if (mod && (k === 'x' || k === 'X')) cutSelection();
+    else if (mod && (k === 'v' || k === 'V')) pasteClip(e.shiftKey);
+    else if (mod && (k === 'd' || k === 'D')) duplicateSelection();
     else if (mod) handled = false;
     else if (k === ' ' && !onButton) { if (ourPreview(app.status)) stopPlay(); else playFrom(); }
     else if ((k === 'Delete' || k === 'Backspace') && !onButton) removeSelected();
-    else if (k === 'Escape') select([], false);
+    else if (k === 'Escape') { range = null; select([], false); }
     else if (k === 'ArrowLeft' || k === 'ArrowRight') {
       const d = (k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? NUDGE * 10 : NUDGE);
       if (!sel.size) { cursor = Math.max(0, cursor + d); renderInspector(); schedule(); }
@@ -1118,6 +1335,21 @@ export function editorScreen(root, [id], ui) {
         }
       }
     }
+    // Note names, when there is room for them.
+    if (view.rowH >= 11) {
+      c.font = `${Math.min(11, view.rowH - 2)}px system-ui, sans-serif`;
+      c.textBaseline = 'middle';
+      for (const n of doc.notes) {
+        if (n.on > tb) break;
+        if (n.off < ta) continue;
+        const x1 = Math.max(GUTTER, xOf(n.on));
+        const w = xOf(n.off) - x1;
+        const y = rowTop(n.key) + 1;
+        if (w < 26 || y > L.rollBottom || y + rh < L.rollTop) continue;
+        c.fillStyle = sel.has(n) ? colors.onInk : colors.ink;
+        c.fillText(noteName(n.key), x1 + 3, y + rh / 2 + 0.5);
+      }
+    }
     if (drag && drag.mode === 'box' && drag.moved) {
       const a = drag.start;
       const b = drag.end;
@@ -1218,6 +1450,22 @@ export function editorScreen(root, [id], ui) {
     c.strokeRect(vx + 0.75, L.overTop + 0.75, Math.min(vw, GUTTER + tw - vx) - 1.5, OVERVIEW - 1.5);
     c.fillStyle = colors.accent;
     c.fillRect(GUTTER + (cursor / total) * tw, L.overTop, 1, OVERVIEW);
+
+    // The time range, shaded across the roll and the lanes.
+    if (range) {
+      const xa = Math.max(GUTTER, xOf(range.a));
+      const xb = Math.min(cssW, xOf(range.b));
+      if (xb > xa) {
+        const bottomR = L.softTop + PED_H;
+        c.globalAlpha = 0.12;
+        c.fillStyle = colors.accent;
+        c.fillRect(xa, 0, xb - xa, bottomR);
+        c.globalAlpha = 1;
+        c.fillStyle = colors.accent;
+        c.fillRect(xa, 0, 1, bottomR);
+        c.fillRect(xb - 1, 0, 1, bottomR);
+      }
+    }
 
     // The cursor, and the playhead while a preview plays.
     const bottom = L.softTop + PED_H;

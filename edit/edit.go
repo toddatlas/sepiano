@@ -206,3 +206,35 @@ func resample(s []byte, period, from, lead, end uint32) []byte {
 	}
 	return out
 }
+
+// Until cuts d at tick t, then lets it ring for tail ticks: the notes that
+// start before t, each let go by t at the latest; the pedals as they are up
+// to t, then up.
+func (d Doc) Until(t, tail uint32) Doc {
+	out := Doc{Text: d.Text, Format: d.Format, Model: d.Model, End: t + tail}
+	for _, n := range d.Notes {
+		if n.On >= t {
+			continue
+		}
+		n.Off = min(n.Off, t)
+		if n.Off <= n.On {
+			n.Off = n.On + 1
+		}
+		out.Notes = append(out.Notes, n)
+	}
+	for _, e := range d.Other {
+		if e.Tick < t {
+			out.Other = append(out.Other, e)
+		}
+	}
+	cut := func(s []byte, period uint32) []byte {
+		n := int(out.End/period) + 1
+		o := make([]byte, n)
+		k := min(len(s), int(t/period))
+		copy(o, s[:k])
+		return o
+	}
+	out.Damper = cut(d.Damper, se.DamperPeriod)
+	out.Soft = cut(d.Soft, se.SoftPeriod)
+	return out
+}

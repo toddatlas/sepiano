@@ -51,6 +51,7 @@ type editRequest struct {
 	Title   string     `json:"title"`
 	Replace bool       `json:"replace"`
 	From    int64      `json:"from"`
+	To      int64      `json:"to"` // preview: stop here (0: to the end)
 	// Corrected says the recording corrections are in these notes.
 	Corrected bool `json:"corrected"`
 }
@@ -208,6 +209,14 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		corrected = c.Apply(&d) > 0
 	}
 	part := d.From(uint32(req.From), PreviewLead)
+	if req.To > req.From && req.To <= int64(d.End) {
+		// Only the range from..to, then a second to ring off.
+		cut := uint32(req.To)
+		if req.From > 0 {
+			cut = uint32(req.To-req.From) + PreviewLead
+		}
+		part = part.Until(cut, se.TicksPerSecond)
+	}
 	perf, err := part.Performance()
 	if err != nil {
 		fail(w, 400, err.Error())

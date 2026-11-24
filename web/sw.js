@@ -6,10 +6,10 @@
 // alone, so the event stream, uploads and downloads always go straight to the
 // network.
 
-const VERSION = 'v9';
+const VERSION = 'v10';
 const PREFIX = 'piano-shell-';
 const CACHE = PREFIX + VERSION;
-const SHELL = ['/', '/app.js', '/editor.js', '/style.css', '/icon.svg', '/manifest.webmanifest'];
+const SHELL = ['/', '/app.js', '/editor.js', '/edittools.js', '/style.css', '/icon.svg', '/manifest.webmanifest'];
 const NETWORK_TIMEOUT_MS = 4000;
 
 self.addEventListener('install', (event) => {
