@@ -3,6 +3,7 @@ package deck
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -514,4 +515,83 @@ func TestUtility(t *testing.T) {
 	if r.Err != nil {
 		t.Fatalf("second run: %v", r.Err)
 	}
+}
+
+// TestNoDropWhileLoading: on 2026-11-24 a new preview, sent while the
+// piano was still taking the player program, made the deck drop the link
+// mid-upload, and the piano took no program after that until it was
+// switched off and on. A new piece, or Stop, while the player loads must
+// wait for it to start, then quit it with Enter.
+func TestNoDropWhileLoading(t *testing.T) {
+	f := newFixture(t, func(in *sim.Instrument) {
+		in.Baud = 115200 // the upload takes most of a second
+		in.WedgeOnDrop = true
+	})
+	first := f.piece(60)
+	if err := f.d.Play(f.ctx(), first); err != nil {
+		t.Fatal(err)
+	}
+	f.wait(Loading, time.Second)
+	time.Sleep(100 * time.Millisecond) // mid-upload
+	second := first
+	second.Piece = PieceRef{ID: "second", Title: "Second"}
+	if err := f.d.Play(f.ctx(), second); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		st := f.d.Status()
+		if st.State == Playing && st.Piece != nil && st.Piece.ID == "second" {
+			break
+		}
+		if f.inst.Wedged() {
+			t.Fatal("the link was dropped while the player was loading: the piano is stuck")
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the second piece never played: %+v", st)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// Stop while loading: the player starts, is quit, and the deck goes idle.
+	f.d.Stop(f.ctx())
+	f.wait(Idle, 10*time.Second)
+	if err := f.d.Play(f.ctx(), first); err != nil {
+		t.Fatal(err)
+	}
+	f.wait(Loading, time.Second)
+	time.Sleep(100 * time.Millisecond)
+	if err := f.d.Stop(f.ctx()); err != nil {
+		t.Fatalf("stop while loading: %v", err)
+	}
+	f.wait(Idle, 10*time.Second)
+	if f.inst.Wedged() {
+		t.Fatal("stop while loading left the piano stuck")
+	}
+	// Several previews in quick succession, as when clicking "Play from
+	// cursor" again and again: the last one plays, and nothing is stuck.
+	for i := range 5 {
+		j := first
+		j.Piece = PieceRef{ID: fmt.Sprintf("p%d", i), Title: "Quick"}
+		if err := f.d.Play(f.ctx(), j); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(150 * time.Millisecond)
+	}
+	deadline = time.Now().Add(20 * time.Second)
+	for {
+		st := f.d.Status()
+		if st.State == Playing && st.Piece != nil && st.Piece.ID == "p4" {
+			break
+		}
+		if f.inst.Wedged() {
+			t.Fatal("quick previews left the piano stuck")
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the last preview never played: %+v", st)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	f.d.Stop(f.ctx())
+	f.wait(Idle, 10*time.Second)
 }

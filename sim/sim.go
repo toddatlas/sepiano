@@ -52,12 +52,19 @@ type Instrument struct {
 	// EEPROM is the instrument's lookup table, which a retriever program
 	// (getlut) reads. New fills it with lut.Example().
 	EEPROM []byte
+	// WedgeOnDrop makes the instrument behave as the real one did on
+	// 2026-11-24: if the host drops the link while a program is being
+	// uploaded or is running (rather than letting it end by itself), the
+	// controller is left stuck. It still answers on the link, but takes no
+	// more programs until it is switched off and on.
+	WedgeOnDrop bool
 	// Log, if set, receives one line per notable event.
 	Log func(format string, args ...any)
 
 	mu     sync.Mutex
 	on     bool
 	level  int
+	wedged bool               // see WedgeOnDrop
 	cancel context.CancelFunc // the connection currently plugged in
 	open   *hostPort          // the host's end of the latest cable
 	gen    int
@@ -81,6 +88,13 @@ func (in *Instrument) Power() bool {
 	return in.on
 }
 
+// Wedged says whether the controller is stuck (see WedgeOnDrop).
+func (in *Instrument) Wedged() bool {
+	in.mu.Lock()
+	defer in.mu.Unlock()
+	return in.wedged
+}
+
 // SetPower switches the instrument on or off. Switching off silences the
 // cable at once, as cutting the piano's power would.
 func (in *Instrument) SetPower(on bool) {
@@ -91,6 +105,7 @@ func (in *Instrument) SetPower(on bool) {
 	}
 	in.on = on
 	in.logf("sim: power %v", on)
+	in.wedged = false // a power cycle restarts the controller
 	if !on && in.cancel != nil {
 		in.cancel()
 		in.cancel = nil
@@ -217,8 +232,26 @@ func (in *Instrument) serve(ctx context.Context, port link.Port, gen int) {
 		cancel()
 	}()
 	go c.readKeys()
+	in.mu.Lock()
+	wedged := in.wedged
+	in.mu.Unlock()
+	if wedged {
+		// The link layer still answers, but nothing takes a program.
+		in.logf("sim: stuck: ignoring uploads until power is cycled")
+		io.Copy(io.Discard, link.Channel{L: c.l, Ch: link.ChanBoot})
+		return
+	}
+	busy := false // a program is arriving or running
+	defer func() {
+		if busy && in.WedgeOnDrop {
+			in.mu.Lock()
+			in.wedged = true
+			in.mu.Unlock()
+			in.logf("sim: the link was dropped while a program was loading or running: stuck")
+		}
+	}()
 	for ctx.Err() == nil {
-		img, err := c.readImage()
+		img, err := c.readImage(&busy)
 		if err != nil {
 			return
 		}
@@ -246,14 +279,20 @@ func (in *Instrument) serve(ctx context.Context, port link.Port, gen int) {
 			in.logf("sim: program ended: %v", err)
 			return
 		}
+		busy = false // it ended by itself: back in the loader
 	}
 }
 
-// readImage reads one program upload from channel 0.
-func (c *conn) readImage() ([]byte, error) {
+// readImage reads one program upload from channel 0; busy is set once its
+// first byte arrives.
+func (c *conn) readImage(busy *bool) ([]byte, error) {
 	boot := link.Channel{L: c.l, Ch: link.ChanBoot}
 	hdr := make([]byte, 16)
-	if _, err := io.ReadFull(boot, hdr); err != nil {
+	if _, err := io.ReadFull(boot, hdr[:1]); err != nil {
+		return nil, err
+	}
+	*busy = true
+	if _, err := io.ReadFull(boot, hdr[1:]); err != nil {
 		return nil, err
 	}
 	start := int(hdr[2]) | int(hdr[3])<<8

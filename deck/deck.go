@@ -213,19 +213,24 @@ type Deck struct {
 }
 
 type session struct {
-	kind     string // "play", "record" or "utility"
-	job      *Job
-	title    string
-	name     string // staging base name for a recording
-	prog     *host.Program
-	keys     chan []byte
-	ctx      context.Context
-	cancel   context.CancelFunc
-	conn     *host.Conn
-	started  bool // the program reached "START PLAYING" or the record prompt
-	deadline time.Time
-	aborted  bool
-	discard  bool
+	kind    string // "play", "record" or "utility"
+	job     *Job
+	title   string
+	name    string // staging base name for a recording
+	prog    *host.Program
+	keys    chan []byte
+	ctx     context.Context
+	cancel  context.CancelFunc
+	conn    *host.Conn
+	started bool // the program reached "START PLAYING" or the record prompt
+	heard   bool // the program has printed: its upload is complete
+	// quitOnStart: stop the player with Enter once it starts, instead of
+	// dropping the link while it loads. abortOnHeard: drop the link once
+	// the program has printed, not while it is still being uploaded.
+	quitOnStart, abortOnHeard bool
+	deadline                  time.Time
+	aborted                   bool
+	discard                   bool
 
 	// A utility program: its command-line file, its console, when it must
 	// have finished, and who waits for it.
@@ -923,6 +928,14 @@ func (d *Deck) addConsole(line string) {
 }
 
 func (d *Deck) consoleLine(line string) {
+	if s := d.sess; s != nil && !s.heard {
+		s.heard = true // the upload is complete: the program is running
+		if s.abortOnHeard {
+			d.addConsole(line)
+			d.abort()
+			return
+		}
+	}
 	if s := d.sess; s != nil && s.kind == "utility" {
 		s.started = true
 		s.lines = append(s.lines, line)
@@ -936,6 +949,16 @@ func (d *Deck) consoleLine(line string) {
 	case evStart:
 		s.started = true
 		d.resetClock()
+		if s.quitOnStart { // stopped while it loaded: quit it now (see stop)
+			d.key([]byte{0x0D})
+			if d.pend == nil {
+				d.await("stop", make(chan error, 1))
+			} else {
+				d.pend.deadline = time.Now().Add(d.cfg.ConfirmTimeout)
+			}
+			d.setState(Stopping)
+			break
+		}
 		d.setState(Playing)
 		d.applyLevel()
 	case evPause:
@@ -1223,7 +1246,7 @@ func (d *Deck) command(c command) {
 		reply(nil)
 	case "toolstop":
 		if d.sess != nil && d.sess.kind == "utility" && d.sess.interactive {
-			d.abort()
+			d.abortWhenLoaded()
 		}
 		reply(nil)
 	case "utility":
@@ -1242,7 +1265,7 @@ func (d *Deck) command(c command) {
 			return
 		}
 		d.sess.discard = true
-		d.abort()
+		d.abortWhenLoaded()
 		reply(nil)
 	default:
 		reply(fmt.Errorf("unknown command %q", c.op))
@@ -1274,11 +1297,39 @@ func (d *Deck) stop(reply chan error) {
 		d.setState(Stopping)
 		return
 	}
-	d.abort()
+	if s := d.sess; s != nil && s.kind == "play" && !s.started && !s.aborted {
+		// The piano is still taking the player. Dropping the link now cuts
+		// it off, and the real piano then took no program at all until it
+		// was switched off and on (2026-11-24). Quit it with Enter as soon
+		// as it starts instead (consoleLine); the preview's lead-in is
+		// silent, so nothing sounds.
+		s.quitOnStart = true
+		if reply != nil {
+			d.pend = &pending{what: "stop", deadline: s.deadline.Add(d.cfg.ConfirmTimeout), reply: reply}
+		}
+		d.setState(Stopping)
+		return
+	}
+	d.abortWhenLoaded()
 	d.setState(Stopping)
 	if reply != nil {
 		reply <- nil
 	}
+}
+
+// abortWhenLoaded ends the session by dropping the link, but never while
+// the piano is still taking the program (see stop): until the program
+// prints its first line, the drop waits.
+func (d *Deck) abortWhenLoaded() {
+	s := d.sess
+	if s == nil {
+		return
+	}
+	if !s.heard {
+		s.abortOnHeard = true
+		return
+	}
+	d.abort()
 }
 
 // ---- timers ----

@@ -357,3 +357,27 @@ deliberate changes:
   logic (`Link.Strict`) and an echoing model of the firmware.
 * A SYNC frame arriving after the link is up (the instrument restarted) ends
   the session with an error instead of stalling.
+
+## Never drop the link while a program loads (observed 2026-11-24)
+
+On the real piano, the service once dropped the link about a second into
+uploading the player: a new editor preview arrived while the last one was
+still loading. From then on the piano took no program at all. Each later
+upload was accepted on the link (no NAKs or retransmits, the handshake
+worked), but nothing was ever printed, not even the banner, so it never
+reached "START PLAYING". It stayed that way until the piano was switched
+off and on.
+
+The likely cause: the boot loader was left waiting for the rest of the first
+image, then took the next upload's bytes as that rest, and jumped into a
+program made of two halves. This is not confirmed in the firmware's code.
+Whether dropping the link while a program *runs* (rather than loads) does
+the same is not known either.
+
+`deck` therefore never drops the link before the program has printed its
+first line (`abortWhenLoaded`). A player stopped while it loads is quit
+with Enter as soon as it prints "START PLAYING" (`quitOnStart`); a
+preview's lead-in is silent, so nothing sounds. With `WedgeOnDrop`, `sim`
+behaves like the real piano did, and `TestNoDropWhileLoading` checks that a
+new piece, Stop, or several quick previews while the player loads leave it
+working.

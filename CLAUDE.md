@@ -217,6 +217,10 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - The piano's frames, idle ones included, carry its 800 Hz playback clock in
   `ts`, which gives a live position.
 - The player's level only goes from 0 (as recorded) down. It can't go louder.
+- **Never drop the link while the piano is taking a program.** Cut off
+  mid-upload, the real piano took no program at all until it was switched
+  off and on (2026-11-24; docs/SE-SERIAL-PROTOCOL.md, the last section).
+  Let a program start, then end it with its own key (Enter for the player).
 - The suite never creates its `HKLM\Software\SE Program Suite` registry key,
   so the original programs rescan the ports every launch.
 
@@ -480,3 +484,19 @@ usable from the app, then more editing tools.
 - Also: the Restore screen lists what a chosen backup would change from
   the newest backup, and the editor has a gradual tempo change over a
   range (`tempoRamp`: ritardando, accelerando).
+
+## Status (2026-11-24, morning: the piano stuck after quick previews)
+
+- While using the editor, the owner started previews in quick succession.
+  One arrived about a second into the previous player's upload, and the
+  deck dropped the link mid-upload. After that the piano took no program
+  (each load stayed at "loading" with no text) until it was switched off
+  and on.
+- Fixed in `deck`: the link is never dropped before the program has
+  printed (`abortWhenLoaded`), and a player stopped while it loads is quit
+  with Enter at "START PLAYING" (`quitOnStart`). `sim.WedgeOnDrop` imitates
+  the stuck piano, and `TestNoDropWhileLoading` covers it.
+- Not known yet: whether dropping a *running* program (the recorder's
+  discard, a tool's stop, the deck's fallback when a stop is not confirmed)
+  also leaves the piano stuck. Those still drop the link, but now only
+  after the program has started.
