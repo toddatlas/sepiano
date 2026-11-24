@@ -234,6 +234,11 @@ and listen. Each answer changes deck details:
 - the velocity trim for louder-than-recorded;
 - the overlay root.
 
+**The suite's other programs** (the owner's order: after playback, before
+the editor). `docs/SUITE-PROGRAMS.md` has the survey and the plan: back up
+the EEPROM with `getlut`, decode the table, a "Tools" console in the app for
+any suite program, then an editor for the instrument's settings.
+
 **Phase 3:** `sepiano-ios` (SwiftUI, Bonjour, an OpenAPI-generated client), and
 remote access if it's ever wanted.
 
@@ -333,8 +338,8 @@ export) and the API end to end.
 - the recorder: that it uses the command-line name and the `.kb$` →
   `.kb` commit, and prints "DEPRESS ENTER TO END RECORDING" once recording
   (if not, the deck still moves to Recording after 3 s and says so);
-- `record.exe` is not on the Pi yet: install it from the Status page (it is
-  inside `se_program_suite_v0.95_setup.exe`; unpack it with 7-Zip);
+- `record.exe` is installed (2026-11-23, from the unpacked suite installer)
+  but has not recorded at the piano yet;
 - a piano power cycle while idle and while playing.
 
 **Not built yet:** editing play lists in the app, play history,

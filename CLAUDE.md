@@ -37,7 +37,8 @@ and a file server (channel 2: the Z80 asks for blocks of `.kb/.lp/.sp`).
 | `library/` | performance store: files + `.json` metadata, in-memory index, upload/zip/MIDI/export |
 | `api/` | REST + SSE (`openapi.yaml`), program installs, touch icon |
 | `web/` | the PWA: plain HTML/CSS/JS, no build step, embedded in `sepianod` |
-| `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod` |
+| `z80/` | Z80 decoder and tracer, for studying the suite's programs (and later the firmware) |
+| `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod`, `sesuite` (survey of the suite's programs) |
 | `deploy/` | systemd unit, udev rule, avahi file, `install.sh` (on the Pi), `deploy.sh` (from here) |
 
 ## Commands
@@ -85,8 +86,8 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   `http://raspberrypi.local/` on port 80, and keeps an idle link to the piano
   on `/dev/sepiano-piano` (a udev symlink to the PL2303).
 - Data: `/var/lib/sepiano/{library,programs,staging,settings.json}`.
-  `play.exe` is installed in `programs/`; `record.exe` is not yet (it isn't on
-  the Pi).
+  `play.exe` and `record.exe` are installed in `programs/`. All 24 suite
+  programs are in `~/sepiano-data/suite/` for `sehost`.
 - **It owns the serial port.** Before using `sehost` by hand:
   `sudo systemctl stop sepianod`; afterwards `sudo systemctl start sepianod`.
 - Logs: `journalctl -u sepianod -f`. Status: `curl -s localhost/api/v1/status`.
@@ -135,6 +136,11 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   stay identical.
 - Protocol changes must keep passing the real-capture tests in
   `link/capture_test.go`, which replay real `play.exe` and piano traffic.
+- **The piano's EEPROM holds its calibration and settings** (docs/SUITE-PROGRAMS.md).
+  Never run a program that writes it (`setup`, `cal`, `silent`, `putlut`,
+  `put*`, the monitor's `P`) without the owner's explicit OK and a verified
+  `getlut` backup. Never write a table whose first word isn't `3017H`:
+  `play.exe` would then overwrite the table's first 256 bytes.
 
 ## Facts that are easy to get wrong
 
@@ -205,3 +211,20 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   needs 7-Zip or an extractor), then find what can be read from the
   instrument itself (its stored playback settings and calibration tables),
   aiming to edit them.
+
+## Status (fourth part, 2026-11-23: the suite's other programs)
+
+- The suite installer is unpacked (7-Zip). `sesuite` and `z80/` trace each
+  program's Z80 code. Findings are in `docs/SUITE-PROGRAMS.md`. In short:
+  - every program is the same Windows carrier;
+  - all hardware access goes through a firmware jump table, which each
+    program copies from the address at `0001H`;
+  - calibration and settings live in the piano's EEPROM, read and written
+    a byte at a time through `FW#42`/`FW#43`.
+- `record.exe` is installed in the service (V30.44); recording is still
+  untested at the piano. All 24 programs are on the Pi in
+  `~/sepiano-data/suite/`.
+- **Nothing new has been run on the piano.** Next, with the owner's OK:
+  back up the EEPROM with `getlut` (it reads only and moves nothing). Then
+  decode the table: model name, serial number, settings, calibration.
+  After that comes a "Tools" console in the app for the other programs.

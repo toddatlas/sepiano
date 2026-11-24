@@ -17,10 +17,14 @@ that, the PC only provides:
   needs them, and asks to write them when recording.
 
 All timing, file parsing and piano control happens on the Z80. That program
-calls about 30 entry points in resident firmware at Z80 addresses
-0x2D10–0x2EB7 (link I/O, actuators, sensors). The firmware itself is not in
-any file here. `monitor.exe` uploads a Z80 monitor at 0xA000 that could be
-used to read it out.
+reaches the hardware (link I/O, actuators, sensors, the EEPROM) only through
+the resident firmware's jump table. It first copies a block of 3-byte
+entries from the address held at 0x0001 to just past itself (the player's
+copy is at 0x2D10–0x2F58, so its calls land in 0x2D10–0x2EB7), and calls
+through that copy. The firmware itself is not in any file here.
+`monitor.exe` uploads a Z80 monitor at 0xA000 that can read it out. See
+`SUITE-PROGRAMS.md` for every program, the firmware entries and the
+EEPROM.
 
 ```
  PC (play.exe)                         SE instrument (Z80)
@@ -232,7 +236,7 @@ The header itself lands at start−16. The program text usually begins with
 | midiin.exe | MIDI INPUT CONTROLLER V50.48 | 0100–221D | 0156 | 8494 |
 | edit.exe | INTERACTIVE PERFORMANCE EDITOR V50.45 | 0100–6C0D | 015F | 27422 |
 | monitor.exe | Z80 MONITOR V50.44 | A000–AF3C | A046 | 3917 |
-| cal.exe, adjust.exe, silent.exe, put*.exe, … | calibration and lookup-table tools | 0100–… | | |
+| cal.exe, getlut.exe, setup.exe, put*.exe, … | calibration and lookup-table tools: see `SUITE-PROGRAMS.md` | 0100–… | | |
 
 At 57600 baud the 8 KB player takes about 2.1 s to upload. The link carries
 about 3.8 KB/s of payload: 32 data bytes per 47-byte frame.
@@ -292,8 +296,9 @@ Fatal errors make the host print the message and exit.
 
 1. Open the port, raise DTR/RTS, handshake (≤ 250 ms).
 2. Upload the 8131-byte player on channel 0 (≈ 2 s).
-3. The player prints its banner (ch 1). It checks the instrument's lookup
-   table through firmware calls.
+3. The player prints its banner (ch 1). It checks that the instrument's
+   lookup table (in EEPROM) is version 30.17; if it isn't, it overwrites the
+   table's first 256 bytes and quits (`SUITE-PROGRAMS.md`).
 4. `10` open, then `11 00 00 04` (1 KB of `.kb`). It prints the header text
    (the copyright line), then reopens with `10` to start over.
 5. It prints the key help and "START PLAYING", then plays. As its buffers
