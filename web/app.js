@@ -935,6 +935,8 @@ function nowPlayingScreen(root) {
   const composerEl = h('p', { class: 'np-composer' });
   const performerEl = h('p', { class: 'np-performer' });
   const fileEl = h('p', { class: 'np-file' }); // the file playing, to check what is what
+  const editLink = h('a', { href: '#/' }, 'Open in the editor');
+  const editLinkEl = h('p', { class: 'np-edit small', hidden: true }, editLink);
   const voicedEl = h('p', { class: 'np-voiced', hidden: true }, h('a', { class: 'pill pill-warn', href: '#/piano' }, 'Voicing on: trims tried by ear')); // software voicing applied
   const correctedEl = h('p', { class: 'np-voiced', hidden: true }, h('a', { class: 'pill', href: '#/record/corrections' }, 'Recording corrections on')); // a recording made here, corrected
   const hintEl = h('p', { class: 'np-hint' });
@@ -965,7 +967,7 @@ function nowPlayingScreen(root) {
     h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop')));
 
   const playPanel = h('section', { class: 'np' },
-    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, voicedEl, correctedEl, hintEl, messageEl,
+    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, voicedEl, correctedEl, editLinkEl, hintEl, messageEl,
     h('div', { class: 'np-progress' }, progress, h('div', { class: 'times' }, elapsedEl, totalEl), allEl),
     transport);
 
@@ -1049,6 +1051,9 @@ function nowPlayingScreen(root) {
     performerEl.hidden = !p.performer;
     setText(fileEl, p.source_name);
     fileEl.hidden = !p.source_name;
+    const cur = (s.tracks && s.tracks[s.track_index] && s.tracks[s.track_index].piece) || p; // in an album, the track playing now
+    editLinkEl.hidden = !cur.id || p.performer === 'Editor preview';
+    if (cur.id) editLink.href = editHref(cur.id);
     voicedEl.hidden = !s.voiced;
     correctedEl.hidden = !s.corrected;
 
