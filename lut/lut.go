@@ -167,13 +167,13 @@ func (t *Table) Trims() (on bool, trims []int8) {
 }
 
 // Lookup computes what the firmware's FW#71 gives a player for a key and
-// an SE velocity, before any trim: a value from section 1 (the lead time:
-// how far ahead of the strike the actuation is scheduled) and one from
-// section 2 (passed with the actuation; probably its drive), each
+// an SE velocity, before any trim: the lead time from section 1 (the ticks
+// from the strike command to the hammer reaching the sensor) and the strike
+// level from section 2 (the actuator value; smaller is harder), each
 // interpolated linearly between the two breakpoints around the velocity,
 // or extrapolated from the end ones. Like the firmware it never lets a row
 // fall between breakpoints, rounds to nearest, and fails above 255.
-func (t *Table) Lookup(note, velocity int) (lead, drive int, err error) {
+func (t *Table) Lookup(note, velocity int) (lead, level int, err error) {
 	k := note - t.Bottom
 	if k < 0 || k >= t.Keys() {
 		return 0, 0, fmt.Errorf("lut: note %d is outside %d-%d", note, t.Bottom, t.Top)
@@ -213,8 +213,8 @@ func (t *Table) Lookup(note, velocity int) (lead, drive int, err error) {
 	if lead, err = one(1); err != nil {
 		return 0, 0, err
 	}
-	drive, err = one(2)
-	return lead, drive, err
+	level, err = one(2)
+	return lead, level, err
 }
 
 var noteNames = [12]string{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"}

@@ -128,7 +128,7 @@ func curve(t *lut.Table, name string) int {
 	}
 	on, trims := t.Trims()
 	fmt.Printf("%s (MIDI %d); its velocity trim %+d is applied: %v (not included below)\n", lut.NoteName(n), n, trims[n-t.Bottom], on)
-	fmt.Println("  velocity  section 1 (lead)  section 2")
+	fmt.Println("  velocity  section 1 (lead)  section 2 (strike level)")
 	bp := t.Breakpoints()
 	vs := []int{}
 	for i, v := range bp {
@@ -139,12 +139,12 @@ func curve(t *lut.Table, name string) int {
 	}
 	vs = append(vs, 600, 800, 1023)
 	for _, v := range vs {
-		lead, drive, err := t.Lookup(n, v)
+		lead, level, err := t.Lookup(n, v)
 		if err != nil {
 			fmt.Printf("  %8d  %v\n", v, err)
 			continue
 		}
-		fmt.Printf("  %8d  %16d  %9d\n", v, lead, drive)
+		fmt.Printf("  %8d  %16d  %22d\n", v, lead, level)
 	}
 	return 0
 }

@@ -261,5 +261,18 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
     strike drive;
   - section 11 holds the player's constants (800 = the clock). This
     piano's one change there is word 32, 224 → 160.
+- Decoded from `cal`, `silent` and `play.exe` (same day). Every section
+  now has a meaning:
+  - section 1 is the measured strike-to-sensor time;
+  - section 2 is the strike level (smaller is harder);
+  - section 4 is the silent-press level;
+  - sections 5 and 6 are the release target times and levels;
+  - section 7 is the free release time;
+  - section 8 (FF) lets a key go;
+  - section 10 also holds the calibrator's limits;
+  - most of section 11 is decoded; velocity 640 or more is a silent note.
+
+  Worth telling the owner: E1 and C#3 are at the gentlest strike for soft
+  notes, and A#0 is a slow-returning key.
 - Next: a "Tools" console in the app for the other programs, then an
   editor for the settings.

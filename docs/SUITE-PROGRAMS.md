@@ -107,24 +107,27 @@ The layout (little-endian words), the same in the prototype tables of
 The installers fill the rest of the EEPROM with `FF`.
 
 The Steinway B-SE's sections. "Per key" means one value per key, bottom
-note first; a grid of n × 88 is stored row by row.
+note first; a grid of n × 88 is stored row by row. "Ticks" are the
+calibrator's and player's timer ticks. **Wherever the calibrators tune an
+actuator value (the strike, the release, the silent press), a bigger value
+means less force; FF means none.**
 
-| # | Offset | Size | Shape | Read by | What it is |
-|--:|-------:|-----:|-------|---------|------------|
-| 0 | 34H | 16 | 8 words | FW#71 | **Breakpoints**: SE velocities, ending in 0. 25 40 64 100 160 256 400 in the prototype, 30 40 64 … in the piano |
-| 1 | 44H | 616 | 7 × 88 | FW#71 | **Lead time** per key at each breakpoint: how far before the strike the actuation is scheduled (`midiin` subtracts it from the strike time). Prototype rows 28 36 48 64 80 108 136 |
-| 2 | 2ACH | 616 | 7 × 88 | FW#71 | **Strike drive** per key at each breakpoint: the value `play.exe` writes to the key's actuator in strike mode (larger for softer notes). Prototype rows 18 30 48 68 100 128 160 |
-| 3 | 514H | 2 | word | FW#77 | `0120H`, returned with section 4 |
-| 4 | 516H | 88 | per key | FW#77 | Used by `silent`: probably the silent actuate level. 29 in the prototype, 28–29 in the piano |
-| 5 | 56EH | 6 | words | FW#74, #75 | 60 and 120, returned with section 6's two rows |
-| 6 | 574H | 176 | 2 × 88 | FW#74, #75 | Calibrated per key by `cal`. Prototype rows 46 and 38 |
-| 7 | 624H | 88 | per key | FW#72, #73 | Calibrated per key by `cal`: the value `play.exe` sets just before each strike (a mode-00 event). Prototype 44 |
-| 8 | 67CH | 1 | | FW#73 | `FF`, returned with section 7 |
-| 9 | 67DH | 90 | | FW#76, FW#71 | A byte (100: **the hold value**, set after the strike when holding is on); then the trims' on/off flag; then **a signed velocity trim per key**, applied by FW#71 before the lookup when the flag isn't 0 |
-| 10 | 6D7H | 9 | length + 8 | FW#78; setup | +1 first and +2 last adjustment/calibration note, +4 first calibration |
-| 11 | 6E0H | 91 | length + 90 | FW#79 | **The player's constants** (below) |
-| 12 | 73BH | 13 | length + 12 | FW#80; setup | +2 piano serial number |
-| 13 | 748H | 9 | length + 8 | FW#81; setup | +1 discard silent notes, +2 German note names |
+| # | Offset | Size | Shape | Read by | What it is | Written by |
+|--:|-------:|-----:|-------|---------|------------|------------|
+| 0 | 34H | 16 | 8 words | FW#71 | **Breakpoints**: the SE velocities the calibration targets, ending in 0. 25 40 64 100 160 256 400 in the prototype, 30 40 64 … in the piano | — |
+| 1 | 44H | 616 | 7 × 88 | FW#71 | **Lead time** per key at each breakpoint: the ticks from the strike command to the hammer reaching the sensor, as measured. Prototype rows 28 36 48 64 80 108 136 | `cal`, "ACTUATE LEVEL" |
+| 2 | 2ACH | 616 | 7 × 88 | FW#71 | **Strike level** per key at each breakpoint: the value that makes the hammer arrive at the breakpoint's velocity, within 2% (smaller = harder). Prototype rows 18 30 48 68 100 128 160 | `cal`, "ACTUATE LEVEL" |
+| 3 | 514H | 2 | word | FW#77 | 288: the silent press's target time | — |
+| 4 | 516H | 88 | per key | FW#77 | **Silent level**: the mode-00 value that presses the key down without sounding, in 192–384 ticks. 29 in the prototype, 28–29 in the piano | `silent` |
+| 5 | 56EH | 6 | words | FW#74, #75 | The two **release target times**, 60 and 120 ticks (then 0) | — |
+| 6 | 574H | 176 | 2 × 88 | FW#74, #75 | **Release levels**: the mode-00 value that lets the key back up in 60 (row 0) or 120 (row 1) ticks, within 25%. Prototype rows 46 and 38 | `cal`, "RELEASE LEVEL" |
+| 7 | 624H | 88 | per key | FW#73 | **Free release time**: the ticks a key takes to come back up when let go (value FF), as measured. Prototype 44 | `cal`, "UNCONTROLLED RELEASE" |
+| 8 | 67CH | 1 | | FW#73 | FF: the value for letting a key go | — |
+| 9 | 67DH | 90 | | FW#76, FW#71 | A byte (100: **the hold level**, used once the hammer has struck); then the trims' on/off flag; then **a signed velocity trim per key**, which FW#71 applies before the lookup when the flag isn't 0 | — |
+| 10 | 6D7H | 9 | length + 8 | FW#78; setup | +1 first and +2 last adjustment/calibration note, +3 the calibrator's tries per value (24), +4 first calibration, +5 and +7 the silent press window (192 and 384 ticks, words) | `setup`, `cal` (+4) |
+| 11 | 6E0H | 91 | length + 90 | FW#79 | **The player's constants** (below) | — |
+| 12 | 73BH | 13 | length + 12 | FW#80; setup | +2 piano serial number | `setup` |
+| 13 | 748H | 9 | length + 8 | FW#81; setup | +1 discard silent notes, +2 German note names | `setup` |
 
 **How a note's loudness becomes an actuation (FW#71).** Given a key and an
 SE velocity (bigger is softer), the firmware:
@@ -141,9 +144,11 @@ SE velocity (bigger is softer), the firmware:
 the same way.
 
 **How the player drives a key.** Each key's actuator has two parts:
-- a 2-bit **mode**: 00, 01 (strike), 11 (hold) or 10;
+- a 2-bit **mode**: 01 (strike), 11 (hold), 10, or 00 (gentle force: release
+  or silent press);
 - an 8-bit **value**, written through ports 33H (register address) and 34H
-  (data).
+  (data). In the strike and in mode 00 a bigger value is less force (that is
+  how the calibrators tune them); FF is none.
 
 FW#17, #19, #20 and #21 set a key's mode to 01, 11, 10 and 00 with a
 value; #19 and #20 act only on a key that is already active. `play.exe`
@@ -153,23 +158,59 @@ strike time T it:
 1. Prepares the velocity:
    - it scales it by a factor for the subdue level (section 11);
    - it can replace it with a uniform value or add an offset to it.
-2. Calls FW#71, which returns the lead time (section 1) and the strike
-   drive (section 2).
-3. Schedules these events:
+2. Takes a velocity of 640 or more (section 11's word 28) as a **silent
+   note**. Unless "discard silent notes" is on, it is played as a silent
+   press:
+   - mode 00 with the key's section 4 level;
+   - started about twice section 3's 288 ticks before T, kept within
+     section 10's 192–384.
+3. Otherwise calls FW#71, which returns the lead time (section 1) and the
+   strike level (section 2), and schedules:
 
 | When | Event | Value |
 |------|-------|-------|
-| T − lead − 30 ticks (64 for some keys) | mode 00 | the key's section 7 value |
-| T − lead | **strike**: mode 01 | the strike drive (section 2) |
+| T − lead − 30 ticks (64 for some keys; longer for very loud notes) | mode 00 | FF (section 8): let the key go, in case it is down |
+| T − lead | **strike**: mode 01 | the strike level (section 2) |
 | T − lead × 16/256 | a check event | |
-| T + lead × 32/256, when section 11 allows it | **hold**: mode 11 | section 9's first byte (100) |
+| T + lead × 32/256, when section 11 allows it | **hold**: mode 11 | the hold level (section 9's first byte, 100) |
 
 When a key's sensor reports during the strike, the player switches that key
-to mode 11, with the strike drive as its value. For a soft note (velocity
-over 128) it scales the drive by section 11's word 32 / 256 first. Ending
-notes (FW#22 and the note-off events) use section 6's two rows, with section
-5's two words. The ticks are the 800 Hz performance clock; the player runs
-its timer at 6,400 Hz (FW#32 divides a 2.048 MHz clock).
+to mode 11, with the strike level as its value. For a soft note (velocity
+over 128) it first scales that value by section 11's word 32 / 256.
+
+**Releasing a note.** Before the release, the key spends 8 ticks in mode 10
+(section 11's word 34). Then `play.exe` lets it up in one of three ways, by
+a measure of the note's timing:
+- free, with FF, taking the key's section 7 time;
+- the 60-tick release (section 6, row 0);
+- the 120-tick release (section 6, row 1).
+
+The measure is computed through FW#190, a table-based function, and
+section 11's word 36, then compared with words 38 and 40. The player starts
+the release that much early, so the key is up at the recorded time.
+
+The ticks are the 800 Hz performance clock (section 11's word 0). The
+player runs its timer at 6,400 Hz (FW#32 divides a 2.048 MHz clock).
+
+**How the calibrators fill the table.** `cal` works through the keys of the
+calibration range (section 10) in three phases. Each test press is a
+strike, a hold once the sensor fires, 8 ticks in mode 10, then a release:
+1. **"UNCONTROLLED RELEASE":** a press at velocity 80, then a free release
+   (FF). It times the key's return and stores it in section 7.
+2. **"RELEASE LEVEL":** for each of section 5's times (60, then 120 ticks),
+   it releases with a trial level and times the return. It nudges the level
+   by one (up if too slow) until the time is within 25%, at most 24 tries
+   (section 10). The result goes to section 6.
+3. **"ACTUATE LEVEL":** for each breakpoint (from the first, or from the
+   second after the first calibration), it strikes with a trial level and
+   reads the hammer's velocity from the sensor. It moves the level by one
+   until the velocity is within 2% of the breakpoint; too soft means a
+   smaller level, never below 8. Section 2 gets the level, and section 1
+   the ticks from strike to sensor.
+4. Then it marks the first calibration as done (section 10 + 4).
+
+`silent` raises or lowers each key's mode-00 level until the key goes down
+within section 10's 192–384 ticks, and stores it in section 4.
 
 Section 11, as `play.exe` reads it (its data, after the length byte;
 little-endian words):
@@ -179,16 +220,24 @@ little-endian words):
 | 0 | 800 | the performance clock, ticks per second |
 | 6 | 80 | the uniform velocity, when that option is on |
 | 8 | 16 | the velocity offset, when that option is on |
+| 10 | 208 | scales the velocity of a quick re-strike |
 | 12 | 16 | when the check event comes: lead × n/256 before the strike |
+| 14 | 176 | re-strikes sooner than this many ticks are handled apart |
 | 16 | 256 | a velocity limit for re-strikes |
-| 18, 20 | 30, 64 | ticks between the mode-00 event and the strike (64 for keys marked 2) |
+| 18, 20 | 30, 64 | ticks between letting the key go and the strike (64 for keys marked 2) |
 | 22 | 32 | when the hold starts: lead × n/256 after the strike (0 = no hold) |
-| 30 | 128 | above this velocity (softer), the drive after the sensor is scaled… |
+| 24 | 38 | below this velocity (very loud), the let-go time grows (× 38 / velocity) |
+| 26 | 32 | a re-strike timing limit |
+| 28 | 640 | **silent-note threshold**: this velocity or more (softer) is a silent press |
+| 30 | 128 | above this velocity (softer), the value after the sensor is scaled… |
 | 32 | 224 (**160 in this piano**) | …by n/256 |
+| 34 | 8 | ticks in mode 10 before a release (also in `cal` and `silent`) |
+| 36 | 512 | scales the release measure |
+| 38, 40 | 2400, 4800 | the release measure's limits: free release, 60-tick, 120-tick |
 | 58–65 | bytes 40 11 10 07 05 02 01 00 | level thresholds |
 | 74–89 | 240 256 256 256 256 256 288 480 | the velocity factor (/256) for each threshold |
 
-The other words (2, 4, 10, 14, 24–28, 34–40) are not traced yet.
+Words 2 (22) and 4 (120) are not read by `play`, `cal` or `silent`.
 
 `setup` edits these six settings, each one byte:
 
@@ -215,23 +264,31 @@ the repository.
 
 - **"Steinway B-SE", table V30.17**, 1873 bytes: the `putb` prototype's
   layout, so a Steinway model B.
-- Settings: serial number **08**; discard silent notes **false** (the
-  prototype says true); German names false; calibration range **E1 to E1**;
-  first calibration **false** (it has been calibrated).
+- Settings:
+  - serial number **08**;
+  - discard silent notes **false** (the prototype says true), so notes
+    softer than velocity 640 are played as silent key presses;
+  - German names false;
+  - calibration range **E1 to E1**: running `cal` or `silent` now would
+    recalibrate E1 alone;
+  - first calibration **false** (it has been calibrated).
 - 1,537 of the 2,048 bytes differ from the prototype. Nearly all are the
   per-key values of sections 1, 2, 4, 6 and 7: the piano's calibration.
   The others:
   - the settings;
   - the first breakpoint (25 → 30);
-  - section 11's word 32, 224 → 160: soft notes keep less of their
-    strike drive after the sensor sees the hammer;
+  - section 11's word 32, 224 → 160: once the sensor sees the hammer, soft
+    notes switch to a smaller hold value, probably a firmer hold;
   - **a velocity trim of +7 on G3** in section 9. Trims are switched on;
     it is the only one.
-- Keys that stand out:
-  - **E1** and **C#3** reach 255, the largest value a byte holds, in the
-    top rows of section 2. For E1 that is every velocity from 400 (soft)
-    up, so its soft end is at the table's limit.
-  - **A#0** is high in sections 6 and 7.
+- Keys that stand out, read with the sections' meanings:
+  - **E1** and **C#3** reach 255 in the soft rows of section 2: the gentlest
+    strike the table can hold. For E1 that is from velocity 400 on, so its
+    softest notes may come out a little louder than recorded.
+  - **A#0** takes 80 ticks to come back up when let go (section 7), against
+    about 33 for a typical key, and its release levels (section 6) are
+    correspondingly gentle. It is a slow key, perhaps worth a technician's
+    look.
 
   E1 is also the only key in the calibration range, so the last
   calibration or adjustment was probably of that key alone.
@@ -300,12 +357,13 @@ not in the repository (they are Stahnke's code).
 | 30H–34H | FW#16–#22 | the actuators. FW#16 sets them up for the key count, 4 keys per group and 5 registers per group, all off. 33H is the register address and 34H the data. Per key: a 2-bit mode and an 8-bit value |
 | 30H, 31H (in), 33H/34H | FW#23–#30 | probably the pedals (two of them, state in D4FDH and D4FEH; `sustain` raises the dampers through FW#24) |
 | 38H–3BH | FW#31, #32, #34, #43 | an 8254-style timer on a 2.048 MHz clock (FW#32 takes a rate in Hz); also the EEPROM write timeout |
-| 3CH, 3DH | FW#35–#41, #45, #46 | not identified (3DH is set up with 6 bytes from a table) |
+| 3DH | FW#35–#39, #45, #46 | an interrupt-enable register: FW#37 and #38 switch the player's timer interrupt off and on (with FW#143 and #144), FW#35 and #36 another source; FW#39 reads a status bit |
+| 3CH | FW#40, #41 | a raw register, read and written; not identified |
 | 35H–37H | FW#42, #43 | the EEPROM |
 | BAH, BBH | FW#107–#113, #147–#156, #193 | a serial channel: the PC link (the exit and error paths use it) |
 | B8H, B9H | FW#114–#120, #157–#167, #194 | a second serial channel, probably MIDI (`midiin` uses it) |
-| D8H, D9H | FW#141–#145 | probably the interrupt controller (masks around the serial routines) |
-| CAH, CBH | FW#129–#132 | not identified (used with the pedals and by `sustain`) |
+| D8H, D9H | FW#141–#145 | the interrupt controller, 8259-style: FW#141 sets it up, #143 masks and #144 unmasks a source, #145 ends an interrupt |
+| CAH, CBH | FW#129–#132 | a second timer, for delays: FW#130 waits 1 ms, FW#129 waits HL ms (the pedals and `sustain` use them); FW#131 and #132 give clock rates |
 | E0H, F0H | FW#133, #134 | not identified |
 
   Other entries without ports:
