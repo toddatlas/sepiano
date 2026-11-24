@@ -285,4 +285,9 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   1.5 s.
 - The owner's decisions for the editor are in `docs/SETTINGS-EDITOR.md`:
   software voicing first, per-key loudness, no PIN, calibration overrides
-  wanted. Next: software voicing (step 2).
+  wanted.
+- **Software voicing (step 2) is built:** per-key trims and a whole-piano
+  setting, tried by ear. They are applied to each piece as it plays
+  (`api/voicing.go`, `piano/voicing.go`), with test notes per key and
+  Replay; nothing is written to the piano. Next: step 3, writing trims to
+  the piano.

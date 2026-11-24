@@ -461,6 +461,61 @@ paths:
                   to: { $ref: "#/components/schemas/PianoBackup" }
                   diff: { $ref: "#/components/schemas/PianoDiff" }
 
+  /piano/voicing:
+    get:
+      summary: Software voicing (trims applied while serving; nothing written to the piano)
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Voicing" } } } }
+    put:
+      summary: Replace the software voicing
+      description: |
+        Trims are in the table's own steps (+1 adds 5 to the hammer speed,
+        128000 / velocity; positive is louder), keyed by MIDI note. `offset`
+        applies to every key. They take effect from the next piece played
+        (`/deck/replay` replays the current track at once).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                on: { type: boolean }
+                offset: { type: integer }
+                trims: { type: object, additionalProperties: { type: integer } }
+      responses:
+        "200": { description: Saved, content: { application/json: { schema: { $ref: "#/components/schemas/Voicing" } } } }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /piano/audition:
+    post:
+      summary: Play test notes for one key
+      description: |
+        At four dynamics (velocity 64, 100, 256, 400), the note as recorded
+        and then with a trim: `trim` if given, else the key's software trim
+        plus the offset.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [note]
+              properties:
+                note: { type: integer, minimum: 21, maximum: 108 }
+                trim: { type: integer }
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /deck/replay:
+    post:
+      summary: Play the current track again from its start (to hear a voicing change)
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "409": { $ref: "#/components/responses/Error" }
+
   /sim/power:
     post:
       summary: "Simulator only: switch the simulated piano on or off"
@@ -500,6 +555,7 @@ components:
         * `armed`: recorder loaded, waiting for `/record/start`.
         * `recording`
         * `saving`: recording stopped, files being written.
+        * `maintenance`: a utility program (getlut.exe) is reading the piano's settings.
         * `fault`: something went wrong; `message` says what. The service recovers by itself.
       enum: [offline, connecting, idle, loading, playing, paused, stopping, armed, recording, saving, maintenance, fault]
 
@@ -544,6 +600,7 @@ components:
         message: { type: string, description: Fault or warning text, empty when all is well }
         recording_title: { type: string, description: Title for the recording in progress }
         program: { type: string, description: Banner of the program running on the piano }
+        voiced: { type: boolean, description: The performance playing carries software voicing }
         simulated: { type: boolean, description: True when talking to the built-in simulator }
         since: { type: string, format: date-time, description: When the state last changed }
 
@@ -753,3 +810,20 @@ components:
               from: { type: string }
               to: { type: string }
         other: { type: integer, description: differing bytes not described by changes }
+
+    Voicing:
+      type: object
+      properties:
+        on: { type: boolean }
+        offset: { type: integer, description: trim steps for every key }
+        trims: { type: object, additionalProperties: { type: integer }, description: trim steps by MIDI note }
+        active: { type: boolean, description: on and changing something }
+        max_trim: { type: integer }
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              note: { type: integer }
+              name: { type: string }
+              trim: { type: integer }

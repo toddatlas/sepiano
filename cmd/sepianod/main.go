@@ -148,7 +148,8 @@ func run(args []string) int {
 	go func() { d.Run(ctx); close(deckDone) }()
 
 	s := &api.Server{Deck: d, Lib: lib, Programs: progs, Sim: inst, UI: web.Files, Version: version, Log: logf,
-		PlayDir: filepath.Join(*data, "play"), Piano: &piano.Store{Dir: filepath.Join(*data, "eeprom")}}
+		PlayDir: filepath.Join(*data, "play"), Piano: &piano.Store{Dir: filepath.Join(*data, "eeprom")},
+		Voicing: &piano.VoicingStore{Path: filepath.Join(*data, "voicing.json")}}
 	srv := &http.Server{Addr: *addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	srvErr := make(chan error, 1)
 	go func() { srvErr <- srv.ListenAndServe() }()

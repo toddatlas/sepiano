@@ -127,6 +127,9 @@ func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collec
 		job.Piece, job.Dir, job.Name = job.Tracks[0].Piece, dir, "q"
 		job.Duration = time.Duration(total) * time.Millisecond
 	}
+	if err := s.voice(&job, len(sel) > 1); err != nil {
+		return fmt.Errorf("voicing: %w", err)
+	}
 	if coll != nil {
 		c := *coll
 		c.Start, c.Count = start, len(ids)

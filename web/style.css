@@ -1206,3 +1206,10 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 .player-list .player-row:first-child { border-top: 0; padding-top: 0; }
 .player-value { text-align: right; font-variant-numeric: tabular-nums; }
 .player-explain { grid-column: 1 / -1; font-size: 13px; color: var(--muted); }
+.np-voiced { margin: 6px 0 0; }
+.np-voiced a { text-decoration: none; }
+.voicing-switch { display: flex; margin: 4px 0 14px; max-width: 220px; }
+.voicing-switch button { flex: 1 1 0; }
+.voiced-keys { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
+.voiced-key { text-decoration: none; }
+.trim-words { margin: 8px 0 0; }

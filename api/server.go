@@ -49,6 +49,7 @@ type Server struct {
 
 	// Piano keeps the backups of the piano's stored settings.
 	Piano    *piano.Store
+	Voicing  *piano.VoicingStore
 	backupMu sync.Mutex
 
 	qmu   sync.Mutex
@@ -103,6 +104,7 @@ func (s *Server) Handler() http.Handler {
 		w.Write(OpenAPI)
 	})
 	s.pianoRoutes(m)
+	s.voicingRoutes(m)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "no such API endpoint") })
 	m.HandleFunc("GET /apple-touch-icon.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")

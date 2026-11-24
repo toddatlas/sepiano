@@ -61,7 +61,7 @@ func newEnv(t *testing.T) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(), Piano: &piano.Store{Dir: t.TempDir()},
+	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(), Piano: &piano.Store{Dir: t.TempDir()}, Voicing: &piano.VoicingStore{Path: t.TempDir() + "/voicing.json"},
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -418,4 +418,68 @@ func TestPianoSettings(t *testing.T) {
 	if code, _ := e.do("GET", "/api/v1/piano/backups/nope", nil); code != 404 {
 		t.Errorf("missing backup: %d", code)
 	}
+}
+
+// TestVoicing sets software voicing, plays a piece with a trimmed key,
+// replays it, and plays a key's test notes.
+func TestVoicing(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(30 * se.TicksPerSecond).Encode() // plays C4 (60) among others
+	name := "Voicing_Test"
+	r := e.upload(map[string][]byte{name + ".kb": kb, name + ".lp": lp, name + ".sp": sp})
+	if len(r.Added) != 1 {
+		t.Fatalf("upload: %+v", r)
+	}
+	id := r.Added[0].ID
+
+	if code, b := e.do("PUT", "/api/v1/piano/voicing", map[string]any{"on": true, "offset": 0, "trims": map[string]int{"60": 10, "61": 0}}); code != 200 ||
+		!strings.Contains(string(b), `"name":"C4"`) || !strings.Contains(string(b), `"active":true`) {
+		t.Fatalf("put voicing: %d %s", code, b)
+	}
+	if code, _ := e.do("PUT", "/api/v1/piano/voicing", map[string]any{"on": true, "offset": 500}); code != 400 {
+		t.Errorf("huge offset: %d", code)
+	}
+	if code, b := e.do("GET", "/api/v1/piano/voicing", nil); code != 200 || !strings.Contains(string(b), `"60":10`) {
+		t.Errorf("get voicing: %d %s", code, b)
+	}
+
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]string{"piece": id}); code != 202 {
+		t.Fatalf("play: %d %s", code, b)
+	}
+	if st := e.waitState("playing"); !st.Voiced {
+		t.Errorf("playing without voicing: %+v", st)
+	}
+	if code, b := e.do("POST", "/api/v1/deck/replay", nil); code != 202 {
+		t.Errorf("replay: %d %s", code, b)
+	}
+	if st := e.waitState("playing"); !st.Voiced || st.Piece == nil || st.Piece.ID != id {
+		t.Errorf("after replay: %+v", st)
+	}
+
+	// Switched off, the same piece plays as recorded.
+	e.do("PUT", "/api/v1/piano/voicing", map[string]any{"on": false, "trims": map[string]int{"60": 10}})
+	if code, _ := e.do("POST", "/api/v1/deck/play", map[string]string{"piece": id}); code != 202 {
+		t.Fatal("play again")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if st := e.waitState("playing"); st.Voiced {
+		t.Errorf("voiced while off: %+v", st)
+	}
+
+	if code, b := e.do("POST", "/api/v1/piano/audition", map[string]int{"note": 60}); code != 202 {
+		t.Fatalf("audition: %d %s", code, b)
+	}
+	time.Sleep(300 * time.Millisecond)
+	st := e.waitState("playing")
+	if st.Piece == nil || !strings.Contains(st.Piece.Title, "C4") || !strings.Contains(st.Piece.Title, "+10") {
+		t.Errorf("audition status %+v", st.Piece)
+	}
+	if code, _ := e.do("POST", "/api/v1/deck/replay", nil); code != 409 {
+		t.Errorf("replay of test notes: %d", code)
+	}
+	if code, _ := e.do("POST", "/api/v1/piano/audition", map[string]int{"note": 5}); code != 400 {
+		t.Errorf("audition of note 5: %d", code)
+	}
+	e.do("POST", "/api/v1/deck/stop", nil)
+	e.waitState("idle")
 }

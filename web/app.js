@@ -908,6 +908,7 @@ function nowPlayingScreen(root) {
   const composerEl = h('p', { class: 'np-composer' });
   const performerEl = h('p', { class: 'np-performer' });
   const fileEl = h('p', { class: 'np-file' }); // the file playing, to check what is what
+  const voicedEl = h('p', { class: 'np-voiced', hidden: true }, h('a', { class: 'pill pill-warn', href: '#/piano' }, 'Voicing on: trims tried by ear')); // software voicing applied
   const hintEl = h('p', { class: 'np-hint' });
   const messageEl = h('p', { class: 'message message-warn', role: 'status' });
   const progFill = h('div', { class: 'progress-fill' });
@@ -936,7 +937,7 @@ function nowPlayingScreen(root) {
     h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop')));
 
   const playPanel = h('section', { class: 'np' },
-    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, hintEl, messageEl,
+    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, voicedEl, hintEl, messageEl,
     h('div', { class: 'np-progress' }, progress, h('div', { class: 'times' }, elapsedEl, totalEl), allEl),
     transport);
 
@@ -1020,6 +1021,7 @@ function nowPlayingScreen(root) {
     performerEl.hidden = !p.performer;
     setText(fileEl, p.source_name);
     fileEl.hidden = !p.source_name;
+    voicedEl.hidden = !s.voiced;
 
     let hint = '';
     if (s.state === 'loading') hint = 'Sending the player to the piano — about 2 seconds.';
@@ -2486,7 +2488,8 @@ const PIANO_METRICS = [
   { id: 'lead', label: 'Lead', hint: 'Lead time at medium loudness: ticks from the strike command to the hammer.', value: (v, k) => curveAt(v, k, 100, 0) },
   { id: 'release', label: 'Release', hint: 'Free release time: ticks for the key to come back up when let go.', value: (v, k) => k.free_release },
   { id: 'silent', label: 'Silent', hint: 'Silent press level: the gentle press for notes too soft to sound.', value: (v, k) => k.silent_level },
-  { id: 'trim', label: 'Trim', hint: 'Velocity trim: positive is louder.', value: (v, k) => k.trim, signed: true },
+  { id: 'trim', label: 'Trim', hint: 'The trims stored in the piano: positive is louder.', value: (v, k) => k.trim, signed: true },
+  { id: 'byear', label: 'By ear', hint: 'Your trims tried by ear, with the whole-piano setting: not written to the piano.', value: (v, k) => (voicingState.v ? voicingState.v.offset || 0 : 0) + voicingTrim(k.note), signed: true },
 ];
 
 function pianoNote(n) {
@@ -2527,16 +2530,153 @@ function backupButton(after, primary = true) {
 
 const BACKUP_HINT = 'A backup runs getlut.exe on the piano. It only reads: nothing on the piano moves or changes. It takes a few seconds, and the piano can’t play meanwhile.';
 
+// Software voicing: per-key trims and a whole-piano offset that the service
+// applies to every piece it plays, with the firmware's own trim formula.
+// Nothing is written to the piano (docs/SETTINGS-EDITOR.md, step 2).
+
+const voicingState = { v: null, pending: false, timer: 0, listeners: new Set() };
+
+async function loadVoicing(force) {
+  if (voicingState.v && !force) return voicingState.v;
+  voicingState.v = await api('GET', '/piano/voicing');
+  return voicingState.v;
+}
+
+function voicingTrim(note) {
+  const v = voicingState.v;
+  return v && v.trims ? (v.trims[String(note)] || 0) : 0;
+}
+
+// changeVoicing applies fn to a copy of the voicing, shows it at once, and
+// saves it shortly after (several quick steps make one save).
+function changeVoicing(fn) {
+  const cur = voicingState.v || { on: true, offset: 0, trims: {} };
+  const next = { on: cur.on, offset: cur.offset, trims: { ...(cur.trims || {}) } };
+  fn(next);
+  for (const [k, t] of Object.entries(next.trims)) if (!t) delete next.trims[k];
+  voicingState.v = { ...cur, ...next };
+  for (const l of voicingState.listeners) l();
+  voicingState.pending = true;
+  clearTimeout(voicingState.timer);
+  voicingState.timer = setTimeout(saveVoicing, 400);
+}
+
+// flushVoicing saves a change still waiting, before something plays.
+async function flushVoicing() {
+  if (!voicingState.pending) return;
+  clearTimeout(voicingState.timer);
+  await saveVoicing();
+}
+
+async function saveVoicing() {
+  voicingState.pending = false;
+  const v = voicingState.v;
+  try {
+    voicingState.v = await api('PUT', '/piano/voicing', { on: v.on, offset: v.offset, trims: v.trims });
+  } catch (err) {
+    toast(err.message, 'error');
+    try { voicingState.v = await api('GET', '/piano/voicing'); } catch { /* keep what we have */ }
+  }
+  for (const l of voicingState.listeners) l();
+}
+
+function onVoicing(fn) {
+  voicingState.listeners.add(fn);
+  return () => voicingState.listeners.delete(fn);
+}
+
+// The firmware's trim arithmetic (lut.TrimVelocity): velocity → hammer speed
+// 128000 / velocity, plus 5 per step, and back, rounding to nearest.
+function divRound(a, b) { return Math.floor((2 * a + b) / (2 * b)); }
+function trimVelocity(vel, t) {
+  if (!t || vel < 2) return vel;
+  const speed = divRound(128000, vel) + 5 * t;
+  return speed < 126 ? 1023 : divRound(128000, speed);
+}
+
+const TRIM_DYNAMICS = [['loud', 64], ['medium', 100], ['soft', 256], ['very soft', 400]];
+
+function trimEffectTable(t) {
+  return h('table', { class: 'piano-table' },
+    h('thead', null, h('tr', null, h('th', null, 'Played as'), h('th', null, 'Velocity'), h('th', null, 'Becomes'), h('th', null, 'Hammer speed'))),
+    h('tbody', null, TRIM_DYNAMICS.map(([label, vel]) => {
+      const b = trimVelocity(vel, t);
+      return h('tr', null, h('td', null, label), h('td', null, String(vel)), h('td', null, String(b)), h('td', null, signedPct((vel / b - 1) * 100)));
+    })));
+}
+
+function trimWords(t) {
+  if (!t) return 'as calibrated';
+  const pct = (100 / trimVelocity(100, t) - 1) * 100;
+  return `${t > 0 ? 'louder' : 'softer'}, ${signedPct(pct)} hammer speed at medium`;
+}
+
+// A −/+ control for trim steps.
+function trimStepper(label, onStep) {
+  const minus = h('button', { class: 'round-btn', type: 'button', 'aria-label': `${label}: softer`, onclick: () => onStep(-1) }, icon('minus'));
+  const plus = h('button', { class: 'round-btn', type: 'button', 'aria-label': `${label}: louder`, onclick: () => onStep(1) }, icon('plus'));
+  const readout = h('output', { class: 'level-readout', 'aria-live': 'polite' }, '0');
+  const el = h('div', { class: 'level', role: 'group', 'aria-label': label },
+    minus, h('div', { class: 'level-center' }, h('span', { class: 'level-label' }, label), readout), plus);
+  return {
+    el,
+    render(t, max) {
+      setText(readout, signedNum(t));
+      minus.disabled = t <= -max;
+      plus.disabled = t >= max;
+    },
+  };
+}
+
+function libraryPlaying() {
+  const s = app.status;
+  return !!(s && isPlaySession(s) && s.piece && s.piece.id);
+}
+
+async function replayCurrent(btn) {
+  if (btn) btn.disabled = true;
+  await flushVoicing();
+  try {
+    const reply = await api('POST', '/deck/replay');
+    if (isStatus(reply)) applyReplyStatus(reply);
+    toast('Playing the current track again, with your voicing.');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function auditionKey(note, btn) {
+  if (btn) btn.disabled = true;
+  await flushVoicing();
+  try {
+    const reply = await api('POST', '/piano/audition', { note });
+    if (isStatus(reply)) applyReplyStatus(reply);
+    toast(`Playing ${noteName(note)}: each dynamic as recorded, then with the trim.`);
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
 function pianoScreen(root) {
   let alive = true;
   let view = null;
   let metric = localStorage.getItem('pianoMetric') || 'strike';
+  let voice = null;
+  const keysBox = h('div');
+  const off = onVoicing(() => {
+    if (voice) voice.update();
+    if (view && metric === 'byear') fill(keysBox, keysCard());
+  });
   root.append(h('h1', { class: 'screen-title' }, 'Piano'), h('p', { class: 'muted center' }, 'Loading…'));
   load(false);
 
   async function load(force) {
     try {
-      const v = await loadPianoView(force);
+      const [v] = await Promise.all([loadPianoView(force), loadVoicing(false).catch(() => null)]);
       if (!alive) return;
       view = v;
       render();
@@ -2561,6 +2701,8 @@ function pianoScreen(root) {
     const v = view;
     const s = v.settings;
     const range = s.first_note === s.last_note ? `${noteName(s.first_note)} only` : `${noteName(s.first_note)} to ${noteName(s.last_note)}`;
+    voice = voicingCard();
+    fill(keysBox, keysCard());
     fill(root,
       h('h1', { class: 'screen-title' }, 'Piano'),
       h('p', { class: 'piano-sub' }, `${v.name} · serial ${s.serial} · ${noteName(v.bottom)} to ${noteName(v.top)}, ${v.keys.length} keys`),
@@ -2568,7 +2710,8 @@ function pianoScreen(root) {
       v.notes.length > 0 && h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Notes')),
         h('div', { class: 'piano-notes' }, v.notes.map(pianoNote))),
-      keysCard(),
+      voice.el,
+      keysBox,
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Switches')),
         metaList([
@@ -2613,7 +2756,7 @@ function pianoScreen(root) {
     const seg = h('div', { class: 'segmented piano-metrics', role: 'group', 'aria-label': 'Measure shown' },
       PIANO_METRICS.map((x) => h('button', {
         type: 'button', 'aria-pressed': x.id === m.id ? 'true' : 'false',
-        onclick: () => { metric = x.id; localStorage.setItem('pianoMetric', metric); render(); },
+        onclick: () => { metric = x.id; localStorage.setItem('pianoMetric', metric); fill(keysBox, keysCard()); },
       }, x.label)));
     const range = m.signed ? '' : ` Range ${lo} to ${hi}.`;
     return h('section', { class: 'card' },
@@ -2635,7 +2778,56 @@ function pianoScreen(root) {
       h('p', { class: 'hint' }, 'The player’s settings, kept in the piano. Times are in ticks of its 800 Hz clock (1.25 ms).'));
   }
 
-  return { unmount() { alive = false; } };
+  // The "Trying by ear" card: built once, updated in place so the controls
+  // keep their focus.
+  function voicingCard() {
+    const onBtn = h('button', { type: 'button', onclick: () => changeVoicing((x) => { x.on = true; }) }, 'On');
+    const offBtn = h('button', { type: 'button', onclick: () => changeVoicing((x) => { x.on = false; }) }, 'Off');
+    const whole = trimStepper('Whole piano', (d) => changeVoicing((x) => {
+      const max = (voicingState.v && voicingState.v.max_trim) || 60;
+      x.offset = Math.max(-max, Math.min(max, (x.offset || 0) + d));
+    }));
+    const wholeText = h('p', { class: 'hint trim-words' });
+    const keysEl = h('div', { class: 'voiced-keys' });
+    const clearBtn = h('button', { class: 'btn btn-small', type: 'button', onclick: clearAll }, 'Clear all');
+    const replayBtn = h('button', { class: 'btn', type: 'button', onclick: (e) => replayCurrent(e.currentTarget) }, icon('restart'), 'Replay current piece');
+    const el = h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Trying by ear')),
+      h('p', null, 'Make keys louder or softer and hear it in any piece. Applied as each piece plays; nothing is written to the piano.'),
+      h('div', { class: 'segmented voicing-switch', role: 'group', 'aria-label': 'Trying by ear' }, onBtn, offBtn),
+      whole.el,
+      wholeText,
+      h('p', { class: 'label' }, 'Keys you have trimmed'),
+      keysEl,
+      h('div', { class: 'btn-row' }, replayBtn, clearBtn),
+      h('p', { class: 'hint' }, 'Open a key below to trim it and play test notes. Changes apply from the next piece, or at once with Replay.'));
+
+    async function clearAll() {
+      const ok = await confirmDialog({ title: 'Clear all trims?', text: 'Your by-ear trims and the whole-piano setting go back to zero. Nothing on the piano changes.', ok: 'Clear' });
+      if (ok) changeVoicing((x) => { x.offset = 0; x.trims = {}; });
+    }
+
+    function update() {
+      const vs = voicingState.v || { on: false, offset: 0, trims: {}, max_trim: 60 };
+      onBtn.setAttribute('aria-pressed', vs.on ? 'true' : 'false');
+      offBtn.setAttribute('aria-pressed', vs.on ? 'false' : 'true');
+      whole.render(vs.offset || 0, vs.max_trim || 60);
+      setText(wholeText, vs.offset ? `Every key ${signedNum(vs.offset)}: ${trimWords(vs.offset)}.` : 'Every key as calibrated.');
+      const keys = Object.entries(vs.trims || {}).map(([n, t]) => [Number(n), t]).filter(([, t]) => t).sort((a, b) => a[0] - b[0]);
+      fill(keysEl, keys.length
+        ? keys.map(([n, t]) => h('a', { class: 'pill voiced-key', href: keyHref(n) }, `${noteName(n)} ${signedNum(t)}`))
+        : h('span', { class: 'muted small' }, 'None yet.'));
+      clearBtn.hidden = !keys.length && !vs.offset;
+      replayBtn.hidden = !libraryPlaying();
+    }
+    update();
+    return { el, update };
+  }
+
+  return {
+    update() { if (voice) voice.update(); },
+    unmount() { alive = false; off(); },
+  };
 }
 
 function svgEl(tag, attrs, ...children) {
@@ -2667,12 +2859,54 @@ function strikeChart(v, k) {
 
 function pianoKeyScreen(root, [noteStr]) {
   let alive = true;
+  let trimCard = null;
   const note = Number(noteStr);
+  const off = onVoicing(() => { if (trimCard) trimCard.update(); });
   root.append(h('p', { class: 'muted center' }, 'Loading…'));
-  loadPianoView(false).then((v) => { if (alive) render(v); }, (err) => {
+  Promise.all([loadPianoView(false), loadVoicing(false).catch(() => null)]).then(([v]) => { if (alive) render(v); }, (err) => {
     if (!alive) return;
     fill(root, h('div', { class: 'message message-error' }, h('p', null, err.status === 404 ? 'There is no backup of the piano’s settings yet.' : err.message)));
   });
+
+  // The trim card: the trim stored in the piano, and the one tried by ear.
+  function keyTrimCard(v, k) {
+    const stored = k.trim === 0
+      ? 'Stored in the piano: none.'
+      : `Stored in the piano: ${signedNum(k.trim)}, ${trimWords(k.trim)}${v.trims_on ? '' : ' (trims are switched off there)'}.`;
+    const stepper = trimStepper(`${k.name} by ear`, (d) => changeVoicing((x) => {
+      const max = (voicingState.v && voicingState.v.max_trim) || 60;
+      x.trims[String(k.note)] = Math.max(-max, Math.min(max, (Number(x.trims[String(k.note)]) || 0) + d));
+    }));
+    const words = h('p', { class: 'trim-words' });
+    const table = h('div');
+    const offNote = h('div', { class: 'message message-warn' },
+      h('p', null, 'Trying by ear is switched off, so pieces play without your trims.'),
+      h('button', { class: 'btn btn-small', type: 'button', onclick: () => changeVoicing((x) => { x.on = true; }) }, 'Switch on'));
+    const testBtn = h('button', { class: 'btn btn-primary', type: 'button', onclick: (e) => auditionKey(k.note, e.currentTarget) }, icon('play'), 'Play test notes');
+    const replayBtn = h('button', { class: 'btn', type: 'button', onclick: (e) => replayCurrent(e.currentTarget) }, icon('restart'), 'Replay current piece');
+    const el = h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Loudness')),
+      h('p', { class: 'muted small' }, stored),
+      stepper.el,
+      words,
+      table,
+      offNote,
+      h('div', { class: 'btn-row' }, testBtn, replayBtn),
+      h('p', { class: 'hint' }, 'Test notes play this key at four dynamics, each as recorded and then with your trim. Your trims apply to every piece as it plays; nothing is written to the piano, whose own trim applies on top.'));
+    function update() {
+      const vs = voicingState.v || { on: false, offset: 0, trims: {}, max_trim: 60 };
+      const mine = voicingTrim(k.note);
+      const total = mine + (vs.offset || 0);
+      stepper.render(mine, vs.max_trim || 60);
+      const whole = vs.offset ? `, with the whole piano at ${signedNum(vs.offset)}` : '';
+      setText(words, total === 0 ? 'By ear: plays as calibrated.' : `By ear ${signedNum(mine)}${whole}: ${trimWords(total)}.`);
+      fill(table, total !== 0 && trimEffectTable(total));
+      offNote.hidden = vs.on || total === 0;
+      replayBtn.hidden = !libraryPlaying();
+    }
+    update();
+    return { el, update };
+  }
 
   function render(v) {
     const i = v.keys.findIndex((k) => k.note === note);
@@ -2685,23 +2919,14 @@ function pianoKeyScreen(root, [noteStr]) {
     const prev = v.keys[i - 1];
     const next = v.keys[i + 1];
     const notes = v.notes.filter((n) => (n.keys || []).includes(k.name));
-    const effect = k.trim !== 0 && h('table', { class: 'piano-table' },
-      h('thead', null, h('tr', null, h('th', null, 'Played as'), h('th', null, 'Velocity'), h('th', null, 'Becomes'), h('th', null, 'Hammer speed'))),
-      h('tbody', null, (k.trim_effect || []).map((e) => h('tr', null,
-        h('td', null, e.label), h('td', null, String(e.velocity)), h('td', null, String(e.becomes)), h('td', null, signedPct(e.speed_pct))))));
+    trimCard = keyTrimCard(v, k);
     fill(root,
       h('header', { class: 'key-head' },
         prev ? h('a', { class: 'btn btn-small', href: keyHref(prev.note), 'aria-label': `Previous key, ${prev.name}` }, icon('back'), prev.name) : h('span'),
         h('h1', { class: 'key-title' }, k.name, h('span', { class: 'key-midi' }, `MIDI ${k.note}`)),
         next ? h('a', { class: 'btn btn-small', href: keyHref(next.note), 'aria-label': `Next key, ${next.name}` }, next.name, icon('forward')) : h('span')),
       notes.map(pianoNote),
-      h('section', { class: 'card' },
-        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Loudness trim')),
-        k.trim === 0
-          ? h('p', null, 'No trim: this key plays as calibrated.')
-          : h('p', null, `Trim ${signedNum(k.trim)}: ${k.trim > 0 ? 'louder' : 'softer'}${v.trims_on ? '' : ' (trims are switched off, so it does nothing)'}.`),
-        effect,
-        h('p', { class: 'hint' }, 'A trim changes the hammer’s speed, more on soft notes than on loud ones. Changing trims comes next, tried by ear first.')),
+      trimCard.el,
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Strike')),
         strikeChart(v, k),
@@ -2723,7 +2948,10 @@ function pianoKeyScreen(root, [noteStr]) {
       h('p', { class: 'hint center' }, `From the backup of ${fmtDateTime(v.backup.time)}. Read only for now.`));
   }
 
-  return { unmount() { alive = false; } };
+  return {
+    update() { if (trimCard) trimCard.update(); },
+    unmount() { alive = false; off(); },
+  };
 }
 
 function pianoBackupsScreen(root) {

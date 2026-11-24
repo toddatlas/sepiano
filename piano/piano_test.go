@@ -119,3 +119,59 @@ func TestCompare(t *testing.T) {
 		t.Errorf("self %+v", d)
 	}
 }
+
+func TestVoicing(t *testing.T) {
+	v := Voicing{On: true, Offset: 2, Trims: map[int]int{55: 5, 60: 0}}
+	v, err := v.Clean()
+	if err != nil || len(v.Trims) != 1 || !v.Active() {
+		t.Fatalf("clean %+v %v", v, err)
+	}
+	if v.TrimFor(55) != 7 || v.TrimFor(40) != 2 {
+		t.Errorf("trim for G3 %d, E2 %d", v.TrimFor(55), v.TrimFor(40))
+	}
+	if got := v.Velocity(55, 100); got != 97 { // +7 steps, as the firmware would
+		t.Errorf("G3 at 100 → %d, want 97", got)
+	}
+	if got := v.Velocity(55, 0); got != 0 {
+		t.Errorf("velocity 0 changed to %d", got)
+	}
+	off := v
+	off.On = false
+	if off.Active() {
+		t.Error("an off voicing is active")
+	}
+	if _, err := (Voicing{Offset: MaxTrim + 1}).Clean(); err == nil {
+		t.Error("accepted a huge offset")
+	}
+	if _, err := (Voicing{Trims: map[int]int{200: 1}}).Clean(); err == nil {
+		t.Error("accepted note 200")
+	}
+
+	p := TestPhrase(55, 5)
+	if n := len(p.KB.Events); n != 16 {
+		t.Fatalf("%d events", n)
+	}
+	if a, b := p.KB.Events[2].Vel, p.KB.Events[0].Vel; a >= b || b != 64 {
+		t.Errorf("first pair %d then %d", b, a)
+	}
+	if _, _, _, err := p.Encode(); err != nil {
+		t.Fatal(err)
+	}
+	n := v.Apply(p) // G3 gets +7 more on every note-on
+	if n != 8 {
+		t.Errorf("Apply changed %d notes, want 8", n)
+	}
+
+	s := &VoicingStore{Path: t.TempDir() + "/voicing.json"}
+	if got, err := s.Load(); err != nil || got.Active() {
+		t.Fatalf("empty store %+v %v", got, err)
+	}
+	saved, err := s.Save(Voicing{On: true, Trims: map[int]int{28: -3, 30: 0}})
+	if err != nil || len(saved.Trims) != 1 {
+		t.Fatalf("save %+v %v", saved, err)
+	}
+	got, err := s.Load()
+	if err != nil || !got.On || got.Trims[28] != -3 {
+		t.Errorf("load %+v %v", got, err)
+	}
+}

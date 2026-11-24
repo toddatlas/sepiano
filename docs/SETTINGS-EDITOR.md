@@ -218,7 +218,7 @@ only.
    - backups from the app (`getlut` through the deck), the Overview,
      Keyboard and Key sheet views, the backup list and comparison;
    - the simulator's EEPROM.
-2. **Software voicing:** trims and the offset applied while serving. No
+2. **Software voicing** (built 2026-11-23): trims and the offset applied while serving. No
    EEPROM writes.
 3. **Writes:** the `putlut` path with backup, check and verify, for the
    tier 1 fields; then Restore.
@@ -237,4 +237,16 @@ only.
 
 Step 1, the read-only Piano screen, is built and on the Pi. The first
 backup through it took 1.4 s, and matched the one taken earlier with
-`sehost` byte for byte. Next: step 2, software voicing (trims by ear).
+`sehost` byte for byte.
+
+Step 2, software voicing, is built. Where it lives:
+- the voicing is kept in `/var/lib/sepiano/voicing.json` (on until
+  switched off);
+- `api.voice` plays a voiced copy of each piece from the play folder, and
+  the status says `voiced`;
+- `POST /piano/audition` plays a key's test notes (each dynamic as
+  recorded, then trimmed);
+- `POST /deck/replay` replays the current track;
+- the key sheet and the overview's "Trying by ear" card hold the controls.
+
+Next: step 3, writing trims to the piano with `putlut`.

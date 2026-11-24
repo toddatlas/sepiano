@@ -79,6 +79,7 @@ type Status struct {
 	Message        string      `json:"message"`
 	RecordingTitle string      `json:"recording_title,omitempty"`
 	Program        string      `json:"program,omitempty"`
+	Voiced         bool        `json:"voiced"` // playing with software voicing
 	Simulated      bool        `json:"simulated"`
 	Since          time.Time   `json:"since"`
 }
@@ -89,6 +90,9 @@ type Job struct {
 	Dir      string
 	Name     string
 	Duration time.Duration
+
+	// Voiced says the files carry software voicing (shown in the status).
+	Voiced bool
 
 	// For an album or play list joined into one performance: what it is,
 	// and the tracks it is made of (Piece is then the first track).
@@ -705,6 +709,7 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 	ctx, cancel := context.WithCancel(d.ctx)
 	s := &session{kind: kind, job: j, title: title, prog: prog, keys: make(chan []byte, 16),
 		ctx: ctx, cancel: cancel, deadline: time.Now().Add(d.cfg.StartTimeout)}
+	d.st.Voiced = false
 	if kind == "record" {
 		s.name = "r" + strconv.FormatInt(time.Now().Unix()%78364164096, 36) // 7 base-36 digits at most
 		d.st.Piece = nil
@@ -713,6 +718,7 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 		d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 	} else {
 		d.st.DurationMs = j.Duration.Milliseconds()
+		d.st.Voiced = j.Voiced
 		d.st.RecordingTitle = ""
 		d.st.Collection = j.Collection
 		d.st.Tracks = j.Tracks
@@ -812,6 +818,7 @@ func (d *Deck) sessDone(m sessDone) {
 // afterSession reopens the idle link, or starts the next piece.
 func (d *Deck) afterSession(failed bool) {
 	d.st.Piece = nil
+	d.st.Voiced = false
 	d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 	d.st.PositionMs = 0
 	d.st.DurationMs = 0
