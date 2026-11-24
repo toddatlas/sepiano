@@ -1368,3 +1368,10 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
 @media (min-width: 1280px) {
   .ed-insp { position: sticky; top: calc(var(--topbar-h) + var(--sat) + 8px); max-height: calc(100vh - var(--topbar-h) - var(--sat) - 24px); overflow: auto; }
 }
+.rec-links .rec-corr + .rec-corr { margin-top: 8px; }
+.test-steps { margin: 8px 0 14px; padding-left: 22px; }
+.test-steps li { margin: 4px 0; }
+.rec-check-list { display: grid; gap: 0; margin: 6px 0 10px; }
+.rec-check-list .corr-check { margin: 6px 0; }
+.tool-help td:first-child { white-space: normal; width: 40%; }
+.tool-help code { white-space: normal; overflow-wrap: anywhere; }

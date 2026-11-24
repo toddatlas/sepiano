@@ -44,7 +44,7 @@ sensors but changes nothing stored; **W** writes the instrument's EEPROM
 | playmidi | MIDI FILE PLAYER V50.45 | 7988 | Plays a standard MIDI file | reads `name.ext` | M |
 | playeseq | PIANOSOFT DISK PLAYER V50.45 | 7503 | Plays Yamaha PianoSoft (E-SEQ) files | reads `name.ext` | M |
 | midiin | MIDI INPUT CONTROLLER V50.48 (2007) | 8478 | By its name, plays MIDI arriving at the instrument's MIDI input, live; Down/Up subdue/restore | none | M |
-| edit | INTERACTIVE PERFORMANCE EDITOR V50.45 | 27406 | A command-line editor of a performance "workspace": heading, preface, search, splice, louder/softer, mask, mute, uniform, sostenuto, voicing, cue marks. Only 14% of it is traced (its commands dispatch through tables), so whether it plays is not known yet | reads and writes a performance | M? |
+| edit | INTERACTIVE PERFORMANCE EDITOR V50.45 | 27406 | Stahnke's command-line editor: works through a performance about 28 s at a time, plays it (step by step or in real time), edits single events, sostenuto and cue marks, time and pedals. Its LOUDER, SOFTER and LEVEL write the per-key trims. Decoded in docs/STAHNKE-EDITOR.md | reads and writes a performance | **W** (trims) |
 | dump | PERFORMANCE DUMPER V50.44 | 3168 | Sends a performance out to a tape recorder | reads a performance | M |
 | load | PERFORMANCE LOADER V50.44 | 3503 | Reads a performance from tape into files | writes a performance | M |
 | tape | MAGNETIC TAPE RECORD/PLAY V50.45 | 7946 | Records or plays through the tape interface directly | none | M |
@@ -112,10 +112,16 @@ key's releases with the rest of its chords (docs/RECORDING-EDITOR.md).
 **Velocity 0.** At 0405H–0421H the recorder writes a press with velocity 0
 (FW#12, then FW#13 carries; `B=FF, HL=0` to the event writer at 05FAH). No
 hammer timing is used on that path. The first recording on this piano
-(2026-11-23) has two such presses. The player's lookup (FW#71) takes 0
-below the first breakpoint (30 on this table) and gives strike level 0, the
-hardest drive. So a velocity-0 note plays as loud as the piano can. What
-FW#12 and FW#13 read exactly is not traced yet.
+(2026-11-23) has two such presses.
+
+**The player treats velocity 0 as a silent press.** At 1044H `play.exe`
+jumps from velocity 0 to the same silent-press path as a velocity of 640 or
+more (corrected 2026-11-24: an earlier note here said it played at the
+hardest strike, from the FW#71 lookup, which the player never reaches for
+0). `edit.exe` does the same (5CC2H). So a velocity-0 press is played as a
+key moved down without sounding. If the key really sounded when it was
+recorded, its hammer sensor missed it, and the note is lost on playback.
+What FW#12 and FW#13 read exactly is not traced yet.
 
 ## The instrument's EEPROM ("lookup table")
 
@@ -464,7 +470,7 @@ ports and fixed memory each one reaches; `-list` prints the listing.
    | Expert | monitor | | backed up again |
 
    The safeguards:
-   - **Changing settings** (cal, silent, setup, putlut, monitor) needs a
+   - **Changing settings** (cal, silent, setup, putlut, edit, monitor) needs a
      confirmation, and an EEPROM backup is taken before and after.
    - **Factory tables** also need "ERASE" typed: they replace the whole
      calibration.

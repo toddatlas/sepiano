@@ -129,3 +129,34 @@ func TestUntil(t *testing.T) {
 		t.Errorf("damper %d samples, %v", len(part.Damper), part.Damper[1600/8-2:1600/8+2])
 	}
 }
+
+// TestSostenutoKept: the sostenuto pedal (key 0: 0x80 down, 0x00 up) goes
+// through the editor, and into a preview from the middle.
+func TestSostenutoKept(t *testing.T) {
+	events := []se.Event{
+		{Tick: 0, Key: se.FillerKey},
+		{Tick: 800, Key: 60, On: true, Vel: 200},
+		{Tick: 900, Key: 0, On: true}, // sostenuto down: holds C4
+		{Tick: 1000, Key: 60},
+		{Tick: 2400, Key: 0}, // sostenuto up
+	}
+	p := perf(events, 3200, make([]byte, 401), make([]byte, 201))
+	d := FromPerformance(p)
+	back, err := d.Performance()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var marks []se.Event
+	for _, e := range back.KB.Events {
+		if e.Key == 0 {
+			marks = append(marks, e)
+		}
+	}
+	if len(marks) != 2 || !marks[0].On || marks[0].Tick != 900 || marks[1].On || marks[1].Tick != 2400 {
+		t.Fatalf("sostenuto events %+v", marks)
+	}
+	part := d.From(2000, 800)
+	if len(part.Other) != 1 || part.Other[0].Tick != 1200 || part.Other[0].On {
+		t.Errorf("preview from 2000: %+v", part.Other)
+	}
+}

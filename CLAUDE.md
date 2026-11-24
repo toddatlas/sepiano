@@ -9,7 +9,8 @@ Stahnke SE reproducing piano. The piano is a Steinway with the SE system
   reverse-engineered specifications. Trust them; every claim is backed by the
   decompiled code, the file collection or captures from the real piano.
 - `docs/SUITE-PROGRAMS.md` is the suite's other programs, the firmware, and the
-  piano's EEPROM table, decoded. `docs/SETTINGS-EDITOR.md` is the design
+  piano's EEPROM table, decoded; `docs/STAHNKE-EDITOR.md` is Stahnke's own
+  performance editor, decoded. `docs/SETTINGS-EDITOR.md` is the design
   for editing that table from the app, with the owner's decisions (steps 1
   and 2 are built). `docs/RECORDING-EDITOR.md` is the piano-roll editor for
   recordings, and what the first recording showed.
@@ -370,8 +371,9 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   releases seemed out of sync. Formal tests wait until the piano can make
   noise. What the Key check found in it:
   - G3 let go 305 and 568 ms before the rest of its chords;
-  - two presses have velocity 0, which the player strikes at the hardest
-    drive (docs/RECORDING-EDITOR.md, docs/SUITE-PROGRAMS.md).
+  - two presses have velocity 0 (no hammer reading), which the player
+    plays as silent presses (`play.exe` 1044H; corrected 2026-11-24, it
+    was first described here as the hardest strike).
 - **Key check** (was "Velocity by key"): velocity against the neighbours,
   presses with no hammer reading, and release timing in chords
   (`piano.CheckReleases`).

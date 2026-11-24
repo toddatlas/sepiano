@@ -106,3 +106,36 @@ func TestCurveMonotonic(t *testing.T) {
 		}
 	}
 }
+
+// TestMIDISostenuto: the sostenuto pedal (key 0) goes out as CC66 and comes
+// back in as key-0 events.
+func TestMIDISostenuto(t *testing.T) {
+	p := &Performance{
+		KB: &KB{Format: 0x0F, Model: 0x11, End: 2400, Events: []Event{
+			{Tick: 0, Key: FillerKey},
+			{Tick: 800, Key: 60, On: true, Vel: 200},
+			{Tick: 880, Key: 0, On: true},
+			{Tick: 1200, Key: 60},
+			{Tick: 2000, Key: 0},
+		}},
+		Damper: &Pedal{Samples: make([]byte, 301)},
+		Soft:   &Pedal{Samples: make([]byte, 151)},
+	}
+	data, err := p.ToMIDI(nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q, err := FromMIDI(data, nil, 0, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var marks []Event
+	for _, e := range q.KB.Events {
+		if e.Key == 0 {
+			marks = append(marks, e)
+		}
+	}
+	if len(marks) != 2 || marks[0] != (Event{Tick: 880, Key: 0, On: true}) || marks[1] != (Event{Tick: 2000, Key: 0}) {
+		t.Errorf("sostenuto after the round trip: %+v", marks)
+	}
+}

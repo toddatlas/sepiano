@@ -420,7 +420,7 @@ const app = {
   piecesStale: true,
   piecesGen: 0,
   consoleLines: [],
-  rec: { title: '', awaitingSince: 0, saved: null }, // saved: {id, title}
+  rec: { title: '', awaitingSince: 0, saved: null, thenKeys: false }, // saved: {id, title}; thenKeys: open the Key check once saved
 };
 
 const PLAY_STATES = new Set(['playing', 'paused', 'stopping']);
@@ -514,6 +514,7 @@ function recordingSaved(id) {
   const r = app.rec;
   r.awaitingSince = 0;
   r.saved = { id, title: r.title || 'Your recording' };
+  if (r.thenKeys) { r.thenKeys = false; location.hash = pieceKeysHref(id); } // a sensor test: straight to its Key check
   api('GET', piecePath(id))
     .then((p) => {
       if (p && r.saved && r.saved.id === id) {
@@ -829,6 +830,8 @@ const ROUTES = [
   { name: 'upload', re: /^\/upload$/, tab: 'library', title: 'Upload', back: true, screen: uploadScreen },
   { name: 'record', re: /^\/record$/, tab: 'record', title: 'Record', screen: recordScreen },
   { name: 'corrections', re: /^\/record\/corrections$/, tab: 'record', title: 'Corrections', back: { href: '#/record', label: 'Record' }, screen: correctionsScreen },
+  { name: 'sensor-test', re: /^\/record\/test$/, tab: 'record', title: 'Sensor test', back: { href: '#/record', label: 'Record' }, screen: sensorTestScreen },
+  { name: 'keys-many', re: /^\/keys\/([^/]+)$/, tab: 'record', title: 'Key check', back: { href: '#/record/test', label: 'Sensor test' }, screen: keysManyScreen },
   { name: 'piano', re: /^\/piano$/, tab: 'piano', title: 'Piano', screen: pianoScreen },
   { name: 'piano-key', re: /^\/piano\/key\/(\d+)$/, tab: 'piano', title: 'Key', back: { href: '#/piano', label: 'Piano' }, screen: pianoKeyScreen },
   { name: 'piano-backups', re: /^\/piano\/backups$/, tab: 'piano', title: 'Backups', back: { href: '#/piano', label: 'Piano' }, screen: pianoBackupsScreen },
@@ -2319,7 +2322,9 @@ function recordScreen(root) {
 
   // The per-key corrections recordings play with.
   const corrText = h('span', { class: 'muted small' });
-  const corrLink = h('a', { class: 'rec-corr', href: '#/record/corrections' }, h('strong', null, 'Corrections'), corrText);
+  const corrLink = h('div', { class: 'rec-links' },
+    h('a', { class: 'rec-corr', href: '#/record/test' }, h('strong', null, 'Sensor test'), h('span', { class: 'muted small' }, ': two guided recordings that show which keys’ sensors read wrong')),
+    h('a', { class: 'rec-corr', href: '#/record/corrections' }, h('strong', null, 'Corrections'), corrText));
   const offCorr = onCorrections(showCorr);
   loadCorrections(false).then(showCorr, () => {});
   function showCorr() {
@@ -3099,10 +3104,13 @@ function pianoBackupsScreen(root) {
 // loudness, and the keys that record louder or softer than their neighbours
 // stand out. Release: record chords pressed and let go together, and the
 // keys that come up regularly before or after the rest stand out.
-function pieceKeysScreen(root, [id]) {
+// Several recordings checked together: #/keys/id1,id2,…
+function keysManyScreen(root, [ids]) { return pieceKeysScreen(root, [ids], true); }
+
+function pieceKeysScreen(root, [id], many = false) {
   let alive = true;
   root.append(h('h1', { class: 'screen-title' }, 'Key check'), h('p', { class: 'muted center' }, 'Loading…'));
-  api('GET', piecePath(id) + '/keys').then((r) => { if (alive) render(r); }, (err) => {
+  api('GET', many ? '/keycheck?pieces=' + encodeURIComponent(id) : piecePath(id) + '/keys').then((r) => { if (alive) render(r); }, (err) => {
     if (alive) fill(root, h('h1', { class: 'screen-title' }, 'Key check'), h('div', { class: 'message message-error' }, h('p', null, err.message)));
   });
 
@@ -3127,12 +3135,12 @@ function pieceKeysScreen(root, [id]) {
           h('td', null, String(k.count)),
           h('td', { class: flagged.has(k.note) ? 'at-limit' : null }, signedMs(k.median_ms)),
           h('td', null, k.min_ms === k.max_ms ? signedMs(k.min_ms) : `${signedMs(k.min_ms)} to ${signedMs(k.max_ms)}`))))),
-      h('p', { class: 'hint' }, `${rc.chords} chords (keys pressed within ${rc.window_ms} ms of each other). Each key’s release is compared with the middle release of its chord: minus is early. A sensor that fires early or late does it every time; a finger varies. To check the release sensors, record chords pressed and let go together, several times each. In the `, h('a', { href: editHref(id) }, 'editor'), ', a key’s releases can be moved: click the key at the left for all its notes, then Release.'));
+      h('p', { class: 'hint' }, `${rc.chords} chords (keys pressed within ${rc.window_ms} ms of each other). Each key’s release is compared with the middle release of its chord: minus is early. A sensor that fires early or late does it every time; a finger varies. To check the release sensors, record chords pressed and let go together, several times each.`, !many && [' In the ', h('a', { href: editHref(id) }, 'editor'), ', a key’s releases can be moved: click the key at the left for all its notes, then Release.']));
   }
 
   function render(r) {
     const c = r.check;
-    const title = r.piece.title || 'Untitled';
+    const title = many ? `${r.pieces.length} recordings together` : r.piece.title || 'Untitled';
     document.title = `Key check · ${title} · Piano`;
     if (!c.notes && !(c.no_reading || []).length) {
       fill(root, h('h1', { class: 'screen-title' }, 'Key check'), h('p', { class: 'muted' }, 'This piece has no notes.'));
@@ -3155,9 +3163,11 @@ function pieceKeysScreen(root, [id]) {
     const none = c.no_reading || [];
     fill(root,
       h('h1', { class: 'screen-title' }, 'Key check'),
-      h('p', { class: 'piano-sub' }, h('a', { href: pieceHref(id) }, title), r.origin === 'recorded' ? ' · recorded on this piano' : '', ' · ', h('a', { href: editHref(id) }, 'open in the editor')),
+      many
+        ? h('p', { class: 'piano-sub' }, r.pieces.map((p, i) => [i ? ', ' : '', h('a', { href: pieceKeysHref(p.id) }, p.title || 'Untitled')]))
+        : h('p', { class: 'piano-sub' }, h('a', { href: pieceHref(id) }, title), r.origin === 'recorded' ? ' · recorded on this piano' : '', ' · ', h('a', { href: editHref(id) }, 'open in the editor')),
       none.length > 0 && h('div', { class: 'message message-error' },
-        h('p', null, `${none.reduce((a, k) => a + k.count, 0)} notes have no hammer reading (velocity 0): ${none.map((k) => (k.count > 1 ? `${k.name} ×${k.count}` : k.name)).join(', ')}. The key went down but the recorder measured no hammer speed. On playback the player strikes such a note as hard as it can; in the editor, set its loudness.`)),
+        h('p', null, `${none.reduce((a, k) => a + k.count, 0)} notes have no hammer reading (velocity 0): ${none.map((k) => (k.count > 1 ? `${k.name} ×${k.count}` : k.name)).join(', ')}. The key went down but the recorder measured no hammer speed, and on playback the player moves such a key down without sounding it (a silent press). If the note sounded when you played it, its hammer sensor missed it: give it a loudness in the editor, or turn on “fill in” in Corrections.`)),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity: keys that stand out')),
         outliers.length ? h('div', { class: 'piano-notes' }, outliers) : h('p', null, `No key stands more than ${c.threshold}% apart from its neighbours.`),
@@ -3247,7 +3257,6 @@ function correctionsScreen(root) {
   const addSelect = h('select', { class: 'input corr-add-select', 'aria-label': 'Key to correct' });
   for (let n = 108; n >= 21; n--) addSelect.append(h('option', { value: String(n) }, noteName(n)));
   addSelect.value = '60';
-  const recsEl = h('div', { class: 'corr-recs' }, h('p', { class: 'muted small' }, 'Loading…'));
 
   loadCorrections(true).then(() => { if (alive) render(); }, (err) => {
     if (alive) fill(root, h('h1', { class: 'screen-title' }, 'Corrections'), h('div', { class: 'message message-error' }, h('p', null, err.message)));
@@ -3263,7 +3272,7 @@ function correctionsScreen(root) {
         summaryEl,
         h('label', { class: 'corr-check', for: 'corr-fill' }, fillBox,
           h('span', null, h('strong', null, 'Fill in notes with no hammer reading. '),
-            'A press recorded with velocity 0 plays as hard as the piano can. This gives it the loudness of the notes around it.')),
+            'A press recorded with velocity 0 (the hammer sensor did not time it) plays as a silent press, so a note that sounded goes missing. This gives it the loudness of the notes around it, so it sounds. Leave it off if you make deliberate silent presses.')),
         h('p', { class: 'hint' }, 'The recordings themselves never change, so the Key check always shows what the sensors measured. “Save a corrected copy” on a recording’s page puts the corrections into a copy.')),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Keys')),
@@ -3272,19 +3281,11 @@ function correctionsScreen(root) {
         h('p', { class: 'hint' }, 'Loudness is in hammer speed: +20% makes the key’s notes 20% faster, so louder. Release moves when the key lets go: plus is later. A recording’s Key check suggests both.')),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Recordings made here')),
-        h('p', { class: 'muted small' }, 'Open a recording’s Key check to see which keys stand out, and use its suggestions.'),
-        recsEl));
+        h('p', { class: 'muted small' }, 'Open a recording’s Key check to see which keys stand out, and use its suggestions; or tick several and check them together. The ', h('a', { href: '#/record/test' }, 'sensor test'), ' guides the recordings to make.'),
+        recordingsChecklist(/^Sensor test/)));
     renderList();
     update();
     off = onCorrections(() => { if (alive) update(); });
-    getAllPieces().then((pieces) => {
-      if (!alive) return;
-      const recs = pieces.filter((p) => p.origin === 'recorded').sort((a, b) => cmpText(b.added_at, a.added_at)).slice(0, 12);
-      fill(recsEl, recs.length
-        ? h('ul', { class: 'corr-rec-list' }, recs.map((p) => h('li', null,
-          h('a', { href: pieceKeysHref(p.id) }, p.title || 'Untitled'), h('span', { class: 'muted small' }, ` · ${fmtDateTime(p.added_at)} · ${fmtTime(p.duration_ms)}`))))
-        : h('p', { class: 'muted small' }, 'No recordings yet.'));
-    }, () => fill(recsEl, h('p', { class: 'muted small' }, 'Could not load the library.')));
   }
 
   function update() {
@@ -3372,9 +3373,9 @@ function suggestionsCard(r) {
     });
     let fillBox = null;
     if (none.length && !c.fill_zero) {
-      fillBox = h('input', { type: 'checkbox', checked: true });
+      fillBox = h('input', { type: 'checkbox' });
       items.push(h('label', { class: 'corr-check' }, fillBox, h('span', null, h('strong', null, 'Fill in notes with no hammer reading. '),
-        `${none.reduce((a, k) => a + k.count, 0)} here; they play as hard as the piano can.`)));
+        `${none.reduce((a, k) => a + k.count, 0)} here. They play as silent presses; tick this only if those notes sounded when you played them.`)));
     }
     if (!items.length) {
       card.append(h('p', null, 'No key stands out enough to suggest a correction.'), h('a', { class: 'btn btn-small', href: '#/record/corrections' }, 'Corrections'));
@@ -3438,10 +3439,101 @@ function correctionsCard(p) {
   return card;
 }
 
+// ================================================================= Sensor test
+
+// A guided recording for checking the key sensors: one for loudness, one
+// for releases, each opening its Key check once saved; and several such
+// recordings checked together, for firmer suggestions.
+
+// recordingsChecklist lists the recordings made on this piano with a box
+// each (those whose title matches `preselect` ticked) and a button that
+// opens the Key check of the ticked ones together.
+function recordingsChecklist(preselect) {
+  const el = h('div', { class: 'rec-checklist' }, h('p', { class: 'muted small' }, 'Loading…'));
+  getAllPieces().then((pieces) => {
+    const recs = pieces.filter((p) => p.origin === 'recorded').sort((a, b) => cmpText(b.added_at, a.added_at)).slice(0, 30);
+    if (!recs.length) {
+      fill(el, h('p', { class: 'muted small' }, 'No recordings yet.'));
+      return;
+    }
+    const boxes = recs.map((p) => ({ p, box: h('input', { type: 'checkbox', checked: !!(preselect && preselect.test(p.title || '')) }) }));
+    const go = h('button', { class: 'btn btn-small btn-primary', type: 'button', onclick: () => {
+      const ids = boxes.filter((b) => b.box.checked).map((b) => b.p.id);
+      if (!ids.length) { toast('Tick the recordings to check.'); return; }
+      location.hash = ids.length === 1 ? pieceKeysHref(ids[0]) : '#/keys/' + ids.map(encodeURIComponent).join(',');
+    } }, 'Check the ticked ones together');
+    fill(el,
+      h('div', { class: 'rec-check-list' }, boxes.map(({ p, box }) => h('label', { class: 'corr-check' }, box,
+        h('span', null, h('a', { href: pieceKeysHref(p.id) }, p.title || 'Untitled'), h('span', { class: 'muted small' }, ` · ${fmtDateTime(p.added_at)} · ${fmtTime(p.duration_ms)}`))))),
+      h('div', { class: 'btn-row' }, go));
+  }, () => fill(el, h('p', { class: 'muted small' }, 'Could not load the library.')));
+  return el;
+}
+
+const SENSOR_TESTS = [
+  {
+    title: 'Loudness by key',
+    name: 'Sensor test: loudness',
+    does: 'Finds the keys whose hammer sensor reads too fast or too slow, so they record too loud or too soft.',
+    steps: [
+      'Tap “Get ready” below; the Record screen opens, ready.',
+      'Tap the round Start button.',
+      'From the lowest key to the highest, play each key four times at the same medium loudness (mezzo-forte), about one a second. Black keys too. Keep the pedals up.',
+      'Tap Stop and save. The Key check opens by itself.',
+    ],
+  },
+  {
+    title: 'Release timing',
+    name: 'Sensor test: releases',
+    does: 'Finds the keys whose release sensor fires early or late, so they let go before or after the rest of a chord.',
+    steps: [
+      'Tap “Get ready” below; the Record screen opens, ready.',
+      'Tap the round Start button.',
+      'Play chords of three or four keys (triads are fine), hold each about a second, and let go of all the keys at once. Play each chord three times, then move up the keyboard, until every key has been in chords. Keep the pedals up.',
+      'Tap Stop and save. The Key check opens by itself.',
+    ],
+  },
+];
+
+function sensorTestScreen(root) {
+  async function getReady(t, btn) {
+    btn.disabled = true;
+    const title = `${t.name}, ${new Date().toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}`;
+    try {
+      const reply = await api('POST', '/record/arm', { title });
+      if (isStatus(reply)) applyReplyStatus(reply);
+      app.rec.saved = null;
+      app.rec.title = title;
+      app.rec.thenKeys = true; // open the Key check once it is saved
+      location.hash = '#/record';
+    } catch (err) {
+      toast(err.message, 'error');
+      btn.disabled = false;
+    }
+  }
+  fill(root,
+    h('h1', { class: 'screen-title' }, 'Sensor test'),
+    h('p', { class: 'lead' }, 'Two short recordings that show which keys’ sensors read wrong. Do them when the piano can make noise: the piano itself only listens, it does not play.'),
+    SENSOR_TESTS.map((t) => {
+      const btn = h('button', { class: 'btn btn-primary', type: 'button', onclick: () => getReady(t, btn) }, 'Get ready');
+      return h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, t.title)),
+        h('p', { class: 'muted small' }, t.does),
+        h('ol', { class: 'test-steps' }, t.steps.map((s) => h('li', null, s))),
+        btn);
+    }),
+    h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Check several together')),
+      h('p', { class: 'muted small' }, 'Two or three takes of each test, checked together, give firmer suggestions than one. The sensor tests are ticked.'),
+      recordingsChecklist(/^Sensor test/)),
+    h('p', { class: 'hint' }, 'The Key check then suggests ', h('a', { href: '#/record/corrections' }, 'corrections'), ' for the keys that stand out.'));
+  return {};
+}
+
 // ======================================================================= Tools
 
 const RISK_WORDS = { reads: 'Reads the sensors', moves: 'Moves the piano', writes: 'Changes settings', erases: 'Erases calibration' };
-const KEY_LABELS = { space: 'Space', enter: 'Enter', esc: 'Esc', up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
+const KEY_LABELS = { space: 'Space', enter: 'Enter', esc: 'Esc', backspace: 'Backspace', up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
 
 let toolsCache = null;
 let toolGroups = [];
@@ -3549,7 +3641,12 @@ function toolScreen(root, [name, arg]) {
         keysEl,
         textForm,
         consoleEl,
-        h('p', { class: 'hint' }, tool.keys.length ? 'The program’s keys are the buttons above. Stop ends it at once; quitting with its own key is gentler.' : 'This program needs no keys: it runs to its end by itself.')));
+        h('p', { class: 'hint' }, tool.keys.length ? 'The program’s keys are the buttons above. Stop ends it at once; quitting with its own key is gentler.' : 'This program needs no keys: it runs to its end by itself.')),
+      tool.help && h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Commands')),
+        h('p', { class: 'muted small' }, 'Type a command in the box above and press Send. No spaces between a command and its value.'),
+        h('table', { class: 'piano-table tool-help' },
+          h('tbody', null, tool.help.map(([cmd, what]) => h('tr', null, h('td', null, h('code', null, cmd)), h('td', null, what)))))));
     phraseInput.addEventListener('input', update);
     renderNeeds();
     update();

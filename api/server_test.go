@@ -870,13 +870,57 @@ func TestToolFiles(t *testing.T) {
 
 	kb, lp, sp, _ := sim.Phrase(8 * se.TicksPerSecond).Encode()
 	p := e.upload(map[string][]byte{"Edit_Me.kb": kb, "Edit_Me.lp": lp, "Edit_Me.sp": sp}).Added[0]
-	if code, _ := e.do("POST", "/api/v1/tools/edit/start", nil); code != 400 {
+	if code, _ := e.do("POST", "/api/v1/tools/edit/start", map[string]any{"confirm": true}); code != 400 {
 		t.Errorf("edit with no piece: %d", code)
 	}
-	if code, b := e.do("POST", "/api/v1/tools/edit/start", map[string]any{"piece": p.ID}); code != 202 {
+	if code, b := e.do("POST", "/api/v1/tools/edit/start", map[string]any{"piece": p.ID, "confirm": true}); code != 202 {
 		t.Fatalf("edit: %d %s", code, b)
 	}
 	e.waitState("maintenance")
 	e.do("POST", "/api/v1/tools/key", map[string]string{"key": "enter"})
 	e.waitState("idle")
+	e.waitBackups(2) // edit.exe can change the trims: backed up before and after
+}
+
+// TestKeyCheckMany checks several recordings together.
+func TestKeyCheckMany(t *testing.T) {
+	e := newEnv(t)
+	dir := t.TempDir()
+	var ids []string
+	for i, name := range []string{"a", "b"} {
+		if err := sim.Phrase(uint32(8+i) * se.TicksPerSecond).Save(dir + "/" + name); err != nil {
+			t.Fatal(err)
+		}
+		p, err := e.lib.AddRecording(dir, name, "Sensor test "+name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	code, b := e.do("GET", "/api/v1/keycheck?pieces="+ids[0]+","+ids[1], nil)
+	var r struct {
+		Pieces       []deck.PieceRef `json:"pieces"`
+		RecordedHere bool            `json:"recorded_here"`
+		Check        struct {
+			Notes int `json:"notes"`
+		} `json:"check"`
+	}
+	if code != 200 || json.Unmarshal(b, &r) != nil || len(r.Pieces) != 2 || !r.RecordedHere {
+		t.Fatalf("%d %.300s", code, b)
+	}
+	code, b = e.do("GET", "/api/v1/pieces/"+ids[0]+"/keys", nil)
+	var one struct {
+		Check struct {
+			Notes int `json:"notes"`
+		} `json:"check"`
+	}
+	if code != 200 || json.Unmarshal(b, &one) != nil || r.Check.Notes <= one.Check.Notes {
+		t.Errorf("together %d notes, one alone %d", r.Check.Notes, one.Check.Notes)
+	}
+	if code, _ := e.do("GET", "/api/v1/keycheck?pieces=nope", nil); code != 404 {
+		t.Errorf("missing piece: %d", code)
+	}
+	if code, _ := e.do("GET", "/api/v1/keycheck", nil); code != 400 {
+		t.Errorf("no pieces: %d", code)
+	}
 }

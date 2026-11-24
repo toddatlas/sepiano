@@ -32,7 +32,7 @@ func JoinPerformances(parts []*se.Performance, text string) (*se.Performance, []
 	for i, p := range parts {
 		starts[i] = offset
 		end := p.KB.End
-		for _, e := range p.KB.Notes() {
+		for _, e := range p.KB.Playable() {
 			if e.Tick > end {
 				end = e.Tick
 			}

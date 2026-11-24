@@ -21,10 +21,12 @@ From that recording (`GET /pieces/{id}/keys`, the Key check screen):
 - **Two notes have velocity 0** (A3 at 14.05 s, A4 at 14.43 s): the key
   went down, but the recorder measured no hammer speed. In `record.exe`, a
   press is written with velocity 0 on the path at 0405H–0421H (FW#12, then
-  FW#13, then `B=FF, HL=0`), where no hammer timing is used. On playback,
-  the lookup (FW#71) takes velocity 0 below the first breakpoint, and on
-  this piano's table that gives **strike level 0, the hardest drive there
-  is**. So such notes play as loud as the piano can.
+  FW#13, then `B=FF, HL=0`), where no hammer timing is used. **On
+  playback, velocity 0 is a silent press** (`play.exe` 1044H): the key goes
+  down without sounding. (Corrected 2026-11-24: this doc first said the
+  hardest strike.) If those two notes sounded when they were played, their
+  hammer sensors missed them and they go missing on playback; "fill in"
+  (below) gives them the loudness around them.
 - The recorder has no per-key correction (docs/SUITE-PROGRAMS.md, "The
   recorder").
 
@@ -151,10 +153,13 @@ They are kept in one list, `data/corrections.json` (`piano.Corrections`).
   - **Loudness**, in % hammer speed. +20 makes the key's notes 20% faster
     (velocity ÷ 1.2), so louder. The limits are −50 to +100.
   - **Release**, in ms. Plus lets go later. The limit is ±1000.
-- **Fill in notes with no hammer reading.** A velocity-0 press takes the
-  median velocity of the notes within one second of it (silent presses
-  left out). This is worked out after the keys are corrected, and from
-  measured notes only.
+- **Fill in notes with no hammer reading.** The player plays a velocity-0
+  press as a silent press. Where the key really sounded and its hammer
+  sensor missed it, the note would be lost. With "fill in", a velocity-0
+  press takes the median velocity of the notes within one second of it
+  (silent presses left out), so it sounds. This is worked out after the
+  keys are corrected, and from measured notes only. Leave it off for
+  recordings with deliberate silent presses.
 - **Where they apply.** When "on", corrections apply as a recording made
   on this piano plays (`Piece.NeedsCorrection`):
   - an origin `recorded`;

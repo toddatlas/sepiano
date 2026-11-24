@@ -114,6 +114,20 @@ func ParseKB(raw []byte) (*KB, error) {
 	}
 }
 
+// Playable returns the events without the padding fillers (key 127): the
+// notes and the sostenuto pedal, which is key 0 (0x80 puts it down, 0x00
+// lets it up; play.exe 1604H, docs/SE-FILE-FORMAT.md). Use it, not Notes,
+// to rebuild a performance.
+func (k *KB) Playable() []Event {
+	var out []Event
+	for _, e := range k.Events {
+		if e.Key != FillerKey {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
 // Notes returns the events with filler markers removed.
 func (k *KB) Notes() []Event {
 	var out []Event

@@ -524,7 +524,7 @@ paths:
         and median, and how far its median hammer speed (128000 / velocity)
         stands from its neighbours'. Outliers are keys at least `threshold` %
         apart. `no_reading` counts the presses with velocity 0 (the recorder
-        measured no hammer speed; the player strikes them as hard as it can).
+        measured no hammer speed; the player plays them as silent presses).
 
         `releases`: chords (three or more keys pressed within `window_ms`),
         and each key's release against the middle release of its chord, in

@@ -47,6 +47,9 @@ func TestCorpus(t *testing.T) {
 		if !reflect.DeepEqual(back.Damper.Samples, perf.Damper.Samples) || !reflect.DeepEqual(back.Soft.Samples, perf.Soft.Samples) {
 			t.Errorf("%s: pedals changed", p)
 		}
+		if count0(back) != count0(perf) {
+			t.Errorf("%s: sostenuto events %d, want %d", p, count0(back), count0(perf))
+		}
 		if reflect.DeepEqual(back.KB.Notes(), perf.KB.Notes()) {
 			exact++
 		}
@@ -67,4 +70,15 @@ func sortNotes(n []Note) {
 		}
 		return n[i].Key < n[j].Key
 	})
+}
+
+// count0 counts the sostenuto pedal's events (key 0).
+func count0(p *se.Performance) int {
+	n := 0
+	for _, e := range p.KB.Events {
+		if e.Key == 0 && e.Tick > 0 {
+			n++
+		}
+	}
+	return n
 }

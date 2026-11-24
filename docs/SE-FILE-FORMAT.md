@@ -71,8 +71,25 @@ After the seed:
 | 1 | `0xFF` end of performance |
 | 19 | `0xFF` padding (Zenph files; never read) |
 
-The two header bytes are stored by the player (0x218B, 0x2186) but I found no
-code that reads them.
+The two header bytes are stored by the player (0x218B, 0x2186).
+
+- **Header byte 0:** `edit.exe` refuses a file with either of its top two
+  bits set (docs/STAHNKE-EDITOR.md).
+- **Header byte 1 is read** (found 2026-11-24; this doc said nothing reads
+  it). The player looks it up in the instrument's table (section 11,
+  thresholds at bytes 58–65) for a velocity factor and a damper-pedal
+  offset (`play.exe` 0x096C, 0x11FE; `edit.exe` 5E7EH, 2E25H):
+
+  | Byte 1 | Velocity factor | Effect |
+  |--------|-----------------|--------|
+  | `0x40` or more | 240/256 | louder |
+  | `0x02`–`0x3F` | 256/256 | unchanged |
+  | `0x01` | 288/256 | softer |
+  | `0x00` | 480/256 | much softer |
+
+  Zenph's `0x11` and this piano's recordings (the recorder writes its
+  serial number, `0x08`) both play unchanged. `sepiano` keeps the byte
+  when it edits a piece, and a joined album takes its first piece's.
 
 Because the text runs until the first `0x7F`, **the first event must be a
 `0x7F` filler**. Text must not contain `0x7F`.
@@ -84,8 +101,9 @@ number of ticks until the next event.
 
 | First byte *a* | Following bytes | Event |
 |----------------|-----------------|-------|
-| `0x00`–`0x7F` | Δ | key *a* released |
-| `0x80` | Δ | marker (key 0, no velocity) |
+| `0x00` | Δ | **sostenuto pedal up** (key 0 released) |
+| `0x01`–`0x7F` | Δ | key *a* released (`0x7E`: a cue mark; `0x7F`: a filler) |
+| `0x80` | Δ | **sostenuto pedal down** (key 0, no velocity) |
 | `0x81`–`0xFE`, then *b* = 1…3 | *c*, Δ | key *a*&0x7F pressed, velocity = *b*·256 + *c* (256–1023) |
 | `0x81`–`0xFE`, then *b* = 0 or 4…255 | Δ | key *a*&0x7F pressed, velocity = *b* |
 | `0xFF` | — | end of performance |
@@ -98,13 +116,26 @@ at tick Σ Δ₀…Δᵢ₋₁.
   extra bass keys, and they still appear in the Steinway renderings, where they
   have nothing to play. **Key 11** appears about once per file, always at
   velocity 350 and very short. It looks like a Zenph synchronisation mark.
-* **Keys 0 and 127 are fillers.** They never sound and only advance time.
-  Gaps longer than 255 ticks are bridged with `7F FF 7F FF … 7F rr` (the
+* **Key 127 is the filler.** It never sounds and only advances time. Gaps
+  longer than 255 ticks are bridged with `7F FF 7F FF … 7F rr` (the
   original encoder fills greedily: the real event takes up to 255, then each
-  filler takes up to 255). `0x00`/`0x80` occur rarely and seem to be markers.
+  filler takes up to 255).
+* **Key 0 is the sostenuto pedal** (decoded 2026-11-24 from `edit.exe`'s
+  SOSTENUTO ACTUATE and RELEASE, 4A2FH and 4B50H). `0x80` puts it down:
+  every key down at that moment is held. `0x00` lets it up: their releases,
+  put off till then, happen. The SE has no sostenuto actuator; the player
+  does it by holding keys (`play.exe` 0x1604, also in `playmidi` and
+  `midiin`). 16 of the 350 pieces in the collection have such events.
+  Rebuild a performance from `KB.Playable()` (all but the fillers), not
+  `KB.Notes()`, or they are lost. MIDI export writes them as controller 66.
+* **Key 126 (`0x7E`) is a cue mark**, from `edit.exe`'s `IC`. Players play
+  only keys between the table's bottom and top notes, so cue marks, fillers
+  and Zenph's key-11 marks never sound.
 * **Velocity is 10 bits and runs inverse: bigger means softer.** It looks like
   a hammer time-of-flight. The test file `10Sec-C9-400` plays key 108 at
-  velocity 400, matching its name. Velocities 1–3 cannot be encoded. Against
+  velocity 400, matching its name. Velocities 1–3 cannot be encoded. **0 and
+  640 or more are silent presses** (`play.exe` 1044H; 640 is section 11's
+  word 28 on this piano): the key goes down without sounding. Against
   the paired Yamaha MIDI renderings, the median MIDI velocity is:
 
   | SE  | 40 | 72 | 104 | 136 | 168 | 200 | 232 | 264 | 296 | 312 |

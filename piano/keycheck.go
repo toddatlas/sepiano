@@ -23,8 +23,9 @@ type KeyCheck struct {
 	Threshold float64   `json:"threshold"` // the hammer-speed difference counted as standing apart (%)
 
 	// NoReading counts, by key, the presses with velocity 0: the key went
-	// down but the recorder measured no hammer speed. The player strikes
-	// such a note as hard as the table allows (FW#71 clamps it).
+	// down but the recorder measured no hammer speed. The player plays such
+	// a note as a silent press (play.exe 1044H), so if the key sounded when
+	// it was recorded, the note is lost on playback.
 	NoReading []KeyCount `json:"no_reading"`
 }
 

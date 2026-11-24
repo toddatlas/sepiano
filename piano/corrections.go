@@ -28,8 +28,8 @@ import (
 type Corrections struct {
 	On bool `json:"on"` // applied when recordings play
 	// FillZero gives each press with no hammer reading (velocity 0, which
-	// the player strikes as hard as it can) the loudness of the notes
-	// around it.
+	// the player plays as a silent press) the loudness of the notes around
+	// it, so a note whose hammer sensor missed it sounds again.
 	FillZero bool                  `json:"fill_zero"`
 	Keys     map[int]KeyCorrection `json:"keys"`
 	Updated  time.Time             `json:"updated"`

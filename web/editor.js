@@ -48,7 +48,7 @@ let handoff = null; // the view to open a freshly saved copy at
 let clipboard = null; // copied notes (and pedals): pasted into this piece or another
 
 function loud(vel) {
-  if (vel <= 0) return 1;
+  if (vel <= 0) return 0; // no hammer reading: played as a silent press
   return Math.min(1, Math.max(0, (Math.log(128000 / vel) - L_MIN) / (L_MAX - L_MIN)));
 }
 
@@ -498,14 +498,14 @@ export function editorScreen(root, [id], ui) {
     const parts = [
       ns.length === 1 ? '1 note' : `${ns.length.toLocaleString()} notes`, keyText,
       `${fmtClock(on)} to ${fmtClock(off)}`, velText,
-      zero && `${zero} with no hammer reading (velocity 0: the player strikes it as hard as it can)`,
+      zero && `${zero} with no hammer reading (velocity 0: played as a silent press; give it a loudness if it sounded)`,
       ns.length === 1 && ns[0].vel >= SILENT && 'a silent press',
     ];
     return parts.filter(Boolean).join(' · ');
   }
 
   function noteText(n) {
-    const vel = n.vel === 0 ? 'velocity 0 (no hammer reading)' : n.vel >= SILENT ? `velocity ${n.vel} (silent press)` : `velocity ${n.vel}`;
+    const vel = n.vel === 0 ? 'velocity 0 (no hammer reading: a silent press)' : n.vel >= SILENT ? `velocity ${n.vel} (silent press)` : `velocity ${n.vel}`;
     return `${noteName(n.key)} · ${fmtClock(n.on)} · ${Math.round(((n.off - n.on) * 1000) / TICK_HZ)} ms long · ${vel}`;
   }
 
@@ -1321,8 +1321,14 @@ export function editorScreen(root, [id], ui) {
           c.lineWidth = 1.5;
           c.strokeRect(x1 + 0.75, y + 0.75, Math.max(0.5, w - 1.5), Math.max(0.5, rh - 1.5));
         } else if (n.vel === 0) {
+          // No hammer reading: played as a silent press. Outlined, in red.
+          c.globalAlpha = 0.18;
           c.fillStyle = colors.danger;
           c.fillRect(x1, y, w, rh);
+          c.globalAlpha = 1;
+          c.strokeStyle = colors.danger;
+          c.lineWidth = 1.5;
+          c.strokeRect(x1 + 0.75, y + 0.75, Math.max(0.5, w - 1.5), Math.max(0.5, rh - 1.5));
         } else if (n.vel >= SILENT) {
           c.strokeStyle = colors.muted;
           c.lineWidth = 1;

@@ -58,6 +58,40 @@ type toolDef struct {
 	// against the one restored.
 	Result string `json:"result,omitempty"`
 	Phrase string `json:"phrase,omitempty"` // to type to confirm (erases)
+	// Help is a command reference shown beside the console: what to type,
+	// and what it does.
+	Help [][2]string `json:"help,omitempty"`
+}
+
+// editHelp is edit.exe's command language, as its code reads
+// (docs/STAHNKE-EDITOR.md).
+var editHelp = [][2]string{
+	{"D", "Status: segment, time, workspace, pedals, settings"},
+	{"T", "Where the cursor is"},
+	{"T1500 · T+50 · T-50 · T0", "Move the cursor (hundredths of a second) within the loaded part; no spaces"},
+	{"B, BB… · F, FF…", "One second back or forward per letter"},
+	{"FILL", "Keep the last 4 s and load the next part (about 28 s at a time; there is no way back)"},
+	{"W=6000", "Wind forward to a time"},
+	{"P · I", "Play from 4 s before the cursor; I pauses at the cursor. Space pauses, Enter stops there, Esc stops"},
+	{"S · G (or L)", "Step through the notes, or the chords, striking each. Space next, Enter selects, Esc stops"},
+	{"SEARCH", "Next silent or very soft note"},
+	{"AI=120", "The selected note's velocity (0 silent, 4–1023, bigger is softer)"},
+	{"AN=62", "The selected note becomes key 62 (MIDI number)"},
+	{"AT=1520 · AT+5 · AT-5", "Move the selected press or release"},
+	{"DE · DN", "Delete the selected event, or the whole note"},
+	{"RESTORE", "Put back the last deletion"},
+	{"IN=60,80,50", "Insert key 60, velocity 80, half a second long, at the cursor"},
+	{"IR=60 · IR=60,20", "Release key 60 at the cursor (or 0.2 s after)"},
+	{"SOSTENUTO ACTUATE · SOSTENUTO RELEASE", "Sostenuto pedal down or up at the cursor"},
+	{"IC", "A cue mark at the cursor"},
+	{"IT", "0.02 s more time at the cursor (repeat for more)"},
+	{"SPLICE=1800", "Cut everything from the cursor to 18.00 s"},
+	{"DL · DS · AL · AS", "Show or change the damper or soft pedal, sample by sample"},
+	{"HEADING=Title\\Performer", "The text shown at the start (first part only; \\ is a new line)"},
+	{"LOUD · SOFT · U · M · R=80 · PREFACE=200 · ALERT=400", "How it plays here (pedals, same loudness, a bit softer, tempo %, lead-in, soft-note click); the piece does not change"},
+	{"END", "Save the whole piece (it becomes an edited copy in the library) and finish"},
+	{"QUIT", "Throw the changes away and finish"},
+	{"LOUDER · SOFTER · LEVEL", "⚠ These change the piano's stored per-key trims (its settings), not the piece. LEVEL sets every trim to 0"},
 }
 
 // The groups, in the order the app shows them.
@@ -95,9 +129,10 @@ var tools = []toolDef{
 		Needs: "backup", Result: "table",
 		Does:    "Writes a backup of the piano's settings back into the piano, calibration included: the way back after a calibration that went wrong. It starts at once and needs no keys. Afterwards the service reads the piano's table again and checks that it matches the backup.",
 		Warning: "This replaces the piano's whole table (calibration and settings) with the backup chosen. The present settings are backed up first, so this too can be undone."},
-	{Name: "edit", File: "edit.exe", Title: "Stahnke's performance editor", Group: "Stahnke's editor", Risk: "moves", Keys: []string{"esc", "enter"}, Input: true,
-		Needs: "piece", Result: "performance",
-		Does: "Wayne Stahnke's own command-line editor, working on a copy of a piece: type its commands and press Send. If it saves, the result is added to the library as an edited copy; the piece itself never changes. The piano-roll editor does most of the same more easily."},
+	{Name: "edit", File: "edit.exe", Title: "Stahnke's performance editor", Group: "Stahnke's editor", Risk: "writes", Keys: []string{"space", "enter", "esc", "backspace"}, Input: true,
+		Needs: "piece", Result: "performance", Help: editHelp,
+		Does:    "Wayne Stahnke's own command-line editor, working on a copy of a piece: type its commands (below) and press Send. It plays and steps through notes on the piano. If it saves (END), the result is added to the library as an edited copy; the piece itself never changes. The piano-roll editor does most of the same more easily.",
+		Warning: "Its LOUDER, SOFTER and LEVEL commands change the piano's stored per-key trims at once (LEVEL sets them all to zero), so the piano's settings are backed up before and after. Avoid them unless that is what you want."},
 	{Name: "dump", File: "dump.exe", Title: "Tape: dump a performance", Group: "Tape", Risk: "moves", Keys: []string{"space", "enter"},
 		Needs: "piece",
 		Does:  "Sends a performance out through the piano's tape interface to a cassette recorder. Start the recorder, then Space; Enter quits. Needs a cassette recorder on the tape interface."},
@@ -566,7 +601,7 @@ func (s *Server) waitIdle(ctx context.Context, limit time.Duration) error {
 // toolKeys are the keys a tool can be sent, as the PC console codes the
 // suite's host passes on.
 var toolKeys = map[string][]byte{
-	"space": {' '}, "enter": {0x0D}, "esc": {0x1B},
+	"space": {' '}, "enter": {0x0D}, "esc": {0x1B}, "backspace": {0x08},
 	"up": {0x00, 0x48}, "down": {0x00, 0x50}, "left": {0x00, 0x4B}, "right": {0x00, 0x4D},
 }
 

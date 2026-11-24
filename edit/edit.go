@@ -30,8 +30,9 @@ const (
 )
 
 // Note is one key press, from On to Off, in ticks (1/800 s). Vel is the SE
-// velocity: bigger is softer, 640 or more is a silent press, and 0 is a
-// press for which the recorder measured no hammer speed.
+// velocity: bigger is softer, and 0 or 640 and more is a silent press (the
+// key goes down without sounding; play.exe 1044H). The recorder writes 0
+// for a press whose hammer it did not time.
 type Note struct {
 	Key uint8
 	On  uint32
@@ -42,7 +43,7 @@ type Note struct {
 // Doc is a performance as the editor sees it.
 type Doc struct {
 	Notes  []Note     // in order of On
-	Other  []se.Event // key events outside the keyboard, kept as they are
+	Other  []se.Event // the sostenuto pedal (key 0) and key events outside the keyboard (cue marks on 126, Zenph's on 11), kept as they are
 	Damper []byte     // one sample per se.DamperPeriod ticks, 0 up to 255 down
 	Soft   []byte     // one sample per se.SoftPeriod ticks
 	End    uint32     // the end of the performance
@@ -54,7 +55,8 @@ type Doc struct {
 // FromPerformance pairs each press with the release that follows it on the
 // same key. A press on a key that is already down ends the note before it;
 // a press with no release lasts to the end; a release with no press is
-// dropped. Fillers and markers are dropped, as JoinPerformances does.
+// dropped. Only the padding fillers (key 127) are dropped; the sostenuto
+// pedal's events (key 0) are kept in Other.
 func FromPerformance(p *se.Performance) Doc {
 	k := p.KB
 	d := Doc{End: k.End, Text: k.Text, Format: k.Format, Model: k.Model}
@@ -65,10 +67,7 @@ func FromPerformance(p *se.Performance) Doc {
 		d.Soft = append([]byte(nil), p.Soft.Samples...)
 	}
 	open := map[uint8]int{}
-	for _, e := range k.Events {
-		if e.Filler() {
-			continue
-		}
+	for _, e := range k.Playable() {
 		if e.Tick > d.End {
 			d.End = e.Tick
 		}
@@ -171,7 +170,8 @@ func (d Doc) Performance() (*se.Performance, error) {
 // From returns the part of d that starts at tick from, to be heard from
 // there: lead ticks of silence, in which the pedals take the positions they
 // have at from, then the notes that start at or after from. Notes already
-// sounding at from, and the events outside the keyboard, are left out.
+// sounding at from are left out; the sostenuto pedal's events from then on
+// are kept (the marks outside the keyboard are not: they never sound).
 func (d Doc) From(from, lead uint32) Doc {
 	if from == 0 {
 		return d
@@ -181,6 +181,12 @@ func (d Doc) From(from, lead uint32) Doc {
 	for _, n := range d.Notes {
 		if n.On >= from {
 			out.Notes = append(out.Notes, Note{Key: n.Key, On: shift(n.On), Off: shift(n.Off), Vel: n.Vel})
+		}
+	}
+	for _, e := range d.Other {
+		if e.Key == 0 && e.Tick >= from {
+			e.Tick = shift(e.Tick)
+			out.Other = append(out.Other, e)
 		}
 	}
 	out.Damper = resample(d.Damper, se.DamperPeriod, from, lead, out.End)

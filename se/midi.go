@@ -57,8 +57,9 @@ func clamp(v, lo, hi float64) float64 { return max(lo, min(hi, v)) }
 
 // MIDI controller numbers used for the pedals.
 const (
-	CCDamper = 64
-	CCSoft   = 67
+	CCDamper    = 64
+	CCSostenuto = 66 // the .kb file's key-0 events: 0x80 down, 0x00 up
+	CCSoft      = 67
 )
 
 // ToMIDI renders the performance as a format-0 Standard MIDI File at the
@@ -71,6 +72,14 @@ func (p *Performance) ToMIDI(curve VelocityCurve, skipMarks bool) ([]byte, error
 	var msgs []smf.Message
 	at := func(t uint32) time.Duration { return TickDuration(t) }
 	for _, e := range p.KB.Events {
+		if e.Key == 0 && e.Tick > 0 { // the sostenuto pedal
+			v := byte(0)
+			if e.On {
+				v = 127
+			}
+			msgs = append(msgs, smf.Message{Time: at(e.Tick), Status: 0xB0, Data1: CCSostenuto, Data2: v})
+			continue
+		}
 		if e.Filler() || (skipMarks && (e.Key < 12 || e.Key > 108)) {
 			continue
 		}
@@ -135,6 +144,7 @@ func FromMIDI(data []byte, curve VelocityCurve, leadIn time.Duration, text strin
 	}
 	var damper, soft []ccv
 	down := map[byte]int{} // key -> number of sounding note-ons
+	sostenuto := false
 	var end uint32
 	for _, m := range msgs {
 		t := tick(m.Time)
@@ -161,6 +171,12 @@ func FromMIDI(data []byte, curve VelocityCurve, leadIn time.Duration, text strin
 			damper = append(damper, ccv{t, m.Data2})
 		case k == 0xB0 && m.Data1 == CCSoft:
 			soft = append(soft, ccv{t, m.Data2})
+		case k == 0xB0 && m.Data1 == CCSostenuto:
+			// Key 0 events: 0x80 puts the sostenuto down, 0x00 lets it up.
+			if on := m.Data2 >= 64; on != sostenuto && t > 0 {
+				kb.Events = append(kb.Events, Event{Tick: t, Key: 0, On: on})
+				sostenuto = on
+			}
 		}
 	}
 	for key, n := range down {
