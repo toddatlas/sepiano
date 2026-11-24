@@ -262,7 +262,12 @@ func (s *Server) libraryChanged(id string) {
 
 func (s *Server) listPieces(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	ps := s.Lib.List(library.Filter{Q: q.Get("q"), Composer: q.Get("composer"), Performer: q.Get("performer"), Instrument: q.Get("instrument")})
+	hidden := q.Get("hidden")
+	if hidden != "" && hidden != "only" && hidden != "all" {
+		fail(w, 400, "hidden must be only or all")
+		return
+	}
+	ps := s.Lib.List(library.Filter{Q: q.Get("q"), Composer: q.Get("composer"), Performer: q.Get("performer"), Instrument: q.Get("instrument"), Hidden: hidden})
 	writeJSON(w, 200, map[string]any{"pieces": ps})
 }
 

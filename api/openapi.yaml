@@ -249,6 +249,7 @@ paths:
         - { name: composer, in: query, schema: { type: string } }
         - { name: performer, in: query, schema: { type: string } }
         - { name: instrument, in: query, schema: { type: string } }
+        - { name: hidden, in: query, schema: { type: string, enum: [only, all] }, description: "Hidden pieces are left out unless this is `only` (just them) or `all`" }
       responses:
         "200":
           description: OK
@@ -313,6 +314,7 @@ paths:
                 notes: { type: string }
                 album: { type: string }
                 track: { type: integer, minimum: 0 }
+                hidden: { type: boolean, description: "Hide the piece from the library's list and search (true) or show it again (false). Its files stay. Not a metadata field: never locked." }
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Piece" } } } }
         "404": { $ref: "#/components/responses/Error" }
@@ -1044,6 +1046,8 @@ components:
         from_recording: { type: boolean, description: An edited copy of a recording made on this piano }
         corrected: { type: boolean, description: The recording corrections are in this copy }
         edited_from: { type: string, description: The piece an edited or corrected copy was made from }
+        hidden: { type: boolean, description: Kept out of the library's list and search; its files stay }
+        updated_at: { type: string, format: date-time, description: When the performance itself last changed (an edited copy saved over); absent if never }
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
         meta_version: { type: integer, description: Version of the parser that described the piece }
         added_at: { type: string, format: date-time }

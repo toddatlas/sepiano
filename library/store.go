@@ -74,6 +74,12 @@ type Piece struct {
 	Corrected bool `json:"corrected,omitempty"`
 	// EditedFrom is the piece an edited or corrected copy was made from.
 	EditedFrom string `json:"edited_from,omitempty"`
+	// Hidden keeps the piece out of the library's list and search. Its
+	// files stay; it can be shown again at any time.
+	Hidden bool `json:"hidden,omitempty"`
+	// UpdatedAt is when the performance itself last changed (an edited copy
+	// saved over); zero if never since it was added.
+	UpdatedAt time.Time `json:"updated_at,omitzero"`
 
 	// Locked lists the fields set by hand or from a catalog (by Update);
 	// re-deriving metadata from the files never changes them.
@@ -145,6 +151,9 @@ type Patch struct {
 	Notes      *string `json:"notes"`
 	Album      *string `json:"album"`
 	Track      *int    `json:"track"`
+	// Hidden hides the piece from the library's list and search, or shows
+	// it again.
+	Hidden *bool `json:"hidden"`
 }
 
 // Settings are the service's preferences.
@@ -156,6 +165,9 @@ type Settings struct {
 // Filter selects pieces. Empty fields match everything.
 type Filter struct {
 	Q, Composer, Performer, Instrument string
+	// Hidden: "" leaves hidden pieces out, "only" lists only them, "all"
+	// lists both.
+	Hidden string
 }
 
 // Library is the store. It is safe for concurrent use.
@@ -415,6 +427,9 @@ func (l *Library) List(f Filter) []Piece {
 	l.mu.RLock()
 	out := make([]Piece, 0, len(l.pieces))
 	for _, p := range l.pieces {
+		if f.Hidden == "" && p.Hidden || f.Hidden == "only" && !p.Hidden {
+			continue
+		}
 		if f.Composer != "" && !strings.EqualFold(p.Composer, f.Composer) ||
 			f.Performer != "" && !strings.EqualFold(p.Performer, f.Performer) ||
 			f.Instrument != "" && !strings.EqualFold(p.Instrument, f.Instrument) {
@@ -503,6 +518,9 @@ func (l *Library) Update(id string, patch Patch) (Piece, error) {
 		}
 		q.Track = *patch.Track
 		lock("track")
+	}
+	if patch.Hidden != nil {
+		q.Hidden = *patch.Hidden
 	}
 	if q.Title == "" {
 		return Piece{}, errors.New("the title cannot be empty")

@@ -500,3 +500,21 @@ usable from the app, then more editing tools.
   discard, a tool's stop, the deck's fallback when a stop is not confirmed)
   also leaves the piano stuck. Those still drop the link, but now only
   after the program has started.
+
+## Status (2026-11-24, later: tidying the library, the recording timer)
+
+- The owner asked for a way to clear away test recordings, preferring
+  that nothing is ever deleted. Pieces can now be **hidden**:
+  - `Piece.Hidden` is set with PATCH, and hidden pieces are left out of
+    `GET /pieces` unless `?hidden=only|all`;
+  - Library → **Recordings** lists the recordings made here and their
+    copies, newest first, with tick boxes to hide or show several;
+  - the Library's Pieces list has "Newest first" (`updated_at`, else
+    `added_at`) and a "Hidden (N)" filter;
+  - a piece's page has Hide / Show it again. Delete for good is still
+    there but needs DELETE typed (`confirmDialog`'s `phrase`).
+- **Recording timer:** it stopped at 0:03 on the real piano. The app
+  moves its clock at most 3 s past the last position, and the deck took
+  the position from the piano's clock, which gave nothing usable while
+  recording. The deck now times a recording by the Pi's clock from
+  "START RECORDING" (`recordingStarted`, `recordingPosition`).

@@ -1390,3 +1390,41 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
 .restore-diff p { margin: 8px 0 4px; }
 .restore-changes { margin: 4px 0 4px 1.2em; padding: 0; }
 .restore-changes li { margin: 2px 0; }
+
+/* A chip that is a button (Hidden, Shown): no dropdown arrow. */
+.chip-toggle {
+  min-height: 44px;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 15px;
+  color: var(--ink);
+  background: var(--bg-elev);
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.chip-toggle::after { display: none; }
+.chip-toggle.active { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
+.chip-toggle:disabled { opacity: 0.45; cursor: default; }
+
+/* Four library sections fit a phone. */
+@media (max-width: 440px) {
+  .segmented.lib-tabs a { padding: 0 4px; font-size: 14px; }
+}
+
+/* Library rows sorted newest first carry their date. */
+.row-date { color: var(--muted); }
+
+/* Recordings: tick several, then hide them. */
+.rec-bar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 12px 0 4px; }
+.rec-all { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-weight: 500; cursor: pointer; }
+.rec-row { align-items: center; }
+.rec-check { display: flex; align-items: center; justify-content: center; min-width: 44px; min-height: 44px; cursor: pointer; }
+.rec-all input, .rec-check input { width: 20px; height: 20px; }
+
+/* A piece that is hidden says so at the top. */
+.hidden-note { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+
+/* Typing a word to confirm (Delete for good). */
+.confirm-phrase-row { display: grid; gap: 6px; margin: 0 0 16px; font-size: 14px; color: var(--ink-2); }

@@ -122,6 +122,11 @@ It needs a web UI first, and an iPhone app later.
 - **Piece fields:** id, title, composer, performer, recorded_on, instrument,
   perf_key, duration_ms, notes, origin (import | upload | midi | recorded),
   source_name, header_text, kb_sha256, has_midi_source, added_at.
+- **Hidden pieces** (`hidden`, set with PATCH; 2026-11-24, the owner's
+  wish: "we never delete anything"). A hidden piece keeps its files but is
+  left out of `GET /pieces` and search unless `hidden=only` or `all`.
+  `updated_at` is when an edited copy was last saved over; the Library
+  can sort by it ("Newest first").
 - **Metadata** comes, best first, from: edits in the app; the album `.bat`
   catalogs and name lists, applied by `sepianod tag` (album, track, titles for
   files without a header); the `.kb` header text ("Mozart: Sonata No. 12 …
@@ -167,10 +172,17 @@ and iOS can read it.
 The screens:
 - **Now Playing:** title and performer, a progress bar from the piano clock,
   pause/stop/restart, and level −/+ with a readout.
-- **Library:** search, filters, renderings grouped together.
-- **Piece:** play, download as SE or MIDI, edit, delete.
+- **Library:** search, filters, renderings grouped together, A to Z or
+  newest first, and a "Hidden" filter.
+- **Recordings** (a Library section): the recordings made here and their
+  copies, newest first; tick several and hide them, or show hidden ones
+  again.
+- **Piece:** play, download as SE or MIDI, edit, hide (or show again),
+  delete for good (only after typing DELETE).
 - **Albums and play lists:** play a whole album or play list, or from any track; previous and next on Now Playing.
-- **Record:** arm → start → stop → name it.
+- **Record:** arm → start → stop → name it. The timer counts the Pi's
+  time from "START RECORDING"; the piano's clock gave no usable position
+  while recording.
 - **Upload.**
 - **Status & Settings:** link health, programs, preferred instrument, backup.
 

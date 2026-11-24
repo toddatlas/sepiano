@@ -210,6 +210,10 @@ type Deck struct {
 	havePos    bool
 	prevTS     uint16
 	pos        int64 // ticks
+	// recAt is when "START RECORDING" came. A recording is timed by the
+	// Pi's clock from then: the piano's clock gave no usable position while
+	// recording (the app's timer stood at 0:03, 2026-11-24).
+	recAt time.Time
 }
 
 type session struct {
@@ -989,9 +993,7 @@ func (d *Deck) consoleLine(line string) {
 		s.started = true
 		d.setState(Armed)
 	case evRecording:
-		d.resetClock()
-		d.st.PositionMs = 0
-		d.setState(Recording)
+		d.recordingStarted()
 		d.resolve("recstart", nil)
 	case evInterlock:
 		d.st.Message = line
@@ -1344,9 +1346,8 @@ func (d *Deck) tick() {
 			p.reply <- nil
 		case "recstart":
 			// The recorder's confirmation text is not verified on the piano yet.
-			d.resetClock()
 			d.st.Message = "Recording (the piano did not confirm)"
-			d.setState(Recording)
+			d.recordingStarted()
 			p.reply <- nil
 		default:
 			p.reply <- fmt.Errorf("%w (%s)", ErrNoConfirm, p.what)
@@ -1374,8 +1375,30 @@ func (d *Deck) tick() {
 		d.abort()
 	}
 	switch d.st.State {
-	case Playing, Paused, Recording, Stopping:
+	case Recording:
+		d.recordingPosition()
+	case Playing, Paused, Stopping:
 		d.updatePosition()
+	}
+}
+
+// recordingStarted starts the recording's timer.
+func (d *Deck) recordingStarted() {
+	d.resetClock()
+	d.recAt = time.Now()
+	d.st.PositionMs = 0
+	d.setState(Recording)
+}
+
+// recordingPosition is the time since recording started, published every
+// fifth of a second or so (the app moves its timer smoothly in between).
+func (d *Deck) recordingPosition() {
+	if d.recAt.IsZero() {
+		return
+	}
+	if ms := time.Since(d.recAt).Milliseconds(); ms-d.st.PositionMs >= 200 {
+		d.st.PositionMs = ms
+		d.publish()
 	}
 }
 

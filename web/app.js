@@ -729,9 +729,12 @@ function toast(text, level = 'info') {
 }
 
 // confirmDialog({title, text, ok, danger}) -> Promise<boolean>
-function confirmDialog({ title, text, ok = 'OK', danger = false }) {
+// With `phrase`, the OK button only works once that word is typed (any
+// case), for things that cannot be undone.
+function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '' }) {
   const dlg = els.confirm;
   if (!dlg || typeof dlg.showModal !== 'function') {
+    if (phrase) return Promise.resolve((window.prompt(`${title}\n\n${text}\n\nType ${phrase} to confirm.`) || '').trim().toUpperCase() === phrase.toUpperCase());
     return Promise.resolve(window.confirm(`${title}\n\n${text}`));
   }
   if (dlg.open) return Promise.resolve(false);
@@ -739,6 +742,16 @@ function confirmDialog({ title, text, ok = 'OK', danger = false }) {
   setText(els.confirmText, text);
   setText(els.confirmOk, ok);
   els.confirmOk.className = 'btn ' + (danger ? 'btn-danger-solid' : 'btn-primary');
+  const phraseInput = phrase ? h('input', {
+    class: 'input confirm-phrase', type: 'text', autocomplete: 'off', autocapitalize: 'characters', spellcheck: 'false',
+    'aria-label': `Type ${phrase} to confirm`, placeholder: `Type ${phrase}`,
+  }) : null;
+  const phraseRow = phrase ? h('label', { class: 'confirm-phrase-row' }, `Type ${phrase} to confirm:`, phraseInput) : null;
+  if (phraseRow) els.confirmText.after(phraseRow);
+  const typed = () => !phrase || phraseInput.value.trim().toUpperCase() === phrase.toUpperCase();
+  const check = () => { els.confirmOk.disabled = !typed(); };
+  check();
+  if (phraseInput) phraseInput.addEventListener('input', check);
   return new Promise((resolve) => {
     // Answer straight from the buttons; `close` (fired later, and also by
     // Escape or a backdrop tap) only counts as a cancel.
@@ -746,16 +759,18 @@ function confirmDialog({ title, text, ok = 'OK', danger = false }) {
       els.confirmOk.removeEventListener('click', onOk);
       els.confirmCancel.removeEventListener('click', onCancel);
       dlg.removeEventListener('close', onCancel);
+      if (phraseRow) phraseRow.remove();
+      els.confirmOk.disabled = false;
       if (dlg.open) dlg.close();
       resolve(answer);
     };
-    const onOk = () => finish(true);
+    const onOk = () => { if (typed()) finish(true); };
     const onCancel = () => finish(false);
     els.confirmOk.addEventListener('click', onOk);
     els.confirmCancel.addEventListener('click', onCancel);
     dlg.addEventListener('close', onCancel);
     dlg.showModal();
-    els.confirmCancel.focus();
+    (phraseInput || els.confirmCancel).focus();
   });
 }
 
@@ -822,6 +837,7 @@ const ROUTES = [
   { name: 'library', re: /^\/library$/, tab: 'library', title: 'Library', screen: libraryScreen },
   { name: 'albums', re: /^\/albums$/, tab: 'library', title: 'Albums', screen: albumsScreen },
   { name: 'playlists', re: /^\/playlists$/, tab: 'library', title: 'Play lists', screen: playlistsScreen },
+  { name: 'recordings', re: /^\/recordings$/, tab: 'library', title: 'Recordings', screen: recordingsScreen },
   { name: 'album', re: /^\/album\/([^/]+)$/, tab: 'library', title: 'Album', back: { href: '#/albums', label: 'Albums' }, screen: albumScreen },
   { name: 'playlist', re: /^\/playlist\/([^/]+)$/, tab: 'library', title: 'Play list', back: { href: '#/playlists', label: 'Play lists' }, screen: playlistScreen },
   { name: 'piece', re: /^\/piece\/([^/]+)$/, tab: 'library', title: 'Piece', back: true, screen: pieceScreen },
@@ -844,6 +860,7 @@ const LIB_SECTIONS = [
   ['library', '#/library', 'Pieces'],
   ['albums', '#/albums', 'Albums'],
   ['playlists', '#/playlists', 'Play lists'],
+  ['recordings', '#/recordings', 'Recordings'],
 ];
 
 let current = {}; // the mounted screen's controller: update, tick, onLibrary, onConsole, onSettings, onVisible, unmount
@@ -1179,7 +1196,10 @@ function libraryHead(active) {
 }
 
 // Kept across visits so coming back from a piece restores search and scroll.
-const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', scroll: 0 };
+const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', sort: 'az', hidden: false, scroll: 0 };
+
+// When a piece last changed: saved over (an edited copy), or else added.
+function pieceTime(p) { return Date.parse(p.updated_at || p.added_at) || 0; }
 
 function libraryScreen(root, _params, ctx) {
   let alive = true;
@@ -1215,14 +1235,24 @@ function libraryScreen(root, _params, ctx) {
     filterSelect('origin', 'All kinds'),
   ];
   const clearBtn = h('button', { class: 'chip-clear', type: 'button', hidden: true, onclick: clearAll }, 'Clear');
+  const sortSel = h('select', {
+    class: 'chip-select', 'aria-label': 'Order',
+    onchange: () => { libState.sort = sortSel.value; render(); },
+  }, h('option', { value: 'az' }, 'A to Z'), h('option', { value: 'new' }, 'Newest first'));
+  sortSel.value = libState.sort;
+  const sortChip = h('label', { class: 'chip' }, sortSel);
+  // Hidden pieces: a chip that shows them instead, when there are any.
+  const hiddenBtn = h('button', { class: 'chip chip-toggle', type: 'button', hidden: true, 'aria-pressed': 'false',
+    onclick: () => { libState.hidden = !libState.hidden; applyHidden(); render(); } });
   const countEl = h('p', { class: 'lib-count', 'aria-live': 'polite' });
   const list = h('ul', { class: 'list', role: 'list' });
   const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
+  let allPieces = null; // hidden ones included
 
   root.append(
     ...libraryHead('library'),
     h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
-    h('div', { class: 'filters' }, filters.map((f) => f.el), clearBtn),
+    h('div', { class: 'filters' }, filters.map((f) => f.el), sortChip, hiddenBtn, clearBtn),
     countEl,
     body);
 
@@ -1261,17 +1291,18 @@ function libraryScreen(root, _params, ctx) {
     try {
       // A search also looks through the albums and the folders' play lists.
       const [res, al, pl] = await Promise.all([
-        api('GET', '/pieces' + (q ? '?q=' + encodeURIComponent(q) : '')),
+        api('GET', '/pieces?hidden=all' + (q ? '&q=' + encodeURIComponent(q) : '')),
         q ? api('GET', '/albums').catch(() => null) : null,
         q ? api('GET', '/playlists').catch(() => null) : null,
       ]);
       if (!alive || my !== seq) return;
       colls = q ? matchCollections(q, (al && al.albums) || [], (pl && pl.playlists) || []) : null;
-      pieces = (res && res.pieces) || [];
+      allPieces = (res && res.pieces) || [];
       if (!q) {
-        app.pieces = pieces;
+        app.pieces = allPieces.filter((p) => !p.hidden);
         app.piecesStale = false;
       }
+      applyHidden();
       render();
     } catch (err) {
       if (!alive || my !== seq) return;
@@ -1280,6 +1311,18 @@ function libraryScreen(root, _params, ctx) {
         h('p', { class: 'empty-text' }, `Could not load the library. ${err.message}`),
         h('button', { class: 'btn', type: 'button', onclick: load }, icon('refresh'), 'Try again')));
     }
+  }
+
+  // applyHidden picks the shown or the hidden pieces, and labels the chip.
+  function applyHidden() {
+    if (!allPieces) return;
+    const nHidden = allPieces.filter((p) => p.hidden).length;
+    if (!nHidden) libState.hidden = false;
+    pieces = allPieces.filter((p) => !!p.hidden === libState.hidden);
+    hiddenBtn.hidden = !nHidden;
+    hiddenBtn.classList.toggle('active', libState.hidden);
+    hiddenBtn.setAttribute('aria-pressed', String(libState.hidden));
+    setText(hiddenBtn, libState.hidden ? `Showing hidden (${nHidden}) ✕` : `Hidden (${nHidden})`);
   }
 
   // One row per performance (perf_key): the filtered instrument's rendering,
@@ -1303,14 +1346,16 @@ function libraryScreen(root, _params, ctx) {
       }
       out.push({ piece: pick, count: group.length });
     }
-    out.sort((a, b) => cmpPieces(a.piece, b.piece));
+    out.sort(libState.sort === 'new'
+      ? (a, b) => pieceTime(b.piece) - pieceTime(a.piece) || cmpPieces(a.piece, b.piece)
+      : (a, b) => cmpPieces(a.piece, b.piece));
     return out;
   }
 
   function render() {
     if (!pieces || !alive) return;
     for (const f of filters) fillSelect(f, uniqSorted(pieces.filter((p) => matches(p, f.key)).map((p) => p[f.key])));
-    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin);
+    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin || libState.hidden);
     clearBtn.hidden = !anyFilter;
 
     const items = rows();
@@ -1399,6 +1444,7 @@ function libraryScreen(root, _params, ctx) {
         p.source_name && h('span', { class: 'row-file' }, p.source_name),
         h('span', { class: 'row-meta' },
           fmtTime(p.duration_ms),
+          libState.sort === 'new' && h('span', { class: 'row-date' }, fmtDateTime(p.updated_at || p.added_at)),
           count > 1 && h('span', { class: 'hint-pill' }, `${count} renderings`))),
       h('button', {
         class: 'row-play',
@@ -1421,6 +1467,8 @@ function libraryScreen(root, _params, ctx) {
     libState.performer = '';
     libState.instrument = '';
     libState.origin = '';
+    libState.hidden = false;
+    applyHidden();
     if (libState.q) {
       libState.q = '';
       search.value = '';
@@ -1438,6 +1486,115 @@ function libraryScreen(root, _params, ctx) {
       alive = false;
       libState.scroll = window.scrollY;
     },
+  };
+}
+
+// ================================================================ Recordings
+
+// The recordings made on this piano and the copies made from them, newest
+// first, for tidying up: tick several and hide them. Nothing is deleted;
+// the Hidden list shows them again.
+const recListState = { hidden: false };
+
+function recordingsScreen(root) {
+  let alive = true;
+  let all = null;
+  let shownList = [];
+  const checked = new Set();
+  const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
+  const action = h('button', { class: 'btn btn-primary', type: 'button', disabled: true, onclick: apply });
+  const allBox = h('input', { type: 'checkbox', 'aria-label': 'Select all', onchange: () => {
+    checked.clear();
+    if (allBox.checked) for (const p of shownList) checked.add(p.id);
+    for (const box of body.querySelectorAll('input[data-id]')) box.checked = checked.has(box.dataset.id);
+    updateBar();
+  } });
+  root.append(...libraryHead('recordings'), body);
+  load();
+
+  async function load() {
+    try {
+      const r = await api('GET', '/pieces?hidden=all');
+      if (!alive) return;
+      all = ((r && r.pieces) || []).filter((p) => p.origin === 'recorded' || p.from_recording);
+      render();
+    } catch (err) {
+      if (alive) fill(body, h('p', { class: 'message message-error' }, err.message));
+    }
+  }
+
+  function kind(p) {
+    if (p.origin === 'recorded') return 'Recorded here';
+    return p.corrected ? 'Corrected copy' : 'Edited copy';
+  }
+
+  function render() {
+    const shown = all.filter((p) => !p.hidden);
+    const hidden = all.filter((p) => p.hidden);
+    if (!hidden.length) recListState.hidden = false;
+    shownList = (recListState.hidden ? hidden : shown).slice().sort((a, b) => pieceTime(b) - pieceTime(a));
+    for (const id of [...checked]) if (!shownList.some((p) => p.id === id)) checked.delete(id);
+    const pick = (hiddenView) => () => { recListState.hidden = hiddenView; checked.clear(); render(); };
+    fill(body,
+      h('p', { class: 'muted small' }, recListState.hidden
+        ? 'Hidden recordings are kept, out of the library’s list and search. Tick any to bring them back.'
+        : 'Recordings made on this piano, and the copies made from them, newest first. Tick the ones you no longer need and hide them. Nothing is deleted; they can be shown again from “Hidden”.'),
+      h('div', { class: 'filters' },
+        h('button', { class: 'chip chip-toggle' + (recListState.hidden ? '' : ' active'), type: 'button', 'aria-pressed': String(!recListState.hidden), onclick: pick(false) }, `Shown (${shown.length})`),
+        h('button', { class: 'chip chip-toggle' + (recListState.hidden ? ' active' : ''), type: 'button', 'aria-pressed': String(recListState.hidden), disabled: !hidden.length, onclick: pick(true) }, `Hidden (${hidden.length})`)),
+      shownList.length
+        ? [h('div', { class: 'rec-bar' }, h('label', { class: 'rec-all' }, allBox, ' All'), action),
+          h('ul', { class: 'list', role: 'list' }, shownList.map(row))]
+        : h('p', { class: 'muted' }, recListState.hidden ? 'Nothing is hidden.' : 'No recordings yet: record one from the Record tab.'));
+    updateBar();
+  }
+
+  function updateBar() {
+    const n = checked.size;
+    allBox.checked = n > 0 && n === shownList.length;
+    allBox.indeterminate = n > 0 && n < shownList.length;
+    action.disabled = !n;
+    setText(action, recListState.hidden ? (n ? `Show ${n} again` : 'Show again') : (n ? `Hide ${n}` : 'Hide'));
+  }
+
+  function row(p) {
+    const box = h('input', { type: 'checkbox', 'data-id': p.id, 'aria-label': `Select ${p.title || 'Untitled'}`,
+      onchange: () => { if (box.checked) checked.add(p.id); else checked.delete(p.id); updateBar(); } });
+    box.checked = checked.has(p.id);
+    return h('li', { class: 'row rec-row' },
+      h('label', { class: 'rec-check' }, box),
+      h('a', { class: 'row-main', href: pieceHref(p.id) },
+        h('span', { class: 'row-title' }, p.title || 'Untitled'),
+        h('span', { class: 'row-sub' }, [kind(p), fmtDateTime(p.updated_at || p.added_at)].join(' · ')),
+        h('span', { class: 'row-meta' }, fmtTime(p.duration_ms))),
+      h('button', { class: 'row-play', type: 'button', 'aria-label': `Play ${p.title || 'this recording'}`,
+        onclick: (e) => playPiece(p.id, e.currentTarget) }, icon('play')));
+  }
+
+  async function apply() {
+    const ids = [...checked];
+    const hide = !recListState.hidden;
+    action.disabled = true;
+    let done = 0;
+    for (const id of ids) {
+      try {
+        await api('PATCH', piecePath(id), { hidden: hide });
+        done++;
+      } catch (err) {
+        toast(err.message, 'error');
+        break;
+      }
+    }
+    checked.clear();
+    app.piecesStale = true;
+    const what = done === 1 ? '1 recording' : `${done} recordings`;
+    toast(hide ? `${what} hidden. “Hidden” shows them again.` : `${what} back in the library.`);
+    if (alive) load();
+  }
+
+  return {
+    onLibrary: load,
+    unmount() { alive = false; },
   };
 }
 
@@ -1918,6 +2075,8 @@ function pieceScreen(root, [id]) {
         h('h1', { class: 'piece-title' }, p.title || 'Untitled'),
         p.composer && h('p', { class: 'piece-composer' }, p.composer),
         p.performer && h('p', { class: 'piece-performer' }, p.performer)),
+      p.hidden && h('p', { class: 'message message-info hidden-note' }, 'Hidden from the library and search. ',
+        h('button', { class: 'btn btn-small', type: 'button', onclick: () => setHidden(false) }, 'Show it again')),
       h('div', { class: 'piece-actions' },
         playBtn,
         h('button', { class: 'btn btn-large', type: 'button', onclick: startEdit }, icon('edit'), 'Edit')),
@@ -1931,6 +2090,7 @@ function pieceScreen(root, [id]) {
         ['Header', p.header_text, 'pre'],
         ['Notes', p.notes, 'pre'],
         ['Added', fmtDateTime(p.added_at)],
+        ['Changed', p.updated_at ? fmtDateTime(p.updated_at) : ''],
       ]),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Download')),
@@ -1957,8 +2117,26 @@ function pieceScreen(root, [id]) {
           h('a', { class: 'btn btn-small', href: toolHref('dump', id) }, 'Dump to tape'))),
       versionsCard(p),
       renderingsSection,
+      h('section', { class: 'card hide-card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, p.hidden ? 'Hidden' : 'Hide')),
+        h('p', { class: 'muted small' }, p.hidden
+          ? 'This piece is hidden: it is not in the library’s list or search. Its files are kept.'
+          : 'Takes this piece out of the library’s list and search, without deleting anything. Library → Recordings, or the Library’s “Hidden” filter, shows it again.'),
+        h('div', { class: 'btn-row' },
+          h('button', { class: 'btn', type: 'button', onclick: () => setHidden(!p.hidden) }, p.hidden ? 'Show it in the library again' : 'Hide from the library'))),
       h('div', { class: 'danger-zone' },
-        h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete this piece')));
+        h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete for good…')));
+  }
+
+  async function setHidden(hidden) {
+    try {
+      piece = await api('PATCH', piecePath(id), { hidden });
+      app.piecesStale = true;
+      toast(hidden ? `“${piece.title || 'Untitled'}” is hidden. Library → Recordings or the “Hidden” filter shows it again.` : `“${piece.title || 'Untitled'}” is back in the library.`);
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
   }
 
   function renderGone() {
@@ -2084,10 +2262,11 @@ function pieceScreen(root, [id]) {
 
   async function remove() {
     const ok = await confirmDialog({
-      title: 'Delete this piece?',
-      text: `“${piece.title || 'Untitled'}” and its files will be removed from the piano. This cannot be undone.`,
+      title: 'Delete this piece for good?',
+      text: `“${piece.title || 'Untitled'}” and its files will be removed from the piano. This cannot be undone. To keep it but out of the way, hide it instead.`,
       ok: 'Delete',
       danger: true,
+      phrase: 'DELETE',
     });
     if (!ok) return;
     try {

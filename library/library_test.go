@@ -351,3 +351,43 @@ func TestFullNamesFromHeaders(t *testing.T) {
 		t.Fatalf("b %q c %q f %q g %q", pieces["b"].Performer, pieces["c"].Performer, pieces["f"].Performer, pieces["g"].Performer)
 	}
 }
+
+// TestHidden: a hidden piece leaves the list and search but keeps its
+// files, stays hidden when the library is opened again, and can be shown
+// again.
+func TestHidden(t *testing.T) {
+	dir := t.TempDir()
+	l, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kb, lp, sp := set(t, 5)
+	p, _, err := l.AddSet("r1", kb, lp, sp, OriginRecorded, "Test take")
+	if err != nil {
+		t.Fatal(err)
+	}
+	yes, no := true, false
+	if _, err := l.Update(p.ID, Patch{Hidden: &yes}); err != nil {
+		t.Fatal(err)
+	}
+	count := func(l *Library, f Filter) int { return len(l.List(f)) }
+	if count(l, Filter{}) != 0 || count(l, Filter{Q: "test"}) != 0 || count(l, Filter{Hidden: "only"}) != 1 || count(l, Filter{Hidden: "all"}) != 1 {
+		t.Fatal("hidden piece listed, or not listed when asked for")
+	}
+	if _, err := l.Get(p.ID); err != nil {
+		t.Fatal("a hidden piece can still be opened:", err)
+	}
+	l2, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if count(l2, Filter{}) != 0 || count(l2, Filter{Hidden: "only"}) != 1 {
+		t.Fatal("hidden lost on reopening")
+	}
+	if _, err := l2.Update(p.ID, Patch{Hidden: &no}); err != nil {
+		t.Fatal(err)
+	}
+	if count(l2, Filter{Q: "test"}) != 1 {
+		t.Fatal("shown again, but not listed")
+	}
+}

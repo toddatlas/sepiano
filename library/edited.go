@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"sepiano/se"
 )
@@ -115,6 +116,7 @@ func (l *Library) ReplaceEdited(id string, perf *se.Performance, corrected bool)
 	q.DurationMs = se.TickDuration(k.End).Milliseconds()
 	q.HeaderText = strings.TrimSpace(k.Text)
 	q.Corrected = corrected || p.Corrected // once corrected, always: its notes hold the corrections
+	q.UpdatedAt = time.Now().UTC().Truncate(time.Second)
 	if err := l.writeMeta(&q); err != nil {
 		return Piece{}, err
 	}
