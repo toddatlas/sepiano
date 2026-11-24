@@ -2509,6 +2509,7 @@ function recordScreen(root) {
     refresh(app.status);
     const title = titleInput.value.trim();
     try {
+      app.rec.thenKeys = false; // an ordinary recording: no Key check afterwards
       const reply = await api('POST', '/record/arm', title ? { title } : {});
       if (isStatus(reply)) applyReplyStatus(reply);
       app.rec.saved = null;
@@ -2530,7 +2531,10 @@ function recordScreen(root) {
       ok: 'Discard',
       danger: true,
     });
-    if (ok) run('discard', '/record/discard');
+    if (ok) {
+      app.rec.thenKeys = false;
+      run('discard', '/record/discard');
+    }
   }
 
   return {
