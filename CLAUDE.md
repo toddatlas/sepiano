@@ -445,3 +445,18 @@ usable from the app, then more editing tools.
   opening its Key check. Several recordings can be checked together
   (`/keycheck?pieces=`). The Key check has **press timing** too, and
   corrections a per-key **press** shift.
+- Later the same night:
+  - **sostenuto lane and cue marks** in the editor. The editor now moves
+    every event that is not a note (`others`) with its time edits; before,
+    the server put them back at their old times;
+  - **"Show the original"** on an edited copy;
+  - **select by** keys and velocity;
+  - **Versions** on a piece's page (`edited_from`), and the Library's
+    "All kinds" filter;
+  - the Status page installs any of the 24 programs;
+  - silent presses (0, or 640 and more) stay silent in software voicing
+    and in corrections, and export to MIDI as velocity 1;
+  - the morning report: docs/OVERNIGHT-2026-11-24.md.
+- An 18-minute piece (8,298 notes) loads in about 20 ms and draws in
+  4–8 ms a frame. Performance numbers from a hidden browser pane are
+  throttled to about 1 frame per second; measure the draw itself instead.
