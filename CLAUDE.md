@@ -10,7 +10,8 @@ Stahnke SE reproducing piano. The piano is a Steinway with the SE system
   decompiled code, the file collection or captures from the real piano.
 - `docs/SUITE-PROGRAMS.md` is the suite's other programs, the firmware, and the
   piano's EEPROM table, decoded. `docs/SETTINGS-EDITOR.md` is the design
-  for editing that table from the app; it is awaiting the owner's decisions.
+  for editing that table from the app, with the owner's decisions (steps 1
+  and 2 are built).
 - `docs/SERVICE-PLAN.md` is the piano service, `sepianod`: a daemon on the
   Raspberry Pi hidden in the piano, with a web UI and later an iPhone app.
   Phase 1 is built and installed on the Pi. **The piano's owner decides what
@@ -290,4 +291,19 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   setting, tried by ear. They are applied to each piece as it plays
   (`api/voicing.go`, `piano/voicing.go`), with test notes per key and
   Replay; nothing is written to the piano. Next: step 3, writing trims to
-  the piano.
+  the piano (the owner deferred it, to learn from recordings first).
+- **Recording now follows `record.exe`'s code** (docs/SUITE-PROGRAMS.md,
+  "The recorder"). The old parser took "DEPRESS ENTER TO END RECORDING"
+  for the start, but the recorder prints all three prompts at arm time;
+  "START RECORDING" is the start. Esc discards and re-arms; "ILLEGAL
+  RECORDING TYPE OR MODE" (no type or serial in section 12) is shown as
+  the reason. The header text is the title and date (`deck.recordingHeader`).
+  `sim` records exactly as the real one does. Still untried at the piano.
+- **Velocity by key** (`piano.CheckKeys`, `GET /pieces/{id}/keys`, linked
+  from the Record and Piece screens) shows keys that record louder or
+  softer than their neighbours. The recorder has no per-key correction.
+- **Tools** (`api/tools.go`, Piano tab → Tools): anykey, anyham, midiin,
+  sustain, adjust, cal, silent and setup run as interactive programs
+  (`deck.StartTool`, keys through `POST /tools/key`). Writing tools (cal,
+  silent, setup) need a confirmation and back up the EEPROM first. None
+  has been run on the real piano.

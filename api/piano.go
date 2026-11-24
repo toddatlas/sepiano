@@ -82,43 +82,47 @@ func (s *Server) pianoBackup(w http.ResponseWriter, r *http.Request) {
 		fail(w, 503, "no settings store configured")
 		return
 	}
-	if !s.backupMu.TryLock() {
-		fail(w, 409, "a backup is already being taken")
+	reply, err := s.backup(r.Context(), "manual")
+	if err != nil {
+		playError(w, err)
 		return
+	}
+	writeJSON(w, 201, reply)
+}
+
+// backup reads the table now and keeps it with the given reason.
+func (s *Server) backup(ctx context.Context, reason string) (map[string]any, error) {
+	if !s.backupMu.TryLock() {
+		return nil, httpError{409, "a backup is already being taken"}
 	}
 	defer s.backupMu.Unlock()
 	prog, err := s.Programs.Load("getlut")
 	if err != nil {
-		fail(w, 503, err.Error())
-		return
+		return nil, httpError{503, err.Error()}
 	}
 	work := filepath.Join(s.Piano.Dir, "work")
 	if err := os.MkdirAll(work, 0o755); err != nil {
-		fail(w, 500, err.Error())
-		return
+		return nil, err
 	}
 	path := filepath.Join(work, "table.lut")
 	os.Remove(path)
-	ctx, cancel := context.WithTimeout(r.Context(), backupLimit+10*time.Second)
+	ctx, cancel := context.WithTimeout(ctx, backupLimit+10*time.Second)
 	defer cancel()
 	res := s.Deck.RunUtility(ctx, prog, path, backupLimit)
 	if res.Err != nil {
-		deckError(w, fmt.Errorf("could not read the piano's settings: %w", res.Err))
-		return
+		return nil, fmt.Errorf("could not read the piano's settings: %w", res.Err)
 	}
 	img, err := os.ReadFile(path)
 	if err != nil {
-		fail(w, 502, "the piano sent no table: "+err.Error())
-		return
+		return nil, httpError{502, "the piano sent no table: " + err.Error()}
 	}
 	prevImg, prev, prevErr := s.Piano.Latest()
-	b, err := s.Piano.Save(img, "manual", time.Now())
+	b, err := s.Piano.Save(img, reason, time.Now())
 	if err != nil {
-		fail(w, 500, err.Error())
-		return
+		return nil, err
 	}
 	os.Remove(path)
-	s.logf("piano settings backed up: %s (%s, %d bytes)", b.ID, b.Model, b.Size)
+	s.logf("piano settings backed up (%s): %s (%s, %d bytes)", reason, b.ID, b.Model, b.Size)
 	reply := map[string]any{"backup": b, "console": res.Console}
 	if prevErr == nil {
 		reply["previous"] = prev
@@ -129,11 +133,10 @@ func (s *Server) pianoBackup(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	code := 201
 	if !b.Valid {
 		reply["problem"] = b.Problem
 	}
-	writeJSON(w, code, reply)
+	return reply, nil
 }
 
 // pianoDownload sends a backup's .lut file.

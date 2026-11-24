@@ -40,6 +40,9 @@ func newEnv(t *testing.T) *env {
 	in.Baud, in.Speed = 1_000_000, 10
 	progs := &Programs{Dir: t.TempDir(), Fallback: map[string]*host.Program{
 		"play": sim.PlayerProgram(), "record": sim.RecorderProgram(), "getlut": sim.RetrieverProgram()}}
+	for name, prog := range SimulatedTools() {
+		progs.Fallback[name] = prog
+	}
 	d := deck.New(deck.Config{
 		Connect: func(ctx context.Context, o host.ConnectOptions) (*host.Conn, error) {
 			p, err := in.Dial()
@@ -482,4 +485,74 @@ func TestVoicing(t *testing.T) {
 	}
 	e.do("POST", "/api/v1/deck/stop", nil)
 	e.waitState("idle")
+}
+
+// TestTools runs simulated tools: one that moves the piano, driven by keys,
+// and one that writes its settings, which needs a confirmation and is
+// preceded by a backup.
+func TestTools(t *testing.T) {
+	e := newEnv(t)
+	code, b := e.do("GET", "/api/v1/tools", nil)
+	if code != 200 || !strings.Contains(string(b), `"name":"cal"`) || !strings.Contains(string(b), `"present":true`) {
+		t.Fatalf("tools: %d %.300s", code, b)
+	}
+	if code, b := e.do("POST", "/api/v1/tools/sustain/start", nil); code != 202 {
+		t.Fatalf("start sustain: %d %s", code, b)
+	}
+	e.waitState("maintenance")
+	time.Sleep(300 * time.Millisecond)
+	if code, b := e.do("POST", "/api/v1/tools/key", map[string]string{"key": "space"}); code != 204 {
+		t.Fatalf("key: %d %s", code, b)
+	}
+	if code, _ := e.do("POST", "/api/v1/deck/play", map[string]string{"piece": "nope"}); code != 404 && code != 409 {
+		t.Errorf("play during a tool: %d", code)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		_, b := e.do("GET", "/api/v1/instrument", nil)
+		if strings.Contains(string(b), "KEY SPACE") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the tool never saw the key: %.400s", b)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if code, _ := e.do("POST", "/api/v1/tools/key", map[string]string{"key": "enter"}); code != 204 {
+		t.Fatal("enter")
+	}
+	e.waitState("idle")
+	if code, _ := e.do("POST", "/api/v1/tools/key", map[string]string{"key": "space"}); code != 409 {
+		t.Errorf("key with no tool: %d", code)
+	}
+
+	if code, b := e.do("POST", "/api/v1/tools/cal/start", map[string]bool{"confirm": false}); code != 409 || !strings.Contains(string(b), "backed up first") {
+		t.Errorf("cal without confirm: %d %s", code, b)
+	}
+	code, b = e.do("POST", "/api/v1/tools/cal/start", map[string]bool{"confirm": true})
+	if code != 202 || !strings.Contains(string(b), "before-tool") {
+		t.Fatalf("cal with confirm: %d %s", code, b)
+	}
+	e.waitState("maintenance")
+	if code, _ := e.do("POST", "/api/v1/tools/key", map[string]string{"text": "12"}); code != 204 {
+		t.Error("typed text")
+	}
+	if code, _ := e.do("POST", "/api/v1/tools/stop", nil); code != 200 {
+		t.Error("stop")
+	}
+	e.waitState("idle")
+}
+
+// TestPieceKeys reports each key's velocities in a piece.
+func TestPieceKeys(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(30 * se.TicksPerSecond).Encode()
+	r := e.upload(map[string][]byte{"Keys_Test.kb": kb, "Keys_Test.lp": lp, "Keys_Test.sp": sp})
+	code, b := e.do("GET", "/api/v1/pieces/"+r.Added[0].ID+"/keys", nil)
+	if code != 200 || !strings.Contains(string(b), `"name":"C4"`) || !strings.Contains(string(b), `"outliers"`) {
+		t.Fatalf("keys: %d %.300s", code, b)
+	}
+	if code, _ := e.do("GET", "/api/v1/pieces/nope/keys", nil); code != 404 {
+		t.Errorf("missing piece: %d", code)
+	}
 }

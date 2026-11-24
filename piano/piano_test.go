@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"sepiano/lut"
+	"sepiano/se"
 )
 
 func TestStore(t *testing.T) {
@@ -173,5 +174,39 @@ func TestVoicing(t *testing.T) {
 	got, err := s.Load()
 	if err != nil || !got.On || got.Trims[28] != -3 {
 		t.Errorf("load %+v %v", got, err)
+	}
+}
+
+func TestCheckKeys(t *testing.T) {
+	kb := &se.KB{Format: 0x0F, Model: 0x11}
+	tick := uint32(800)
+	// Keys 48..60, each four times at velocity 100; key 55 records loud (80)
+	// and key 57 soft (125).
+	for n := 48; n <= 60; n++ {
+		v := uint16(100)
+		switch n {
+		case 55:
+			v = 80
+		case 57:
+			v = 125
+		}
+		for i := 0; i < 4; i++ {
+			kb.Events = append(kb.Events, se.Event{Tick: tick, Key: uint8(n), On: true, Vel: v}, se.Event{Tick: tick + 100, Key: uint8(n)})
+			tick += 200
+		}
+	}
+	kb.End = tick
+	c := CheckKeys(&se.Performance{KB: kb})
+	if c.Notes != 13*4 || c.Median != 100 || len(c.Keys) != 13 {
+		t.Fatalf("check %+v", c)
+	}
+	if len(c.Outliers) != 2 || c.Outliers[0].Name != "G3" || c.Outliers[0].Deviation <= 0 || c.Outliers[1].Name != "A3" || c.Outliers[1].Deviation >= 0 {
+		t.Errorf("outliers %+v", c.Outliers)
+	}
+	if c.Keys[0].Count != 4 || c.Keys[0].Spread != 0 {
+		t.Errorf("first key %+v", c.Keys[0])
+	}
+	if e := CheckKeys(&se.Performance{KB: &se.KB{}}); e.Notes != 0 || len(e.Keys) != 0 {
+		t.Errorf("empty %+v", e)
 	}
 }

@@ -84,14 +84,20 @@ It needs a web UI first, and an iPhone app later.
   during a 3:49 piece. Capture it through the existing `link.Pump.OnFrame`
   hook, unwrap 16 bits, divide by 800, and push it over SSE at about 5 Hz.
   Duration comes from `se.KB.End`.
-- **Recording uses `record.exe`'s Z80 program**, with prompts "DEPRESS SPACE BAR
-  TO START RECORDING" and "DEPRESS ENTER TO END RECORDING". The steps:
-  1. arm: upload the recorder, with the file service pointed at a staging name;
-  2. start: Space;
-  3. stop: Enter.
-  The recorder writes through the existing file-service commands
-  (`0x12`/`0x13`/`0x15` in `host/files.go`), and the deck imports the result as
-  a new piece. "KEYBOARD INTERLOCK FAILURE" becomes a Fault with its text.
+- **Recording uses `record.exe`'s Z80 program**, whose behaviour is now read
+  from its code (docs/SUITE-PROGRAMS.md, "The recorder"):
+  1. arm: upload the recorder. The file service points at a staging name,
+     and the recording's title and date go in as its argument (the header
+     text). It prints all three prompts; "DEPRESS SPACE BAR TO START
+     RECORDING" means armed.
+  2. start: Space, confirmed by "START RECORDING".
+  3. stop: Enter. It prints "END OF RECORDING", then commits the files
+     (`0x12`/`0x13`/`0x14`/`0x15` in `host/files.go`) and exits. The deck
+     imports the result as a new piece.
+
+  "KEYBOARD INTERLOCK FAILURE" comes before arming, and "ILLEGAL RECORDING
+  TYPE OR MODE" (a table without a recording type or serial number) is
+  shown as the reason. Velocity by key checks a recording's sensors.
 - **Link lifetime.** Keep the link up while idle, so the UI shows
   Online/Offline at once and a piano power cycle is noticed (`link.ErrSilent`
   starts a reconnect loop). Each piece closes the idle link and opens a fresh

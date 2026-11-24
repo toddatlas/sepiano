@@ -230,6 +230,8 @@ type session struct {
 	lines []string
 	limit time.Time
 	done  chan UtilityResult
+	// interactive: a tool the user drives from the app (keys, stop).
+	interactive bool
 }
 
 type pending struct {
@@ -242,6 +244,7 @@ type command struct {
 	op    string
 	job   *Job
 	util  *session
+	data  []byte
 	title string
 	level *int
 	delta int
@@ -385,6 +388,24 @@ type UtilityResult struct {
 	Console []string
 	Err     error
 }
+
+// StartTool runs one of the suite's programs as a tool the user drives:
+// it returns once the program is starting; its text arrives as console
+// events, ToolKey sends it keys, and StopTool ends it. The piano must be
+// idle; play and record are refused until it ends.
+func (d *Deck) StartTool(ctx context.Context, prog *host.Program, path string) error {
+	s := &session{kind: "utility", interactive: true, prog: prog, path: path,
+		limit: time.Now().Add(4 * time.Hour), done: make(chan UtilityResult, 1)}
+	return d.do(ctx, command{op: "utility", util: s})
+}
+
+// ToolKey sends keystrokes (PC console codes) to the running tool.
+func (d *Deck) ToolKey(ctx context.Context, key []byte) error {
+	return d.do(ctx, command{op: "toolkey", data: key})
+}
+
+// StopTool ends the running tool at once, by dropping the link.
+func (d *Deck) StopTool(ctx context.Context) error { return d.do(ctx, command{op: "toolstop"}) }
 
 // RunUtility runs one of the suite's utility programs (getlut, …) to its end
 // on a fresh connection, with its file service at path (the file the
@@ -671,6 +692,9 @@ func (d *Deck) connDone(m connDone) {
 		path = filepath.Join(s.dir(d), s.base()+".kb")
 	}
 	fs := host.NewFileService(path)
+	if s.kind == "record" {
+		fs.Arg = recordingHeader(s.title, time.Now())
+	}
 	hs := &host.Session{Program: s.prog, Files: fs, Keys: s.keys,
 		Console: &lineWriter{emit: func(line string) { d.send(conLine{s, line}) }}}
 	go func() {
@@ -745,7 +769,7 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 func (d *Deck) startUtility(s *session) {
 	ctx, cancel := context.WithCancel(d.ctx)
 	s.ctx, s.cancel = ctx, cancel
-	s.keys = make(chan []byte, 1)
+	s.keys = make(chan []byte, 16)
 	s.deadline = time.Now().Add(d.cfg.StartTimeout)
 	d.sess = s
 	d.st.Piece, d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, nil, 0
@@ -792,6 +816,9 @@ func (d *Deck) sessDone(m sessDone) {
 			err = errors.New("the program did not finish")
 		case !ok:
 			err = m.err
+		}
+		if s.interactive && err == nil {
+			d.notice("info", "%s finished", s.prog.Banner)
 		}
 		d.finishUtility(s, err)
 	}
@@ -934,6 +961,17 @@ func (d *Deck) consoleLine(line string) {
 	case evInterlock:
 		d.st.Message = line
 		d.notice("error", "%s", line)
+		d.publish()
+	case evRecEnd:
+		if d.st.State == Recording {
+			d.setState(Saving)
+		}
+	case evDiscarded:
+		// The recorder starts over and prints its prompts again (evArmed).
+		d.notice("info", "The recorder discarded the recording")
+	case evRecRefused:
+		d.st.Message = "The piano's settings have no recording type or serial number, so it will not record"
+		d.notice("error", "%s", d.st.Message)
 		d.publish()
 	}
 }
@@ -1163,6 +1201,18 @@ func (d *Deck) command(c command) {
 		}
 		d.key([]byte{0x0D})
 		d.setState(Saving)
+		reply(nil)
+	case "toolkey":
+		if d.sess == nil || d.sess.kind != "utility" || !d.sess.interactive {
+			reply(fmt.Errorf("%w: no tool is running", ErrState))
+			return
+		}
+		d.key(c.data)
+		reply(nil)
+	case "toolstop":
+		if d.sess != nil && d.sess.kind == "utility" && d.sess.interactive {
+			d.abort()
+		}
 		reply(nil)
 	case "utility":
 		switch {

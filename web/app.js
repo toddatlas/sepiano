@@ -204,6 +204,7 @@ function num0(n) { return Number.isFinite(n) ? n : 0; }
 function byline(p) { return [p.composer, p.performer].filter(Boolean).join(' · '); }
 function tracksText(n) { return Number.isInteger(n) ? (n === 1 ? '1 track' : `${n} tracks`) : ''; }
 function pieceHref(id) { return '#/piece/' + encodeURIComponent(id); }
+function pieceKeysHref(id) { return '#/piece/' + encodeURIComponent(id) + '/keys'; }
 function piecePath(id) { return '/pieces/' + encodeURIComponent(id); }
 function albumHref(name) { return '#/album/' + encodeURIComponent(name); }
 function albumPath(name) { return '/albums/' + encodeURIComponent(name); }
@@ -439,7 +440,11 @@ const STATE_WORDS = {
   maintenance: 'Reading the piano’s settings…',
   fault: 'Something went wrong',
 };
-function stateWords(s) { return s ? (STATE_WORDS[s.state] || s.state) : 'Connecting…'; }
+function stateWords(s) {
+  if (!s) return 'Connecting…';
+  if (s.state === 'maintenance' && s.program && !s.program.includes('RETRIEVER')) return 'Running a tool on the piano';
+  return STATE_WORDS[s.state] || s.state;
+}
 
 // An album or play list plays as one performance; `tracks` says where each
 // track lies in it. The main progress bar shows the current track's stretch
@@ -811,11 +816,13 @@ const ROUTES = [
   { name: 'album', re: /^\/album\/([^/]+)$/, tab: 'library', title: 'Album', back: { href: '#/albums', label: 'Albums' }, screen: albumScreen },
   { name: 'playlist', re: /^\/playlist\/([^/]+)$/, tab: 'library', title: 'Play list', back: { href: '#/playlists', label: 'Play lists' }, screen: playlistScreen },
   { name: 'piece', re: /^\/piece\/([^/]+)$/, tab: 'library', title: 'Piece', back: true, screen: pieceScreen },
+  { name: 'piece-keys', re: /^\/piece\/([^/]+)\/keys$/, tab: 'library', title: 'Velocity by key', back: true, screen: pieceKeysScreen },
   { name: 'upload', re: /^\/upload$/, tab: 'library', title: 'Upload', back: true, screen: uploadScreen },
   { name: 'record', re: /^\/record$/, tab: 'record', title: 'Record', screen: recordScreen },
   { name: 'piano', re: /^\/piano$/, tab: 'piano', title: 'Piano', screen: pianoScreen },
   { name: 'piano-key', re: /^\/piano\/key\/(\d+)$/, tab: 'piano', title: 'Key', back: { href: '#/piano', label: 'Piano' }, screen: pianoKeyScreen },
   { name: 'piano-backups', re: /^\/piano\/backups$/, tab: 'piano', title: 'Backups', back: { href: '#/piano', label: 'Piano' }, screen: pianoBackupsScreen },
+  { name: 'piano-tool', re: /^\/piano\/tool\/([a-z]+)$/, tab: 'piano', title: 'Tool', back: { href: '#/piano', label: 'Piano' }, screen: toolScreen },
   { name: 'status', re: /^\/status$/, tab: 'status', title: 'Status', screen: statusScreen },
 ];
 
@@ -837,6 +844,12 @@ function backLink(r, prev, prevPath) {
   if (!r.back) return null;
   if (r.name === 'piece' && prev && (prev.name === 'album' || prev.name === 'playlist')) {
     return { href: '#' + prevPath, label: prev.title };
+  }
+  if (r.name === 'piece-keys' && prev && prev.name === 'piece') {
+    return { href: '#' + prevPath, label: 'Piece' };
+  }
+  if (r.name === 'piece-keys' && prev && prev.name === 'record') {
+    return { href: '#/record', label: 'Record' };
   }
   return r.back === true ? { href: libSection, label: 'Library' } : r.back;
 }
@@ -1878,6 +1891,10 @@ function pieceScreen(root, [id]) {
         h('div', { class: 'btn-row' },
           h('a', { class: 'btn', href: downloadBase + 'se', download: '' }, icon('download'), 'SE files (.zip)'),
           h('a', { class: 'btn', href: downloadBase + 'midi', download: '' }, icon('download'), 'MIDI'))),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Velocity by key')),
+        h('p', { class: 'muted small' }, 'How loudly each key plays in this piece. For a recording, what each key’s sensor measured.'),
+        h('a', { class: 'btn', href: pieceKeysHref(id) }, 'Open')),
       renderingsSection,
       h('div', { class: 'danger-zone' },
         h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete this piece')));
@@ -2270,7 +2287,8 @@ function recordScreen(root) {
       h('label', { for: 'rec-title' }, 'Title'),
       titleInput,
       h('p', { class: 'hint' }, 'Optional. You can rename it later.')),
-    armBtn);
+    armBtn,
+    h('p', { class: 'hint rec-check-hint' }, 'To check the key sensors, record each key a few times at the same loudness, one after another, then open the recording’s Velocity by key: keys that record louder or softer than their neighbours are listed.'));
 
   const stage = h('div', { class: 'rec-stage' });
   const errorBox = h('div', { class: 'message message-error', role: 'alert', hidden: true });
@@ -2394,7 +2412,8 @@ function recordScreen(root) {
       h('a', { class: 'saved-title', href: pieceHref(sv.id) }, sv.title),
       h('div', { class: 'btn-row' },
         h('button', { class: 'btn btn-primary', type: 'button', onclick: (e) => playPiece(sv.id, e.currentTarget) }, icon('play'), 'Play it'),
-        h('a', { class: 'btn', href: pieceHref(sv.id) }, 'Details')));
+        h('a', { class: 'btn', href: pieceHref(sv.id) }, 'Details'),
+        h('a', { class: 'btn', href: pieceKeysHref(sv.id) }, 'Velocity by key')));
   }
 
   function tick(pos) {
@@ -2694,7 +2713,8 @@ function pianoScreen(root) {
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'The piano’s settings')),
         h('p', null, 'The piano keeps its calibration and settings in its own memory. Back them up to see them here.'),
         h('div', { class: 'btn-row' }, backupButton(() => load(true))),
-        h('p', { class: 'hint' }, BACKUP_HINT, ' Install getlut.exe on the Status page first.')));
+        h('p', { class: 'hint' }, BACKUP_HINT, ' Install getlut.exe on the Status page first.')),
+      toolsCard());
   }
 
   function render() {
@@ -2722,6 +2742,7 @@ function pianoScreen(root) {
           ['Hold level', String(v.hold_level)],
           ['German note names', s.german_names ? 'On' : 'Off'],
         ])),
+      toolsCard(),
       playerCard(),
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backups')),
@@ -3028,6 +3049,220 @@ function pianoBackupsScreen(root) {
   }
 
   return { unmount() { alive = false; } };
+}
+
+// ============================================================ Velocity by key
+
+// How loudly each key plays in a piece. For a recording, it is what each
+// key's hammer sensor measured: record each key a few times at the same
+// loudness, and the keys that record louder or softer than their
+// neighbours stand out.
+function pieceKeysScreen(root, [id]) {
+  let alive = true;
+  root.append(h('h1', { class: 'screen-title' }, 'Velocity by key'), h('p', { class: 'muted center' }, 'Loading…'));
+  api('GET', piecePath(id) + '/keys').then((r) => { if (alive) render(r); }, (err) => {
+    if (alive) fill(root, h('h1', { class: 'screen-title' }, 'Velocity by key'), h('div', { class: 'message message-error' }, h('p', null, err.message)));
+  });
+
+  function render(r) {
+    const c = r.check;
+    const title = r.piece.title || 'Untitled';
+    document.title = `Velocity by key · ${title} · Piano`;
+    if (!c.notes) {
+      fill(root, h('h1', { class: 'screen-title' }, 'Velocity by key'), h('p', { class: 'muted' }, 'This piece has no notes.'));
+      return;
+    }
+    const byNote = new Map(c.keys.map((k) => [k.note, k]));
+    const maxDev = Math.max(c.threshold * 2, ...c.keys.map((k) => Math.abs(k.deviation)));
+    const strip = h('div', { class: 'kb-strip', role: 'list', 'aria-label': 'How far each key stands from its neighbours' });
+    for (let n = 21; n <= 108; n++) {
+      const k = byNote.get(n);
+      const dev = k ? k.deviation : 0;
+      const pct = k ? (dev === 0 ? 3 : 8 + 92 * Math.abs(dev) / maxDev) : 0;
+      const out = k && Math.abs(dev) >= c.threshold && k.count >= 2;
+      const cls = ['kb-key', isBlackKey(n) && 'kb-black', out && 'kb-flag', dev < 0 && 'kb-neg', !k && 'kb-none'].filter(Boolean).join(' ');
+      const text = k ? `${k.name}: ${signedPct(dev)} hammer speed against its neighbours, ${k.count} notes` : `${noteName(n)}: not played`;
+      strip.append(h('span', { class: cls, role: 'listitem', title: text, 'aria-label': text }, h('span', { class: 'kb-bar', style: `height:${pct.toFixed(1)}%` })));
+    }
+    const outliers = c.outliers.map((k) => h('div', { class: 'message message-warn' }, h('p', null,
+      `${k.name} records ${k.deviation > 0 ? 'louder' : 'softer'} than its neighbours: ${signedPct(k.deviation)} hammer speed (typical velocity ${k.median}, ${k.count} notes).`)));
+    fill(root,
+      h('h1', { class: 'screen-title' }, 'Velocity by key'),
+      h('p', { class: 'piano-sub' }, h('a', { href: pieceHref(id) }, title), r.origin === 'recorded' ? ' · recorded on this piano' : ''),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Keys that stand out')),
+        outliers.length ? h('div', { class: 'piano-notes' }, outliers) : h('p', null, `No key stands more than ${c.threshold}% apart from its neighbours.`),
+        h('p', { class: 'hint' }, `${c.notes} notes on ${c.keys.length} keys; typical velocity ${c.median}. Velocity is the SE scale: bigger is softer. A key is compared with up to four played keys on each side, in hammer speed (128000 ÷ velocity).`)),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Against the neighbours')),
+        strip,
+        h('div', { class: 'kb-axis' }, h('span', null, 'A0'), h('span', null, 'C4'), h('span', null, 'C8')),
+        h('p', { class: 'hint' }, 'Bar height: how far each key stands from its neighbours. Blue: softer; red: beyond the limit.')),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Every key')),
+        h('table', { class: 'piano-table' },
+          h('thead', null, h('tr', null, h('th', null, 'Key'), h('th', null, 'Notes'), h('th', null, 'Typical'), h('th', null, 'Range'), h('th', null, 'Vs neighbours'))),
+          h('tbody', null, c.keys.map((k) => h('tr', null,
+            h('td', null, h('a', { href: keyHref(k.note) }, k.name)),
+            h('td', null, String(k.count)),
+            h('td', null, String(k.median)),
+            h('td', null, k.min === k.max ? String(k.min) : `${k.min}–${k.max}`),
+            h('td', { class: Math.abs(k.deviation) >= c.threshold && k.count >= 2 ? 'at-limit' : null }, signedPct(k.deviation)))))),
+        h('p', { class: 'hint' }, 'To check the sensors, record each key a few times at the same loudness, one after another. A wide range on one key means its readings vary.')));
+  }
+
+  return { unmount() { alive = false; } };
+}
+
+// ======================================================================= Tools
+
+const RISK_WORDS = { reads: 'Reads the sensors', moves: 'Moves the piano', writes: 'Changes settings' };
+const KEY_LABELS = { space: 'Space', enter: 'Enter', esc: 'Esc', up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
+
+let toolsCache = null;
+async function loadTools(force) {
+  if (!toolsCache || force) toolsCache = (await api('GET', '/tools')).tools || [];
+  return toolsCache;
+}
+
+function toolsCard() {
+  const list = h('div', { class: 'tool-list' }, h('p', { class: 'muted small' }, 'Loading…'));
+  loadTools(false).then((tools) => {
+    fill(list, tools.map((t) => h('a', { class: 'tool-row', href: `#/piano/tool/${t.name}` },
+      h('span', { class: 'tool-title' }, t.title),
+      h('span', { class: `pill ${t.risk === 'writes' ? 'pill-warn' : ''}` }, RISK_WORDS[t.risk] || t.risk),
+      !t.present && h('span', { class: 'pill pill-off' }, 'Not installed'))));
+  }, (err) => fill(list, h('p', { class: 'message message-error' }, err.message)));
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Tools')),
+    h('p', { class: 'muted small' }, 'Stahnke’s other programs: sensor tests, the dampers, MIDI input, and the calibrators. They run on the piano while it is idle.'),
+    list);
+}
+
+function toolScreen(root, [name]) {
+  let alive = true;
+  let tool = null;
+  const consoleEl = h('pre', { class: 'console', tabindex: '0', 'aria-label': 'What the program prints' });
+  const stateEl = h('p', { class: 'tool-state' });
+  const startBtn = h('button', { class: 'btn btn-primary', type: 'button', onclick: start }, icon('play'), 'Start');
+  const stopBtn = h('button', { class: 'btn btn-danger', type: 'button', onclick: stop }, icon('stop'), 'Stop');
+  const keysEl = h('div', { class: 'btn-row tool-keys' });
+  const textInput = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Answer to type', maxlength: '20' });
+  const textForm = h('form', { class: 'tool-text', hidden: true, onsubmit: (e) => { e.preventDefault(); sendText(); } },
+    textInput, h('button', { class: 'btn', type: 'submit' }, 'Send'));
+  const body = h('div');
+  let lines = [];
+  root.append(h('p', { class: 'muted center' }, 'Loading…'));
+
+  loadTools(false).then((tools) => {
+    if (!alive) return;
+    tool = tools.find((t) => t.name === name);
+    if (!tool) {
+      fill(root, h('p', { class: 'muted center' }, 'No such tool.'));
+      return;
+    }
+    render();
+  }, (err) => { if (alive) fill(root, h('div', { class: 'message message-error' }, h('p', null, err.message))); });
+
+  function running() {
+    const s = app.status;
+    return !!(s && s.state === 'maintenance' && tool && s.program && tool.banner && s.program === tool.banner);
+  }
+
+  function render() {
+    document.title = `${tool.title} · Piano`;
+    fill(keysEl, tool.keys.map((k) => h('button', { class: 'btn', type: 'button', onclick: () => sendKey(k) }, KEY_LABELS[k] || k)));
+    textForm.hidden = !tool.input;
+    fill(root,
+      h('h1', { class: 'screen-title' }, tool.title),
+      h('p', { class: 'piano-sub' }, `${tool.file} · `, RISK_WORDS[tool.risk] || tool.risk),
+      h('p', null, tool.does),
+      tool.warning && h('div', { class: 'message message-warn' }, h('p', null, tool.warning)),
+      !tool.present && h('div', { class: 'message message-error' }, h('p', null, `${tool.file} is not installed. Install it on the Status page.`)),
+      h('section', { class: 'card' },
+        stateEl,
+        h('div', { class: 'btn-row' }, startBtn, stopBtn),
+        keysEl,
+        textForm,
+        consoleEl,
+        h('p', { class: 'hint' }, 'The program’s keys are the buttons above. Stop ends it at once; quitting with its own key is gentler.')));
+    update();
+  }
+
+  function update() {
+    if (!tool) return;
+    const on = running();
+    const s = app.status;
+    let words = 'Not running.';
+    if (on) words = 'Running on the piano.';
+    else if (s && s.state === 'maintenance') words = `The piano is busy with ${s.program || 'another program'}.`;
+    else if (s && s.state !== 'idle') words = `The piano is ${stateWords(s).toLowerCase()}; the tool starts once it is idle.`;
+    setText(stateEl, words);
+    startBtn.hidden = on;
+    startBtn.disabled = !tool.present || !(s && s.state === 'idle');
+    stopBtn.hidden = !on;
+    for (const b of keysEl.children) b.disabled = !on;
+    textForm.hidden = !tool.input || !on;
+  }
+
+  function addLine(line) {
+    lines.push(line);
+    if (lines.length > 400) lines = lines.slice(-400);
+    setText(consoleEl, lines.join('\n'));
+    consoleEl.scrollTop = consoleEl.scrollHeight;
+  }
+
+  async function start() {
+    if (tool.risk === 'writes') {
+      const ok = await confirmDialog({ title: `Start ${tool.title}?`, text: tool.warning, ok: 'Back up and start', danger: true });
+      if (!ok) return;
+    }
+    startBtn.disabled = true;
+    lines = [];
+    setText(consoleEl, tool.risk === 'writes' ? 'Backing up the piano’s settings first…' : 'Starting…');
+    try {
+      const r = await api('POST', `/tools/${tool.name}/start`, { confirm: tool.risk === 'writes' });
+      if (r && r.status && isStatus(r.status)) applyReplyStatus(r.status);
+      if (r && r.backup) { pianoCache.view = null; toast(`Settings backed up (${fmtDateTime(r.backup.time)}).`); }
+    } catch (err) {
+      toast(err.message, 'error');
+      setText(consoleEl, '');
+    }
+    update();
+  }
+
+  async function stop() {
+    try {
+      await api('POST', '/tools/stop');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function sendKey(k) {
+    try {
+      await api('POST', '/tools/key', { key: k });
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function sendText() {
+    const text = textInput.value.trim();
+    if (!text) return;
+    try {
+      await api('POST', '/tools/key', { text });
+      textInput.value = '';
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  return {
+    update,
+    onConsole(line) { if (running() || (app.status && app.status.state === 'maintenance')) addLine(line); },
+    unmount() { alive = false; },
+  };
 }
 
 // ====================================================================== Status

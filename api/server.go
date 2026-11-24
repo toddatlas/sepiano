@@ -92,6 +92,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("PATCH /api/v1/pieces/{id}", s.patchPiece)
 	m.HandleFunc("DELETE /api/v1/pieces/{id}", s.deletePiece)
 	m.HandleFunc("GET /api/v1/pieces/{id}/download", s.download)
+	m.HandleFunc("GET /api/v1/pieces/{id}/keys", s.pieceKeys)
 	m.HandleFunc("GET /api/v1/export", s.export)
 	m.HandleFunc("POST /api/v1/library/rescan", s.rescan)
 	m.HandleFunc("GET /api/v1/instrument", s.instrument)
@@ -105,6 +106,7 @@ func (s *Server) Handler() http.Handler {
 	})
 	s.pianoRoutes(m)
 	s.voicingRoutes(m)
+	s.toolRoutes(m)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "no such API endpoint") })
 	m.HandleFunc("GET /apple-touch-icon.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")

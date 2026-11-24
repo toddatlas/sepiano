@@ -354,9 +354,9 @@ paths:
 
   /programs/{name}:
     parameters:
-      - { name: name, in: path, required: true, schema: { type: string, enum: [play, record, getlut] } }
+      - { name: name, in: path, required: true, schema: { type: string, enum: [play, record, getlut, anykey, anyham, midiin, sustain, adjust, cal, silent, setup] } }
     put:
-      summary: Install a suite program (play.exe, record.exe or getlut.exe)
+      summary: Install a suite program (play.exe, record.exe, getlut.exe or a tool's program)
       description: |
         The body is the .exe itself (`application/octet-stream`), or
         `multipart/form-data` with a `file` part. The Z80 program inside is
@@ -515,6 +515,112 @@ paths:
       responses:
         "202": { $ref: "#/components/responses/Status" }
         "409": { $ref: "#/components/responses/Error" }
+
+  /pieces/{id}/keys:
+    get:
+      summary: The velocities each key has in a piece (for a recording, what each hammer sensor measured)
+      description: |
+        Per key: how often it plays, its velocities' range and median, and how
+        far its median hammer speed (128000 / velocity) stands from its
+        neighbours'. Outliers are keys at least `threshold` % apart. Record
+        each key a few times at the same loudness to check the sensors.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  piece: { type: object }
+                  origin: { type: string }
+                  check:
+                    type: object
+                    properties:
+                      notes: { type: integer }
+                      median: { type: integer }
+                      threshold: { type: number }
+                      keys: { type: array, items: { $ref: "#/components/schemas/KeyStat" } }
+                      outliers: { type: array, items: { $ref: "#/components/schemas/KeyStat" } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /tools:
+    get:
+      summary: The suite's other programs, run from the app
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  tools:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        file: { type: string }
+                        title: { type: string }
+                        does: { type: string }
+                        risk: { type: string, enum: [reads, moves, writes] }
+                        keys: { type: array, items: { type: string } }
+                        input: { type: boolean, description: it asks for typed answers }
+                        warning: { type: string }
+                        present: { type: boolean }
+                        banner: { type: string }
+                        error: { type: string }
+
+  /tools/{name}/start:
+    post:
+      summary: Start a tool on the piano (it must be idle)
+      description: |
+        A tool whose `risk` is `writes` needs `confirm: true`; the service then
+        backs up the piano's settings (reason `before-tool`) before starting
+        it. The deck shows `maintenance` while the tool runs; its text arrives
+        as `console` events.
+      parameters:
+        - { name: name, in: path, required: true, schema: { type: string } }
+      requestBody:
+        content: { application/json: { schema: { type: object, properties: { confirm: { type: boolean } } } } }
+      responses:
+        "202":
+          description: Started
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { $ref: "#/components/schemas/Status" }
+                  backup: { $ref: "#/components/schemas/PianoBackup" }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /tools/key:
+    post:
+      summary: Send a key, or typed text followed by Enter, to the running tool
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                key: { type: string, enum: [space, enter, esc, up, down, left, right] }
+                text: { type: string }
+      responses:
+        "204": { description: Sent }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /tools/stop:
+    post:
+      summary: Stop the running tool at once
+      responses:
+        "200": { $ref: "#/components/responses/Status" }
 
   /sim/power:
     post:
@@ -827,3 +933,15 @@ components:
               note: { type: integer }
               name: { type: string }
               trim: { type: integer }
+
+    KeyStat:
+      type: object
+      properties:
+        note: { type: integer }
+        name: { type: string }
+        count: { type: integer }
+        min: { type: integer }
+        max: { type: integer }
+        median: { type: integer }
+        spread: { type: number, description: "the middle half's range in hammer speed, % of the median" }
+        deviation: { type: number, description: "% hammer speed against the neighbouring keys; positive records louder" }

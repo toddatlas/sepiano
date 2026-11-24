@@ -66,6 +66,48 @@ sensors but changes nothing stored; **W** writes the instrument's EEPROM
 `dump`, `load` and `tape` need a cassette recorder on the instrument's tape
 interface; they are of historical interest only.
 
+## The recorder (`record.exe`), as its code reads
+
+How `record.exe` V30.44 behaves, traced from its Z80 code. `sim` imitates
+exactly this, and the deck follows it.
+
+1. It prints its banner and checks the keyboard interlock (FW#3). If the
+   interlock isn't ready, it prints "KEYBOARD INTERLOCK FAILURE / VERIFY
+   THAT KEYBOARD CONNECTORS ARE PROPERLY MATED" and quits, before arming.
+2. It copies section 12 of the table (FW#80). Byte 1 is the **recording
+   type** (7 on this piano) and byte 2 the **piano's serial number** (08).
+   If either is 0 it prints "ILLEGAL RECORDING TYPE OR MODE" and quits.
+   The prototype tables have serial 00, so a fresh table won't record
+   until `setup` sets a serial number.
+3. It creates `name.kb$`, `.lp$` and `.sp$` (request 12H), and writes the
+   `.kb` header:
+   - the recording type and the serial number in place of Zenph's `0F 11`;
+   - then `00 00`;
+   - then the **command-line argument** (request 0FH) as the header text,
+     which the player prints when a piece starts. The original host
+     passes its second argument, with `\` for a new line. `sepianod` passes
+     the recording's title and the date.
+4. It prints all three prompts together: "DEPRESS SPACE BAR TO START
+   RECORDING", "DEPRESS ENTER TO END RECORDING", "DEPRESS ESCAPE TO
+   RESTART". So the second prompt does **not** mean recording has begun.
+5. Then, by key:
+
+| State | Key | It prints | Then |
+|-------|-----|-----------|------|
+| armed | Space | "START RECORDING" | records |
+| armed | Enter | "QUIT RECORDING" | closes and deletes the files (14H, 16H), quits |
+| armed or recording | Esc | "DISCARD RECORDING" | closes and deletes the files, then starts again from step 2 |
+| recording | Enter | "END OF RECORDING" | flushes, closes and commits the files (14H, 15H), quits |
+
+While recording, it reads the key and hammer sensors (FW#9 to FW#15) and the
+pedals. It writes key events as their **measured** velocities. Section 12's
+word at data offset 4 scales them (256/256 on this piano). **There is no
+per-key correction**, so a key whose sensor reads high or low records too
+loud or too soft. The app's "Velocity by key" (`GET /pieces/{id}/keys`)
+finds such keys in a recording: record each key a few times at the same
+loudness. Each key is compared, in hammer speed, with the median of up to
+four played keys on each side; keys 12% or more apart are listed.
+
 ## The instrument's EEPROM ("lookup table")
 
 The piano keeps its calibration and settings in a 2048-byte EEPROM. The
@@ -396,10 +438,13 @@ ports and fixed memory each one reaches; `-list` prints the listing.
 2. **Read the table** (done: `selut`, and the section map above, from the
    firmware). Still open: sections 2, 4, 6, 7 and 11 in physical terms, and
    how the actuation event uses section 2's value.
-3. **Run any program from the app.** `sepianod` runs `play` and `record`
-   today. A "Tools" screen could run any installed program as a console:
-   its text, its keys, and a file folder of its own. R and M programs first;
-   W programs only behind a confirmation and only after a verified backup.
+3. **Run any program from the app** (built; untried at the piano). The
+   Piano tab's Tools run anykey, anyham, midiin, sustain, adjust, cal,
+   silent and setup as a console: their text and their keys
+   (`api/tools.go`). The writing ones (cal, silent, setup) ask for a
+   confirmation and back up the EEPROM before they start. Recording
+   follows the recorder's code above, and "Velocity by key" checks a
+   recording's sensors.
 4. **Edit the settings.** The first editor is `setup`'s six fields: a few
    bytes at known places, written through `setup.exe` or `putlut`.
    Calibration (`cal`, `silent`) rewrites many values. Run it only when the

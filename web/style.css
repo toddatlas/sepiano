@@ -1213,3 +1213,27 @@ dialog.confirm::backdrop { background: rgba(10, 8, 6, 0.45); }
 .voiced-keys { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 14px; }
 .voiced-key { text-decoration: none; }
 .trim-words { margin: 8px 0 0; }
+
+/* ---------------------------------------------------------------- Tools and the key check */
+
+.tool-list { display: flex; flex-direction: column; }
+.tool-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  border-top: 1px solid var(--line);
+  color: var(--ink);
+  text-decoration: none;
+}
+.tool-list .tool-row:first-child { border-top: 0; }
+.tool-title { flex: 1; min-width: 0; font-size: 16px; }
+.tool-state { margin: 0 0 12px; font-weight: 500; }
+.tool-keys { margin: 14px 0 0; }
+.tool-keys:empty { display: none; }
+.tool-text { display: flex; gap: 8px; margin: 12px 0 0; }
+.tool-text[hidden] { display: none; }
+.tool-text .input { flex: 1; min-width: 0; }
+.card .console { margin-top: 14px; min-height: 120px; max-height: 320px; }
+.kb-none .kb-bar { background: transparent; }
+.rec-check-hint { margin-top: 16px; }

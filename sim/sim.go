@@ -231,6 +231,8 @@ func (in *Instrument) serve(ctx context.Context, port link.Port, gen int) {
 		c.clk.set(0, false)
 		if strings.Contains(p.Banner, "LOOKUP TABLE RETRIEVER") {
 			err = c.retriever(p.Banner)
+		} else if strings.HasPrefix(p.Banner, "SIMULATED TOOL") {
+			err = c.tool(p.Banner)
 		} else if strings.Contains(p.Banner, "RECORDER") {
 			err = c.recorder(p.Banner)
 		} else {
@@ -492,54 +494,161 @@ func (c *conn) waitKey(want ...string) (string, error) {
 	}
 }
 
-// recorder imitates the PERFORMANCE RECORDER program. Its prompts are the
-// documented ones; how the real recorder names and writes its files has not
-// been checked yet (Phase 0), so this follows the file service as specified:
-// create name.kb$/.lp$/.sp$, write, close, commit.
+// recorder imitates the PERFORMANCE RECORDER (record.exe V30.44) as its Z80
+// code reads:
+//   - it checks the keyboard interlock;
+//   - it takes the recording type and the piano's serial number from the
+//     table's section 12, and refuses with "ILLEGAL RECORDING TYPE OR MODE"
+//     when either is 0;
+//   - it creates name.kb$/.lp$/.sp$ and asks for the command-line argument,
+//     which becomes the header text;
+//   - it prints three prompts. Space starts ("START RECORDING"); Enter
+//     before that quits ("QUIT RECORDING"); Esc at any time discards and
+//     starts over ("DISCARD RECORDING");
+//   - Enter while recording ends it ("END OF RECORDING"): the files are
+//     closed, committed, and the program exits.
+//
+// The real recorder writes as it goes; this one writes a phrase as long as
+// the recording at the end, with the real header bytes.
 func (c *conn) recorder(banner string) error {
-	if err := c.print("\r\n" + banner + "\r\n\r\nDEPRESS SPACE BAR TO START RECORDING\r\n"); err != nil {
+	if err := c.print("\r\n" + banner + "\r\n"); err != nil {
 		return err
-	}
-	if k, err := c.waitKey("space", "esc"); err != nil {
-		return err
-	} else if k == "esc" {
-		return c.end("QUIT\r\n")
 	}
 	if c.in.InterlockFailure {
-		return c.end("KEYBOARD INTERLOCK FAILURE\r\n")
+		return c.end("\r\nKEYBOARD INTERLOCK FAILURE\r\nVERIFY THAT KEYBOARD CONNECTORS ARE PROPERLY MATED\r\n")
 	}
-	c.clk.set(0, true)
-	if err := c.print("RECORDING\r\nDEPRESS ENTER TO END RECORDING\r\n"); err != nil {
+	kind, serial := c.recordingType()
+	if kind == 0 || serial == 0 {
+		return c.end("ILLEGAL RECORDING TYPE OR MODE\r\n")
+	}
+	abort := func() error {
+		if _, err := c.call([]byte{host.ReqClosePerf}, 1); err != nil {
+			return err
+		}
+		_, err := c.call([]byte{host.ReqAbortPerf}, 1)
 		return err
 	}
-	if _, err := c.waitKey("enter"); err != nil {
-		return err
-	}
-	c.clk.run(false)
-	length := max(c.clk.value(), se.TicksPerSecond)
-	kb, lp, sp, err := Phrase(uint32(length)).Encode()
-	if err != nil {
-		return err
-	}
-	if _, err := c.call([]byte{host.ReqCreatePerf}, 1); err != nil {
-		return err
-	}
-	for fn, data := range [][]byte{kb, lp, sp} {
-		for off := 0; off < len(data); off += 0x400 {
-			chunk := data[off:min(off+0x400, len(data))]
-			req := append([]byte{host.ReqWritePerf, byte(fn), byte(len(chunk)), byte(len(chunk) >> 8)}, chunk...)
-			if _, err := c.call(req, 4); err != nil {
+	for {
+		if _, err := c.call([]byte{host.ReqCreatePerf}, 1); err != nil {
+			return err
+		}
+		text, err := c.argument()
+		if err != nil {
+			return err
+		}
+		if err := c.print("\r\nDEPRESS SPACE BAR TO START RECORDING\r\nDEPRESS ENTER TO END RECORDING\r\nDEPRESS ESCAPE TO RESTART\r\n"); err != nil {
+			return err
+		}
+		k, err := c.waitKey("space", "enter", "esc")
+		if err != nil {
+			return err
+		}
+		switch k {
+		case "enter":
+			if err := c.print("QUIT RECORDING\r\n"); err != nil {
 				return err
 			}
+			if err := abort(); err != nil {
+				return err
+			}
+			return c.end("")
+		case "esc":
+			if err := c.print("DISCARD RECORDING\r\n"); err != nil {
+				return err
+			}
+			if err := abort(); err != nil {
+				return err
+			}
+			continue
 		}
+		c.clk.set(0, true)
+		if err := c.print("\r\nSTART RECORDING\r\n"); err != nil {
+			return err
+		}
+		k, err = c.waitKey("enter", "esc")
+		if err != nil {
+			return err
+		}
+		c.clk.run(false)
+		if k == "esc" {
+			if err := c.print("DISCARD RECORDING\r\n"); err != nil {
+				return err
+			}
+			if err := abort(); err != nil {
+				return err
+			}
+			continue
+		}
+		if err := c.print("END OF RECORDING\r\n"); err != nil {
+			return err
+		}
+		p := Phrase(uint32(max(c.clk.value(), se.TicksPerSecond)))
+		p.KB.Format, p.KB.Model, p.KB.Text = kind, serial, text
+		kb, lp, sp, err := p.Encode()
+		if err != nil {
+			return err
+		}
+		for fn, data := range [][]byte{kb, lp, sp} {
+			for off := 0; off < len(data); off += 0x400 {
+				chunk := data[off:min(off+0x400, len(data))]
+				req := append([]byte{host.ReqWritePerf, byte(fn), byte(len(chunk)), byte(len(chunk) >> 8)}, chunk...)
+				if _, err := c.call(req, 4); err != nil {
+					return err
+				}
+			}
+		}
+		if _, err := c.call([]byte{host.ReqClosePerf}, 1); err != nil {
+			return err
+		}
+		if _, err := c.call([]byte{host.ReqCommitPerf}, 1); err != nil {
+			return err
+		}
+		return c.end("")
 	}
-	if _, err := c.call([]byte{host.ReqClosePerf}, 1); err != nil {
-		return err
+}
+
+// recordingType reads the recording type and serial number from the
+// table's section 12, as the recorder does (FW#80).
+func (c *conn) recordingType() (kind, serial byte) {
+	c.in.mu.Lock()
+	img := append([]byte(nil), c.in.EEPROM...)
+	c.in.mu.Unlock()
+	t, err := lut.Parse(img)
+	if err != nil {
+		return 0, 0
 	}
-	if _, err := c.call([]byte{host.ReqCommitPerf}, 1); err != nil {
-		return err
+	s := t.Section(12)
+	if len(s) < 3 {
+		return 0, 0
 	}
-	return c.end("END OF RECORDING\r\n")
+	return s[1], s[2]
+}
+
+// argument asks the host for the command-line argument (request 0FH), as
+// the recorder does for its header text.
+func (c *conn) argument() (string, error) {
+	if _, err := c.file.Write([]byte{host.ReqGetArg}); err != nil {
+		return "", err
+	}
+	var text []byte
+	first := true
+	for {
+		b, err := c.file.ReadByte()
+		if err != nil {
+			return "", err
+		}
+		if first {
+			if b != host.ReqGetArg {
+				return "", fmt.Errorf("sim: file service answered %#02x to get-arg", b)
+			}
+			first = false
+			continue
+		}
+		if b == 0x7F {
+			return string(text), nil
+		}
+		text = append(text, b)
+	}
 }
 
 // Phrase returns a short synthetic performance lasting about length ticks:
@@ -642,4 +751,33 @@ func (c *conn) retriever(banner string) error {
 // RetrieverProgram is a placeholder for getlut.exe's program.
 func RetrieverProgram() *host.Program {
 	return placeholder("SIMULATED SE/PC LOOKUP TABLE RETRIEVER, V50.44", 987)
+}
+
+// tool stands in for the suite's other programs (cal, sustain, setup, …):
+// it prints its banner, reports each key it receives, and quits on Enter.
+func (c *conn) tool(banner string) error {
+	if err := c.print("\r\n" + banner + "\r\n\r\nDEPRESS ENTER TO QUIT\r\n"); err != nil {
+		return err
+	}
+	for {
+		select {
+		case k, ok := <-c.keys:
+			if !ok {
+				return io.EOF
+			}
+			if k == "enter" {
+				return c.end("QUIT\r\n")
+			}
+			if err := c.print("KEY " + strings.ToUpper(k) + "\r\n"); err != nil {
+				return err
+			}
+		case <-c.ctx.Done():
+			return c.ctx.Err()
+		}
+	}
+}
+
+// ToolProgram is a placeholder for one of the suite's other programs.
+func ToolProgram(title string) *host.Program {
+	return placeholder("SIMULATED TOOL: "+strings.ToUpper(title), 600)
 }

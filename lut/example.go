@@ -83,7 +83,9 @@ func Example() []byte {
 		le(s11+1+74+2*i, v)
 	}
 
-	b[offs[12]] = 12
+	// Section 12: the recording type and serial number (the recorder refuses
+	// to record when either is 0), then the recorder's parameters.
+	copy(b[offs[12]:], []byte{12, 0x07, 0x01, 0xE0, 0x00, 0x00, 0x01, 0x20, 0x00, 0xA0, 0x00, 0xC8, 0x00})
 	b[offs[13]] = 8
 	return b
 }

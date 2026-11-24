@@ -23,6 +23,7 @@ type fixture struct {
 	dir    string
 	mu     sync.Mutex
 	saved  []string // pieces imported by OnRecorded
+	lastKB *se.KB   // the last recording's key stream
 	levels []int
 	events []Event
 }
@@ -49,11 +50,13 @@ func newFixture(t *testing.T, tweak func(*sim.Instrument)) *fixture {
 		Recorder:   func() (*host.Program, error) { return sim.RecorderProgram(), nil },
 		StagingDir: t.TempDir(),
 		OnRecorded: func(dir, name, title string) (string, error) {
-			if _, err := se.Load(filepath.Join(dir, name)); err != nil {
+			p, err := se.Load(filepath.Join(dir, name))
+			if err != nil {
 				return "", err
 			}
 			f.mu.Lock()
 			f.saved = append(f.saved, title)
+			f.lastKB = p.KB
 			f.mu.Unlock()
 			return "newpiece", nil
 		},
@@ -285,6 +288,12 @@ func TestRecording(t *testing.T) {
 	if st.RecordingTitle != "Sunday practice" || !strings.Contains(st.Program, "RECORDER") {
 		t.Fatalf("armed: %+v", st)
 	}
+	// The recorder prints all its prompts when armed, "DEPRESS ENTER TO END
+	// RECORDING" included: that must not count as recording.
+	time.Sleep(300 * time.Millisecond)
+	if st := f.d.Status(); st.State != Armed {
+		t.Fatalf("still armed? %s", st.State)
+	}
 	if err := f.d.StartRecording(f.ctx()); err != nil {
 		t.Fatal(err)
 	}
@@ -305,6 +314,25 @@ func TestRecording(t *testing.T) {
 	if !f.sawNotice("Saved the recording") {
 		t.Fatal("no notice for the saved recording")
 	}
+	f.mu.Lock()
+	kb := f.lastKB
+	f.mu.Unlock()
+	if kb == nil || !strings.HasPrefix(kb.Text, "Sunday practice\r\nRecorded ") || kb.Format != 7 || kb.Model != 1 {
+		t.Errorf("recorded header: %+v", kb)
+	}
+}
+
+// TestRecordingRefused: with no recording type in the table, the recorder
+// refuses, and the deck says why and goes back to idle.
+func TestRecordingRefused(t *testing.T) {
+	f := newFixture(t, func(in *sim.Instrument) { in.EEPROM[0x73C] = 0 })
+	if err := f.d.Arm(f.ctx(), "x"); err != nil {
+		t.Fatal(err)
+	}
+	f.wait(Idle, 5*time.Second)
+	if !f.sawNotice("will not record") {
+		t.Error("no notice for the refusal")
+	}
 }
 
 func TestDiscardRecording(t *testing.T) {
@@ -324,11 +352,11 @@ func TestDiscardRecording(t *testing.T) {
 	}
 }
 
+// TestInterlockFailure: the recorder checks the keyboard interlock as it
+// starts, before it arms (record.exe calls FW#3 right after its banner).
 func TestInterlockFailure(t *testing.T) {
 	f := newFixture(t, func(i *sim.Instrument) { i.InterlockFailure = true })
 	f.d.Arm(f.ctx(), "x")
-	f.wait(Armed, 5*time.Second)
-	f.d.StartRecording(f.ctx())
 	f.wait(Idle, 5*time.Second)
 	if !f.sawNotice("INTERLOCK") {
 		t.Fatal("no interlock notice")
@@ -387,7 +415,11 @@ func TestParseLine(t *testing.T) {
 		"DEPRESS SPACE BAR TO STOP/RESUME PLAYING": evNone,
 		"DEPRESS ENTER TO QUIT":                    evNone,
 		"DEPRESS SPACE BAR TO START RECORDING":     evArmed,
-		"DEPRESS ENTER TO END RECORDING":           evRecording,
+		"DEPRESS ENTER TO END RECORDING":           evNone, // part of the armed prompts
+		"START RECORDING":                          evRecording,
+		"END OF RECORDING":                         evRecEnd,
+		"DISCARD RECORDING":                        evDiscarded,
+		"ILLEGAL RECORDING TYPE OR MODE":           evRecRefused,
 		"KEYBOARD INTERLOCK FAILURE":               evInterlock,
 	} {
 		if got, _ := parseLine(line); got != want {

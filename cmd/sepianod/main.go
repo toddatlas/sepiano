@@ -94,6 +94,9 @@ func run(args []string) int {
 		}
 		progs.Fallback = map[string]*host.Program{"play": sim.PlayerProgram(), "record": sim.RecorderProgram(),
 			"getlut": sim.RetrieverProgram()}
+		for name, prog := range api.SimulatedTools() {
+			progs.Fallback[name] = prog
+		}
 		connect = func(ctx context.Context, o host.ConnectOptions) (*host.Conn, error) {
 			p, err := inst.Dial()
 			if err != nil {
