@@ -156,7 +156,8 @@ They are kept in one list, `data/corrections.json` (`piano.Corrections`).
     2026-11-24, with the Key check's press timing.)
   - **Release**, in ms. Plus lets go later. The limit is ±1000.
   - A silent press (velocity 640 or more) keeps its velocity, so it stays
-    silent.
+    silent. A softer correction stops at 639, so an audible note never
+    becomes a silent press (software voicing does the same).
 - **Fill in notes with no hammer reading.** The player plays a velocity-0
   press as a silent press. Where the key really sounded and its hammer
   sensor missed it, the note would be lost. With "fill in", a velocity-0
@@ -245,18 +246,31 @@ The editor's operations live in `web/edittools.js`.
   - even out (towards the median, 0 to 100%);
   - all one length; legato.
   - Selecting: all, velocity 0, silent presses, invert.
+- **Silent presses stay silent.** The loudness tools (ramp, even out,
+  Softer and Louder, dragging several notes in the Loudness lane) leave
+  them alone, and keep every other note at 639 or less. The one note you
+  drag, or a velocity you type, goes where you put it.
+- **Time edits snap to 20 ms.** Inserting, deleting, copying and pasting
+  time round to the pedals' common step (16 ticks: the soft pedal's
+  period, two of the damper's), so the pedals move exactly as far as the
+  notes and never drift from them.
+- **Range previews keep the sostenuto paired**: down at the start if it
+  was down there, and up at the end if it is still down
+  (`edit.Doc.From`, `Until`).
 - **Note names** are drawn in notes when rows are tall enough (Alt+wheel).
 - **Shortcuts:** Ctrl+C, X, V (Shift+V inserts), D duplicates, and Esc
   clears. Undo covers ranges too.
 
 ## Next steps, for the owner to choose
 
-1. **Formal tests at the piano** (velocity, releases, playback), then the
-   Key check on each recording and its suggested corrections.
-2. **More editing**:
-   - insert or remove time at the cursor;
-   - stretch the tempo of a passage;
-   - copy and paste;
-   - set a pedal up or down over a selection.
-3. **Decode `edit.exe`**: sostenuto and cue-mark events, and how Stahnke's
-   own editor works.
+The editing tools and the decode of `edit.exe` listed here before are
+built (above, and docs/STAHNKE-EDITOR.md).
+
+1. **Formal tests at the piano** (velocity, press and release timing,
+   playback), with Record → Sensor test, then the Key check and its
+   suggested corrections.
+2. **More editing**, if wanted: tempo curves (a gradual slowing, not one
+   stretch), a velocity curve drawn across a passage, and markers with
+   names.
+3. **Writing trims to the piano** (`putlut`), deferred by the owner until
+   the recordings show which keys need it.

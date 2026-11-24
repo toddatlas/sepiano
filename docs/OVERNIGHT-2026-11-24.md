@@ -125,6 +125,44 @@ New since yesterday:
 - The Library has an **"All kinds"** filter: recorded on this piano, edited
   copies, uploaded, and so on.
 
+## A second look, and what it fixed
+
+A separate review read the night's code for mistakes. It found ten. Each
+one was checked against the code and fixed, and tests now cover them:
+
+- **Each program must be the right one.** The app now reads each
+  program's own name (its banner) and refuses one put in the wrong place.
+  Before this, a factory-table program installed as the "Key sensor test"
+  would have erased the calibration with no warning. The six table
+  installers look alike; each factory one carries its model's name, which
+  tells them apart. All 24 of your programs pass this check.
+- **Restoring after a factory table.** The restore used to compare a
+  backup only with the newest one. After a factory table for another
+  model, that would have refused your own Steinway backup, which is the
+  very thing you would need. It now accepts any model the piano's own
+  backups show.
+- **A short backup stops a tool.** A tool that changes settings now
+  starts only if the backup just before it is a whole table (2048 bytes).
+- **Softer corrections never silence a note.** A large "softer"
+  correction or voicing trim could push a soft note to 640 or more, which
+  the piano treats as a silent press. Now it stops at 639.
+- **A copy of a corrected copy** stays marked corrected, so its
+  corrections are never applied twice. This covers copies made in
+  Stahnke's editor too.
+- **In the editor:**
+  - the loudness tools (shape, even out, Softer and Louder, dragging
+    several notes in the Loudness lane) leave silent presses silent and
+    keep other notes audible;
+  - a change made while a save was still under way stays unsaved, and
+    the editor says so;
+  - inserting, deleting, copying and pasting time now snaps to 20 ms
+    steps, the pedals' own step, so the pedals always move exactly with
+    the notes. Before, they could drift a few milliseconds each time;
+  - "Apply corrections" now also shows when only press corrections are
+    set;
+  - playing a range keeps the sostenuto pedal paired: it goes down at
+    the start if it was down, and comes up at the end.
+
 ## What to try at the piano, in this order
 
 1. **Record → Sensor test → Loudness by key.** Play as it says, then read

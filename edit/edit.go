@@ -183,6 +183,11 @@ func (d Doc) From(from, lead uint32) Doc {
 			out.Notes = append(out.Notes, Note{Key: n.Key, On: shift(n.On), Off: shift(n.Off), Vel: n.Vel})
 		}
 	}
+	// A sostenuto already down goes down at the start too, so its release
+	// later has a press to end (unless it comes up right at from).
+	if d.sostenutoDown(from) && !d.sostenutoAt(from) {
+		out.Other = append(out.Other, se.Event{Tick: lead, Key: 0, On: true})
+	}
 	for _, e := range d.Other {
 		if e.Key == 0 && e.Tick >= from {
 			e.Tick = shift(e.Tick)
@@ -233,6 +238,11 @@ func (d Doc) Until(t, tail uint32) Doc {
 			out.Other = append(out.Other, e)
 		}
 	}
+	// A sostenuto still down comes up at the cut, as the notes and the
+	// other pedals do, so nothing it holds rings on.
+	if d.sostenutoDown(t) {
+		out.Other = append(out.Other, se.Event{Tick: t, Key: 0})
+	}
 	cut := func(s []byte, period uint32) []byte {
 		n := int(out.End/period) + 1
 		o := make([]byte, n)
@@ -243,4 +253,26 @@ func (d Doc) Until(t, tail uint32) Doc {
 	out.Damper = cut(d.Damper, se.DamperPeriod)
 	out.Soft = cut(d.Soft, se.SoftPeriod)
 	return out
+}
+
+// sostenutoDown says whether the sostenuto pedal (key 0) is down just
+// before tick t.
+func (d Doc) sostenutoDown(t uint32) bool {
+	down, last := false, uint32(0)
+	for _, e := range d.Other {
+		if e.Key == 0 && e.Tick < t && e.Tick >= last {
+			down, last = e.On, e.Tick
+		}
+	}
+	return down
+}
+
+// sostenutoAt says whether the sostenuto pedal moves at tick t.
+func (d Doc) sostenutoAt(t uint32) bool {
+	for _, e := range d.Other {
+		if e.Key == 0 && e.Tick == t {
+			return true
+		}
+	}
+	return false
 }

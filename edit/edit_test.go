@@ -155,8 +155,22 @@ func TestSostenutoKept(t *testing.T) {
 	if len(marks) != 2 || !marks[0].On || marks[0].Tick != 900 || marks[1].On || marks[1].Tick != 2400 {
 		t.Fatalf("sostenuto events %+v", marks)
 	}
+	// From the middle: the pedal goes down at the start, as it was, and
+	// comes up where it did.
 	part := d.From(2000, 800)
-	if len(part.Other) != 1 || part.Other[0].Tick != 1200 || part.Other[0].On {
+	if len(part.Other) != 2 || part.Other[0] != (se.Event{Tick: 800, Key: 0, On: true}) || part.Other[1] != (se.Event{Tick: 1200, Key: 0}) {
 		t.Errorf("preview from 2000: %+v", part.Other)
+	}
+	// From where it comes up: no press, just the release.
+	if part := d.From(2400, 800); len(part.Other) != 1 || part.Other[0].On {
+		t.Errorf("preview from 2400: %+v", part.Other)
+	}
+	// Up to a point while it is down: it comes up there.
+	part = d.Until(1500, 800)
+	if len(part.Other) != 2 || !part.Other[0].On || part.Other[1] != (se.Event{Tick: 1500, Key: 0}) {
+		t.Errorf("preview to 1500: %+v", part.Other)
+	}
+	if part := d.Until(3000, 800); len(part.Other) != 2 || part.Other[1].Tick != 2400 {
+		t.Errorf("preview to 3000: %+v", part.Other)
 	}
 }

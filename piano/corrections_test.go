@@ -129,3 +129,24 @@ func TestVoicingKeepsSilentPresses(t *testing.T) {
 		t.Errorf("%d changed: %+v", n, p.KB.Events)
 	}
 }
+
+// A softer correction or trim never turns an audible note into a silent
+// press (640 or more): the Key check suggests -23% for a key that records
+// 30% loud, which would take 500 to 649.
+func TestSofterStaysAudible(t *testing.T) {
+	c := Corrections{On: true, Keys: map[int]KeyCorrection{60: {Speed: -23}}}
+	d := edit.Doc{Notes: []edit.Note{{Key: 60, On: 0, Off: 100, Vel: 500}, {Key: 60, On: 200, Off: 300, Vel: 100}}}
+	c.Apply(&d)
+	if d.Notes[0].Vel != SilentVelocity-1 || d.Notes[1].Vel != 130 {
+		t.Errorf("corrected: %+v", d.Notes)
+	}
+	v := Voicing{On: true, Trims: map[int]int{60: -MaxTrim}}
+	for _, vel := range []uint16{100, 400, 600, 639} {
+		if got := v.Velocity(60, vel); got >= SilentVelocity || got < vel {
+			t.Errorf("voicing %d -> %d", vel, got)
+		}
+	}
+	if got := v.Velocity(60, 700); got != 700 {
+		t.Errorf("silent press voiced: %d", got)
+	}
+}

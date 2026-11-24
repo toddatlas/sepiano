@@ -3478,7 +3478,7 @@ function correctionsCard(p) {
     return card;
   }
   loadCorrections(false).then((c) => {
-    const empty = !c.fill_zero && !c.keys.some((k) => k.speed || k.release_ms);
+    const empty = !c.fill_zero && !c.keys.some((k) => k.speed || k.press_ms || k.release_ms);
     const copyBtn = h('button', { class: 'btn btn-small', type: 'button', disabled: empty, onclick: copy }, 'Save a corrected copy');
     fill(body,
       h('p', { class: 'muted small' }, !c.on ? 'Corrections are off: it plays as recorded.'

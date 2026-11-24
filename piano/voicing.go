@@ -67,14 +67,15 @@ func (v Voicing) Clean() (Voicing, error) {
 	return out, nil
 }
 
-// Velocity is what a note-on velocity becomes. 0 (which the format allows)
-// is left alone, and results stay within 4..1023.
+// Velocity is what a note-on velocity becomes. A silent press (0, or 640
+// and more) is left alone, and an audible note stays audible: results stay
+// within 4..639.
 func (v Voicing) Velocity(note int, vel uint16) uint16 {
 	t := v.TrimFor(note)
-	if t == 0 || vel == 0 {
+	if t == 0 || vel == 0 || vel >= SilentVelocity {
 		return vel
 	}
-	return uint16(min(max(lut.TrimVelocity(int(vel), t), 4), se.MaxVelocity))
+	return uint16(min(max(lut.TrimVelocity(int(vel), t), 4), SilentVelocity-1))
 }
 
 // Apply changes p's note-on velocities in place and says how many changed.

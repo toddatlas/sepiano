@@ -26,10 +26,11 @@ import (
 )
 
 type env struct {
-	t   *testing.T
-	srv *httptest.Server
-	lib *library.Library
-	in  *sim.Instrument
+	t     *testing.T
+	srv   *httptest.Server
+	lib   *library.Library
+	in    *sim.Instrument
+	store *piano.Store
 }
 
 func newEnv(t *testing.T) *env {
@@ -70,7 +71,7 @@ func newEnv(t *testing.T) *env {
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
-	e := &env{t: t, srv: srv, lib: lib, in: in}
+	e := &env{t: t, srv: srv, lib: lib, in: in, store: s.Piano}
 	e.waitState("idle")
 	return e
 }
@@ -800,13 +801,34 @@ func TestToolTables(t *testing.T) {
 	if code, _ := e.do("POST", "/api/v1/tools/putlut/start", map[string]any{"backup": saved.ID}); code != 409 {
 		t.Errorf("restore without confirming: %d", code)
 	}
+	// The last table read back is another model's (as after put225); the
+	// piano's own backup can still go back. A table from another piano,
+	// imported, cannot.
+	if _, err := e.store.Save(renamed(lut.Example(), "Bosendorfer 2"), "after-tool", time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	foreign, err := e.store.Save(renamed(lut.Example(), "Yamaha C-7SE "), "imported", time.Now().Add(2*time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, b := e.do("POST", "/api/v1/tools/putlut/start", map[string]any{"confirm": true, "backup": foreign.ID}); code != 409 || !strings.Contains(string(b), "own backups") {
+		t.Fatalf("restore another piano's table: %d %s", code, b)
+	}
 	if code, b := e.do("POST", "/api/v1/tools/putlut/start", map[string]any{"confirm": true, "backup": saved.ID}); code != 202 {
 		t.Fatalf("restore: %d %s", code, b)
 	}
-	e.waitBackups(5)
+	e.waitBackups(7)
 	if !bytes.Equal(e.eeprom(), first) {
 		t.Error("the backup was not restored")
 	}
+}
+
+// renamed is a copy of a table with its model name (at 22H) overwritten;
+// name must be as long as the old one.
+func renamed(img []byte, name string) []byte {
+	out := append([]byte(nil), img...)
+	copy(out[0x22:], name)
+	return out
 }
 
 func TestCheckRestore(t *testing.T) {
@@ -996,5 +1018,16 @@ func TestPreviewRange(t *testing.T) {
 		t.Errorf("a 3 s range plays for %d ms, want about 5000 (1 s lead, 3 s, 1 s tail)", st.DurationMs)
 	}
 	e.do("POST", "/api/v1/deck/stop", nil)
+	e.waitState("idle")
+}
+
+// A tool that writes the settings does not start unless the backup taken
+// first is a whole table.
+func TestToolNeedsWholeBackup(t *testing.T) {
+	e := newEnv(t)
+	e.in.EEPROM = e.in.EEPROM[:1000] // the read comes back short
+	if code, b := e.do("POST", "/api/v1/tools/setup/start", map[string]any{"confirm": true}); code != 502 || !strings.Contains(string(b), "not a whole table") {
+		t.Fatalf("setup after a short backup: %d %s", code, b)
+	}
 	e.waitState("idle")
 }

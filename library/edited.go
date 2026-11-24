@@ -52,7 +52,10 @@ func (l *Library) AddEdited(from Piece, perf *se.Performance, c EditedCopy) (p P
 	}); err != nil {
 		return p, false, err
 	}
-	p, err = l.setFlags(p.ID, from.RecordedHere(), c.Corrected, from.ID)
+	// A copy of a corrected piece has the corrections in its notes already
+	// (edit.exe and the editor work on the corrected notes), so it is never
+	// corrected again.
+	p, err = l.setFlags(p.ID, from.RecordedHere(), c.Corrected || from.Corrected, from.ID)
 	return p, false, err
 }
 
@@ -111,7 +114,7 @@ func (l *Library) ReplaceEdited(id string, perf *se.Performance, corrected bool)
 	q.KBSHA256 = hash
 	q.DurationMs = se.TickDuration(k.End).Milliseconds()
 	q.HeaderText = strings.TrimSpace(k.Text)
-	q.Corrected = corrected
+	q.Corrected = corrected || p.Corrected // once corrected, always: its notes hold the corrections
 	if err := l.writeMeta(&q); err != nil {
 		return Piece{}, err
 	}

@@ -12,7 +12,7 @@
 
 export const CHORD_WINDOW = 56; // ticks (70 ms): presses this close make a chord, as piano.ChordWindow
 const MIN_LEN = 4; // ticks: the shortest note
-const MAX_VEL = 1023;
+export const SILENT = 640; // this velocity or more is a silent press (play.exe 1044H)
 
 function median(values) {
   if (!values.length) return 0;
@@ -20,9 +20,27 @@ function median(values) {
   return s.length % 2 ? s[s.length >> 1] : (s[s.length / 2 - 1] + s[s.length / 2]) / 2;
 }
 
-function clampVel(v) { return Math.max(4, Math.min(MAX_VEL, Math.round(v))); }
+// audible keeps a changed loudness audible: below SILENT, so a softer
+// shape never turns a note into a silent press.
+function audible(v) { return Math.max(4, Math.min(SILENT - 1, Math.round(v))); }
 
 function pedalNames(doc) { return [['damper', doc.dp], ['soft', doc.sp]]; }
+
+// grid is the step both pedals are sampled on (16 ticks, 20 ms: the soft
+// pedal's period, two of the damper's). Time edits snap to it, so the
+// pedals move by exactly as much as the notes and never drift from them.
+function grid(doc) {
+  const gcd = (x, y) => (y ? gcd(y, x % y) : x);
+  const dp = doc.dp || 8;
+  const sp = doc.sp || 16;
+  return (dp * sp) / gcd(dp, sp);
+}
+
+// snap rounds a time to the pedals' grid.
+export function snap(doc, t) {
+  const g = grid(doc);
+  return Math.round(t / g) * g;
+}
 
 // held returns a copy of arr at least n long, holding its last value.
 function held(arr, n) {
@@ -40,11 +58,11 @@ function lastOff(doc) {
 
 // insertTime opens a gap of len ticks at tick at: what comes later moves
 // on, a note held across it is held through it, and the pedals keep the
-// position they had just before.
+// position they had just before. Both snap to the pedals' grid (20 ms).
 export function insertTime(doc, at, len) {
-  at = Math.max(0, Math.round(at));
-  len = Math.round(len);
-  if (len <= 0) return;
+  at = Math.max(0, snap(doc, at));
+  if (!(len > 0)) return;
+  len = Math.max(grid(doc), snap(doc, len));
   for (const n of doc.notes) {
     if (n.on >= at) { n.on += len; n.off += len; } else if (n.off > at) n.off += len;
   }
@@ -59,10 +77,11 @@ export function insertTime(doc, at, len) {
 }
 
 // deleteTime removes ticks a to b: the notes that start in them go, later
-// ones move back, and a note held into them is let go at a.
+// ones move back, and a note held into them is let go at a. Both ends snap
+// to the pedals' grid (20 ms).
 export function deleteTime(doc, a, b) {
-  a = Math.max(0, Math.round(a));
-  b = Math.round(b);
+  a = Math.max(0, snap(doc, a));
+  b = snap(doc, b);
   const len = b - a;
   if (len <= 0) return;
   doc.notes = doc.notes.filter((n) => !(n.on >= a && n.on < b));
@@ -120,6 +139,8 @@ export function stretch(doc, a, b, f) {
 // copyRange copies ticks a to b: the notes that start in them, the pedals,
 // and the sostenuto pedal's events and marks in them.
 export function copyRange(doc, a, b) {
+  a = Math.max(0, snap(doc, a)); // on the pedals' grid, as insertTime and deleteTime
+  b = Math.max(a, snap(doc, b));
   return {
     notes: doc.notes.filter((n) => n.on >= a && n.on < b).map((n) => ({ key: n.key, on: n.on - a, off: n.off - a, vel: n.vel })),
     others: (doc.others || []).filter((o) => o.tick >= a && o.tick < b).map((o) => ({ ...o, tick: o.tick - a })),
@@ -144,7 +165,8 @@ export function copyNotes(notes) {
 // insert, into a gap opened for it (its pedals too). It returns the new
 // notes.
 export function paste(doc, clip, at, insert) {
-  at = Math.max(0, Math.round(at));
+  // Into a gap, on the pedals' grid, so its pedals line up with its notes.
+  at = Math.max(0, insert ? snap(doc, at) : Math.round(at));
   if (insert) insertTime(doc, at, clip.len);
   const added = clip.notes.map((n) => ({ key: n.key, on: n.on + at, off: n.off + at, vel: n.vel }));
   doc.notes.push(...added);
@@ -223,7 +245,7 @@ export function alignReleases(notes) {
 // the first to toPct at the last (in hammer speed: +10 is 10% louder), for
 // a crescendo or diminuendo.
 export function shapeLoudness(notes, fromPct, toPct) {
-  const live = notes.filter((n) => n.vel > 0);
+  const live = notes.filter((n) => n.vel > 0 && n.vel < SILENT); // silent presses stay silent
   if (!live.length) return 0;
   let t0 = Infinity;
   let t1 = -Infinity;
@@ -231,7 +253,7 @@ export function shapeLoudness(notes, fromPct, toPct) {
   for (const n of live) {
     const f = t1 > t0 ? (n.on - t0) / (t1 - t0) : 0;
     const pct = fromPct + (toPct - fromPct) * f;
-    n.vel = clampVel(n.vel / (1 + pct / 100));
+    n.vel = audible(n.vel / (1 + pct / 100));
   }
   return live.length;
 }
@@ -239,12 +261,12 @@ export function shapeLoudness(notes, fromPct, toPct) {
 // evenOut brings the notes' loudness strength% of the way to their
 // median (in hammer speed): 100 makes them all alike.
 export function evenOut(notes, strength) {
-  const live = notes.filter((n) => n.vel > 0);
+  const live = notes.filter((n) => n.vel > 0 && n.vel < SILENT); // silent presses stay silent
   if (!live.length) return 0;
   const s = Math.max(0, Math.min(100, strength)) / 100;
   const logs = live.map((n) => Math.log(128000 / n.vel));
   const mid = median(logs);
-  live.forEach((n, i) => { n.vel = clampVel(128000 / Math.exp(logs[i] + (mid - logs[i]) * s)); });
+  live.forEach((n, i) => { n.vel = audible(128000 / Math.exp(logs[i] + (mid - logs[i]) * s)); });
   return live.length;
 }
 

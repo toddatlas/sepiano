@@ -129,8 +129,11 @@ func (c Corrections) Summary() string {
 	return strings.Join(parts, "; ")
 }
 
+// clampVel keeps a corrected velocity audible: 4 (the hardest the format
+// uses) to SilentVelocity-1. A softer correction never turns a note into a
+// silent press.
 func clampVel(v float64) uint16 {
-	return uint16(max(4, min(se.MaxVelocity, math.Round(v))))
+	return uint16(max(4, min(SilentVelocity-1, math.Round(v))))
 }
 
 // Apply corrects the notes of d and returns how many it changed. Each

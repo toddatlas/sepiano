@@ -242,7 +242,7 @@ export function editorScreen(root, [id], ui) {
   function isCopy() { return piece.origin === 'edited'; }
   // A recording made on this piano, or a copy of one: the corrections apply.
   function recordedHere() { return piece.origin === 'recorded' || !!piece.from_recording; }
-  function corrEmpty() { return !corr || (!corr.fill_zero && !corr.keys.some((k) => k.speed || k.release_ms)); }
+  function corrEmpty() { return !corr || (!corr.fill_zero && !corr.keys.some((k) => k.speed || k.press_ms || k.release_ms)); }
 
   // What the piece holds besides notes, for the header.
   function othersText() {
@@ -652,7 +652,11 @@ export function editorScreen(root, [id], ui) {
     });
   }
 
-  function scaleVel(f) { edit((ns) => { for (const n of ns) n.vel = clampVel((n.vel || medianVel) * f); }); }
+  // Softer and Louder leave silent presses alone and keep audible notes
+  // audible; a press with no reading (0) starts from the median.
+  function scaleVel(f) {
+    edit((ns) => { for (const n of ns) if (n.vel < SILENT) n.vel = Math.min(SILENT - 1, clampVel((n.vel || medianVel) * f)); });
+  }
   function setVel(v) { edit((ns) => { for (const n of ns) n.vel = v <= 0 ? 0 : clampVel(v); }); }
 
   function setStart(n, s) {
@@ -746,13 +750,19 @@ export function editorScreen(root, [id], ui) {
     try {
       const body = requestBody();
       body.replace = replace;
+      // What was sent, taken before the request: an edit made while it is
+      // on its way is not in this save, so it must still count as unsaved.
+      const sentVer = ver;
+      const sent = { damper: doc.damper, soft: doc.soft };
       const r = await api('POST', path + '/edits', body);
-      savedVer = ver;
-      drafts.delete(id);
+      savedVer = sentVer;
+      if (!dirty()) drafts.delete(id);
       if (replace) {
         piece = r.piece;
-        orig = { damper: doc.damper, soft: doc.soft };
-        toast('Saved.');
+        orig = sent;
+        toast(dirty() ? 'Saved, except what you changed while it saved: save again.' : 'Saved.');
+      } else if (dirty()) {
+        toast(`Saved as “${r.piece.title}”, without what you changed while it saved. You are still editing this one.`);
       } else {
         toast(r.duplicate ? `The library already holds this version: “${r.piece.title}”.` : `Saved as “${r.piece.title}”. You are now editing the copy.`);
         handoff = { id: r.piece.id, view: { ...view }, cursor };
@@ -1079,7 +1089,11 @@ export function editorScreen(root, [id], ui) {
         const L = layout();
         const f = (L.velTop + VEL_H - 3 - p.y) / (VEL_H - 8);
         const df = f - loud(drag.from.get(drag.note) || medianVel);
-        for (const [n, v0] of drag.from) n.vel = velOfLoud(loud(v0 || medianVel) + df);
+        for (const [n, v0] of drag.from) {
+          const v = velOfLoud(loud(v0 || medianVel) + df);
+          if (n === drag.note) n.vel = v; // the one you hold goes where you put it
+          else if (v0 < SILENT) n.vel = Math.min(SILENT - 1, v); // the others: silent stay silent, audible stay audible
+        }
         renderStatus(drag.from.size === 1 ? noteText(drag.note) : `${drag.from.size} notes · velocity ${drag.note.vel} for the one you hold`);
         break;
       }

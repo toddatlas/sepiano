@@ -354,13 +354,17 @@ paths:
 
   /programs/{name}:
     parameters:
-      - { name: name, in: path, required: true, schema: { type: string, enum: [play, record, getlut, anykey, anyham, midiin, sustain, adjust, cal, silent, setup] } }
+      - { name: name, in: path, required: true, schema: { type: string, enum: [play, record, getlut, playmidi, playeseq, midiin, edit, dump, load, tape, adjust, anykey, anyham, sustain, monitor, setup, cal, silent, putlut, putb, put225, put275, put290, putc7] } }
     put:
       summary: Install a suite program (play.exe, record.exe, getlut.exe or a tool's program)
       description: |
         The body is the .exe itself (`application/octet-stream`), or
         `multipart/form-data` with a `file` part. The Z80 program inside is
-        checked before the file is kept. These programs are copyrighted and are
+        checked before the file is kept. It must be the program named: its
+        banner is checked, and the six table installers are told apart by the
+        model name each factory one carries (putlut has none). A program in the
+        wrong place is refused here, and also when it is loaded, so one copied
+        into the programs folder by hand is caught too. These programs are copyrighted and are
         never part of sepiano: each owner supplies their own copy.
       requestBody:
         required: true
@@ -856,9 +860,11 @@ paths:
         A tool whose `risk` is `writes` or `erases` needs `confirm: true`, and
         one with a `phrase` needs it typed. The service backs up the piano's
         settings before (reason `before-tool`) and after (`after-tool`) such a
-        tool. For `needs`: `backup` takes a backup id (only a whole table whose
-        first word is 3017H, for the same model, is restored), `piece` a
-        piece id (the tool works on a copy), `midi` a piece converted from
+        tool, and does not start it unless that first backup is a whole
+        2048-byte table (502). For `needs`: `backup` takes a backup id (only
+        a whole table whose first word is 3017H, for a model that one of the
+        piano's own backups shows, is restored; imported backups don't
+        count), `piece` a piece id (the tool works on a copy), `midi` a piece converted from
         MIDI or an uploaded `file`, `file` an uploaded file. When the tool
         ends: a `performance` result joins the library (an edited copy of
         the piece, or one loaded from tape); a restore is read back and
@@ -891,6 +897,7 @@ paths:
         "400": { $ref: "#/components/responses/Error" }
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
+        "502": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
 
   /tools/key:

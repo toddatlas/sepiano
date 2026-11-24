@@ -460,3 +460,20 @@ usable from the app, then more editing tools.
 - An 18-minute piece (8,298 notes) loads in about 20 ms and draws in
   4–8 ms a frame. Performance numbers from a hidden browser pane are
   throttled to about 1 frame per second; measure the draw itself instead.
+- **A code review of the night's work** found ten defects; all are
+  fixed, with tests:
+  - `api.CheckIdentity` (install and every load) refuses a program in
+    the wrong slot. The factory installers are told apart by the model
+    name in their image; `TestCheckIdentitySuite` checks all 24 with
+    `SE_SUITE`.
+  - Restore checks the model against every backup read from the piano
+    (`checkModel`), not only the latest.
+  - A writing tool needs a whole 2048-byte backup before it starts.
+  - Corrections and voicing cap audible notes at 639. A copy of a
+    corrected piece stays `corrected`.
+  - In the editor:
+    - the loudness tools leave silent presses alone;
+    - a save in flight keeps later edits unsaved;
+    - time edits snap to the pedals' 16-tick grid, so the pedals can't
+      drift;
+    - previews pair the sostenuto.

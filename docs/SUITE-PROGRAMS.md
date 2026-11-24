@@ -470,14 +470,24 @@ ports and fixed memory each one reaches; `-list` prints the listing.
    | Expert | monitor | | backed up again |
 
    The safeguards:
+   - **Each program must be the one named** (`api.CheckIdentity`, at
+     install and at every load). The banners tell the programs apart. The
+     six installers share a banner: each factory one carries its model's
+     name in its image ("Steinway B-SE", "Bosendorfer 225SE" …), and putlut
+     carries none (its image is 1026 bytes, theirs 2611). All 24 programs
+     pass under their own name and fail under every other
+     (`TestCheckIdentitySuite`, with `SE_SUITE`).
    - **Changing settings** (cal, silent, setup, putlut, edit, monitor) needs a
-     confirmation, and an EEPROM backup is taken before and after.
+     confirmation, and an EEPROM backup is taken before and after. The
+     tool starts only if the backup before is a whole 2048-byte table.
    - **Factory tables** also need "ERASE" typed: they replace the whole
      calibration.
    - **putlut writes only a valid table.** The table must be whole
-     (2048 bytes), start with 3017H, and belong to the same model as the
-     piano's latest backup (`checkRestore`). The piano is then read back,
-     and a notice says whether it matches.
+     (2048 bytes) and start with 3017H (`checkRestore`). Its model must be
+     one that a backup read from this piano shows, imported ones aside
+     (`checkModel`). Comparing with the latest backup only would refuse
+     the piano's own backup after a factory table for another model. The
+     piano is then read back, and a notice says whether it matches.
 
    The simulator imitates the installers and the tape loader, so these
    paths are tested (`TestToolTables`, `TestToolFiles`). Recording follows

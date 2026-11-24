@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -372,12 +373,8 @@ func (s *Server) toolFiles(t toolDef, req toolRequest) (*toolRun, error) {
 		if err := checkRestore(img); err != nil {
 			return nil, httpError{409, fmt.Sprintf("backup %s cannot be restored: %v", b.ID, err)}
 		}
-		if cur, _, err := s.Piano.Latest(); err == nil {
-			ct, err1 := lut.Parse(cur)
-			bt, err2 := lut.Parse(img)
-			if err1 == nil && err2 == nil && ct.Name != bt.Name {
-				return nil, httpError{409, fmt.Sprintf("this backup is a table for “%s”, but the piano's is “%s”", bt.Name, ct.Name)}
-			}
+		if err := s.checkModel(img); err != nil {
+			return nil, err
 		}
 		run.restore = img
 		run.path = filepath.Join(dir, "restore.lut")
@@ -386,6 +383,38 @@ func (s *Server) toolFiles(t toolDef, req toolRequest) (*toolRun, error) {
 		}
 	}
 	return run, nil
+}
+
+// checkModel refuses to restore a table for a model this piano has never
+// had: one from another piano. It compares with every backup read from
+// the piano (all but imported ones), not only the latest, so that after a
+// factory table for another model the piano's own backup can still go
+// back.
+func (s *Server) checkModel(img []byte) error {
+	bt, err := lut.Parse(img)
+	if err != nil {
+		return nil // checkRestore has refused it already
+	}
+	list, err := s.Piano.List()
+	if err != nil {
+		return err
+	}
+	var models []string
+	for _, b := range list {
+		if b.Reason == "imported" || b.Model == "" {
+			continue
+		}
+		if b.Model == bt.Name {
+			return nil
+		}
+		if !slices.Contains(models, b.Model) {
+			models = append(models, b.Model)
+		}
+	}
+	if len(models) == 0 {
+		return nil // nothing read from the piano yet to compare with
+	}
+	return httpError{409, fmt.Sprintf("this backup is a table for “%s”, but the piano's own backups are for “%s”", bt.Name, strings.Join(models, "”, “"))}
 }
 
 // checkRestore refuses a table that must never be written: one whose
@@ -452,6 +481,17 @@ func (s *Server) startTool(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		backup = reply["backup"]
+		// A short or empty read is no backup to go back to. (A table the
+		// service cannot read is still kept and allowed: putlut may be
+		// what repairs it.)
+		if b, ok := backup.(piano.Backup); !ok || b.Size != lut.Size {
+			size := 0
+			if ok {
+				size = b.Size
+			}
+			fail(w, 502, fmt.Sprintf("the backup taken first is %d bytes, not a whole table (%d), so the tool was not started. Try again.", size, lut.Size))
+			return
+		}
 		if err := s.waitIdle(r.Context(), 20*time.Second); err != nil {
 			fail(w, 503, "the piano did not come back after the backup: "+err.Error())
 			return
