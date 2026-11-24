@@ -3857,6 +3857,8 @@ function statusScreen(root) {
   let seeded = false;
   let connKey = '';
   let progKey = '';
+  let toolList = null; // the tools (the suite's other programs), installed here too
+  loadTools(true).then((t) => { toolList = t; if (alive) renderPrograms(); }, () => {}); // runs once the screen is built
   let levelBusy = false;
   let simBusy = false;
   let consoleDrawn = false;
@@ -3985,16 +3987,21 @@ function statusScreen(root) {
     if (alive) renderSim();
   }
 
+
   function renderPrograms() {
     const progs = (inst && inst.programs) || {};
-    const key = JSON.stringify([!!inst, progs, [...installing]]);
+    const key = JSON.stringify([!!inst, progs, [...installing], toolList && toolList.map((t) => [t.present, t.banner])]);
     if (key === progKey) return;
     progKey = key;
-    fill(progBody, programRow('play', progs.play), programRow('record', progs.record), programRow('getlut', progs.getlut));
+    const open = !!progBody.querySelector('details[open]');
+    fill(progBody, programRow('play', progs.play), programRow('record', progs.record), programRow('getlut', progs.getlut),
+      toolList && h('details', { class: 'prog-more', open },
+        h('summary', null, `The other ${toolList.length} programs (${toolList.filter((t) => t.present).length} installed)`),
+        toolList.map((t) => programRow(t.name, { present: t.present, banner: t.banner, error: t.error }, t.file))));
   }
 
-  function programRow(name, prog) {
-    const file = `${name}.exe`;
+  function programRow(name, prog, fileName) {
+    const file = fileName || `${name}.exe`;
     const fid = `prog-${name}`;
     const busyNow = installing.has(name);
     // No `accept` filter: iOS greys out extensions it does not know.
@@ -4022,7 +4029,9 @@ function statusScreen(root) {
     try {
       const prog = await api('PUT', `/programs/${name}`, f, { contentType: 'application/octet-stream' });
       toast(prog && prog.banner ? `${name}.exe installed: ${prog.banner}` : `${name}.exe installed.`);
-      if (inst && prog) inst.programs = { ...(inst.programs || {}), [name]: prog };
+      if (inst && prog && ['play', 'record', 'getlut'].includes(name)) inst.programs = { ...(inst.programs || {}), [name]: prog };
+      const tool = toolList && toolList.find((t) => t.name === name);
+      if (tool && prog) { tool.present = prog.present; tool.banner = prog.banner; tool.error = prog.error; }
     } catch (err) {
       toast(err.message, 'error');
     } finally {

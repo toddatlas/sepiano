@@ -1381,3 +1381,6 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
   .corr-row > .btn { grid-column: 2 / -1; justify-self: start; }
   .corr-field .input.corr-num { width: 68px; }
 }
+.prog-more { margin-top: 12px; }
+.prog-more > summary { cursor: pointer; font-weight: 600; color: var(--ink-2); padding: 6px 0; }
+.prog-more .prog { margin-top: 10px; }
