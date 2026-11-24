@@ -8,6 +8,9 @@ Stahnke SE reproducing piano. The piano is a Steinway with the SE system
 - `docs/SE-FILE-FORMAT.md` and `docs/SE-SERIAL-PROTOCOL.md` are the
   reverse-engineered specifications. Trust them; every claim is backed by the
   decompiled code, the file collection or captures from the real piano.
+- `docs/SUITE-PROGRAMS.md` is the suite's other programs, the firmware, and the
+  piano's EEPROM table, decoded. `docs/SETTINGS-EDITOR.md` is the design
+  for editing that table from the app; it is awaiting the owner's decisions.
 - `docs/SERVICE-PLAN.md` is the piano service, `sepianod`: a daemon on the
   Raspberry Pi hidden in the piano, with a web UI and later an iPhone app.
   Phase 1 is built and installed on the Pi. **The piano's owner decides what

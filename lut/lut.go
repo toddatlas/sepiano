@@ -223,3 +223,22 @@ var noteNames = [12]string{"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A",
 func NoteName(n int) string {
 	return fmt.Sprintf("%s%d", noteNames[n%12], n/12-1)
 }
+
+// TrimVelocity applies a section 9 trim the way FW#71 does before its
+// lookup. The SE velocity becomes a hammer speed, 128000 / velocity, and
+// each trim step adds 5 to it: a positive trim is a faster hammer, so a
+// louder note, with more effect on soft notes than on loud ones. The speed
+// then becomes a velocity again. A speed under 126 gives 1023, the softest.
+// Divisions round to nearest, as in the firmware.
+func TrimVelocity(velocity, trim int) int {
+	if trim == 0 || velocity < 2 {
+		return velocity // the firmware does not trim 0; it stops on 1
+	}
+	speed := divRound(128000, velocity) + 5*trim
+	if speed < 126 {
+		return 1023
+	}
+	return divRound(128000, speed)
+}
+
+func divRound(a, b int) int { return (2*a + b) / (2 * b) }

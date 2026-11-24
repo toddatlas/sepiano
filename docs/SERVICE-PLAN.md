@@ -237,7 +237,8 @@ and listen. Each answer changes deck details:
 **The suite's other programs** (the owner's order: after playback, before
 the editor). `docs/SUITE-PROGRAMS.md` has the survey and the plan: back up
 the EEPROM with `getlut`, decode the table, a "Tools" console in the app for
-any suite program, then an editor for the instrument's settings.
+any suite program, then an editor for the instrument's settings. The
+editor's design is in `docs/SETTINGS-EDITOR.md`.
 
 **Phase 3:** `sepiano-ios` (SwiftUI, Bonjour, an OpenAPI-generated client), and
 remote access if it's ever wanted.

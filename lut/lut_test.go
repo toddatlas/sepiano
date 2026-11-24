@@ -140,3 +140,20 @@ func TestNoteName(t *testing.T) {
 		}
 	}
 }
+
+func TestTrimVelocity(t *testing.T) {
+	cases := []struct{ v, trim, want int }{
+		{100, 0, 100},
+		{100, 7, 97},     // speed 1280 + 35 = 1315 → 97.3
+		{256, 7, 239},    // 500 + 35 = 535 → 239.3
+		{400, 7, 361},    // 320 + 35 = 355 → 360.6
+		{100, -7, 103},   // 1280 − 35 = 1245 → 102.8
+		{30, 10, 30},     // 4267 + 50 = 4317 → 29.65
+		{1000, -1, 1023}, // 128 − 5 = 123, under 126
+	}
+	for _, c := range cases {
+		if got := TrimVelocity(c.v, c.trim); got != c.want {
+			t.Errorf("TrimVelocity(%d, %+d) = %d, want %d", c.v, c.trim, got, c.want)
+		}
+	}
+}
