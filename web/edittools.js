@@ -48,6 +48,7 @@ export function insertTime(doc, at, len) {
   for (const n of doc.notes) {
     if (n.on >= at) { n.on += len; n.off += len; } else if (n.off > at) n.off += len;
   }
+  for (const o of doc.others || []) if (o.tick >= at) o.tick += len;
   for (const [name, p] of pedalNames(doc)) {
     const i = Math.floor(at / p);
     const arr = held(doc[name], i);
@@ -68,6 +69,14 @@ export function deleteTime(doc, a, b) {
   for (const n of doc.notes) {
     if (n.on >= b) { n.on -= len; n.off -= len; } else if (n.off > b) n.off -= len;
     else if (n.off > a) n.off = Math.max(n.on + MIN_LEN, a);
+  }
+  if (doc.others) {
+    // Marks in the cut go. A sostenuto release in it moves to a, so a
+    // sostenuto put down before the cut still comes up.
+    doc.others = doc.others.filter((o) => !(o.tick >= a && o.tick < b) || (o.key === 0 && !o.on));
+    for (const o of doc.others) {
+      if (o.tick >= b) o.tick -= len; else if (o.tick >= a) o.tick = a;
+    }
   }
   for (const [name, p] of pedalNames(doc)) {
     const arr = doc[name];
@@ -95,6 +104,7 @@ export function stretch(doc, a, b, f) {
     n.on = Math.round(map(n.on));
     n.off = Math.max(n.on + MIN_LEN, Math.round(map(n.off)));
   }
+  for (const o of doc.others || []) o.tick = Math.round(map(o.tick));
   const end = Math.round(map(doc.end));
   for (const [name, p] of pedalNames(doc)) {
     const arr = doc[name];
@@ -107,11 +117,12 @@ export function stretch(doc, a, b, f) {
   doc.end = end;
 }
 
-// copyRange copies ticks a to b: the notes that start in them, and the
-// pedals.
+// copyRange copies ticks a to b: the notes that start in them, the pedals,
+// and the sostenuto pedal's events and marks in them.
 export function copyRange(doc, a, b) {
   return {
     notes: doc.notes.filter((n) => n.on >= a && n.on < b).map((n) => ({ key: n.key, on: n.on - a, off: n.off - a, vel: n.vel })),
+    others: (doc.others || []).filter((o) => o.tick >= a && o.tick < b).map((o) => ({ ...o, tick: o.tick - a })),
     len: b - a,
     damper: doc.damper.slice(Math.floor(a / doc.dp), Math.floor(b / doc.dp)),
     soft: doc.soft.slice(Math.floor(a / doc.sp), Math.floor(b / doc.sp)),
@@ -137,6 +148,7 @@ export function paste(doc, clip, at, insert) {
   if (insert) insertTime(doc, at, clip.len);
   const added = clip.notes.map((n) => ({ key: n.key, on: n.on + at, off: n.off + at, vel: n.vel }));
   doc.notes.push(...added);
+  if (doc.others && clip.others) doc.others.push(...clip.others.map((o) => ({ ...o, tick: o.tick + at })));
   if (insert) {
     for (const [name, p] of pedalNames(doc)) {
       const src = clip[name];
@@ -252,4 +264,59 @@ export function legato(notes) {
     if (j < s.length && s[j].on > s[i].off) { s[i].off = s[j].on; changed++; }
   }
   return changed;
+}
+
+// The sostenuto pedal: key-0 events in doc.others ({tick, key, on, vel}),
+// on: true puts it down, false lets it up.
+
+// sostenutoDownAt reports whether the sostenuto pedal is down at tick t.
+export function sostenutoDownAt(doc, t) {
+  let down = false;
+  for (const o of [...(doc.others || [])].sort((x, y) => x.tick - y.tick)) {
+    if (o.tick > t) break;
+    if (o.key === 0) down = o.on;
+  }
+  return down;
+}
+
+// holdSostenuto puts the sostenuto pedal down at a and lets it up at b,
+// replacing its events between them.
+export function holdSostenuto(doc, a, b) {
+  doc.others = (doc.others || []).filter((o) => !(o.key === 0 && o.tick >= a && o.tick <= b));
+  doc.others.push({ tick: Math.round(a), key: 0, on: true, vel: 0 }, { tick: Math.round(b), key: 0, on: false, vel: 0 });
+}
+
+// clearSostenuto removes the sostenuto pedal's events from a to b; if it
+// was down at a, it comes up there.
+export function clearSostenuto(doc, a, b) {
+  const wasDown = sostenutoDownAt(doc, a - 1);
+  doc.others = (doc.others || []).filter((o) => !(o.key === 0 && o.tick >= a && o.tick <= b));
+  if (wasDown) doc.others.push({ tick: Math.round(a), key: 0, on: false, vel: 0 });
+}
+
+// CUE_KEY is the key a cue mark is written on (edit.exe's IC).
+export const CUE_KEY = 126;
+
+// addCue puts a cue mark at t, rounded down to 16 ticks as edit.exe does.
+export function addCue(doc, t) {
+  doc.others = doc.others || [];
+  doc.others.push({ tick: Math.floor(Math.max(0, t) / 16) * 16, key: CUE_KEY, on: false, vel: 0 });
+}
+
+// clearCues removes the cue marks from a to b.
+export function clearCues(doc, a, b) {
+  doc.others = (doc.others || []).filter((o) => !(o.key === CUE_KEY && o.tick >= a && o.tick <= b));
+}
+
+// sostenutoSpans returns the stretches the sostenuto pedal is down:
+// [[from, to], …], to the end if it never comes up.
+export function sostenutoSpans(doc) {
+  const out = [];
+  let from = null;
+  for (const o of [...(doc.others || [])].filter((x) => x.key === 0).sort((x, y) => x.tick - y.tick)) {
+    if (o.on && from === null) from = o.tick;
+    else if (!o.on && from !== null) { out.push([from, o.tick]); from = null; }
+  }
+  if (from !== null) out.push([from, doc.end]);
+  return out;
 }

@@ -32,7 +32,8 @@ const VEL_H = 76;
 const PED_H = 46;
 const GAP = 8;
 const OVERVIEW = 30;
-const FIXED_H = RULER + GAP + VEL_H + GAP + PED_H + GAP + PED_H + GAP + OVERVIEW;
+const SOST_H = 20; // the sostenuto pedal lane
+const FIXED_H = RULER + GAP + VEL_H + GAP + PED_H + GAP + PED_H + GAP + SOST_H + GAP + OVERVIEW;
 
 // Loudness for drawing: log hammer speed (128000 / velocity), 0 to 1.
 const L_MIN = Math.log(128000 / MAX_VEL);
@@ -158,6 +159,7 @@ export function editorScreen(root, [id], ui) {
       doc = {
         notes: r.notes.map(([key, on, off, vel]) => ({ key, on, off, vel })),
         damper: r.damper, soft: r.soft, dp: r.damper_period, sp: r.soft_period, end: r.end, kept: r.kept,
+        others: (r.others || []).map(([tick, key, on, vel]) => ({ tick, key, on: !!on, vel })),
         corrected: !!piece.corrected, // the recording corrections are in these notes
       };
       orig = { damper: doc.damper, soft: doc.soft };
@@ -229,13 +231,22 @@ export function editorScreen(root, [id], ui) {
   function recordedHere() { return piece.origin === 'recorded' || !!piece.from_recording; }
   function corrEmpty() { return !corr || (!corr.fill_zero && !corr.keys.some((k) => k.speed || k.release_ms)); }
 
+  // What the piece holds besides notes, for the header.
+  function othersText() {
+    const o = doc.others || [];
+    const sost = o.filter((e) => e.key === 0 && e.on).length;
+    const cues = o.filter((e) => e.key === T.CUE_KEY).length;
+    const rest = o.length - o.filter((e) => e.key === 0 || e.key === T.CUE_KEY).length;
+    return [sost && ` · sostenuto ${sost} time${sost === 1 ? '' : 's'}`, cues && ` · ${cues} cue mark${cues === 1 ? '' : 's'}`, rest && ` · ${rest} marks outside the keyboard`].filter(Boolean).join('');
+  }
+
   function renderHead() {
     fill(head,
       h('h1', { class: 'ed-title' }, h('a', { href: ui.pieceHref(id) }, piece.title || 'Untitled')),
       h('p', { class: 'ed-sub' },
         isCopy() ? 'Edited copy: Save writes over this copy.' : 'Original: saving makes an edited copy; this piece stays as it is.',
         ` ${doc.notes.length.toLocaleString()} notes · ${fmtClock(doc.end, 0)}`,
-        doc.kept ? ` · ${doc.kept} marks outside the keyboard kept as they are` : '',
+        othersText(),
         dirty() && h('span', { class: 'ed-dirty' }, ' · Unsaved changes')),
       recordedHere() && h('p', { class: 'ed-sub ed-rec' }, 'Recorded on this piano. ',
         doc.corrected ? 'The recording corrections are in these notes.'
@@ -283,7 +294,7 @@ export function editorScreen(root, [id], ui) {
     tb.copy.hidden = !isCopy();
     tb.copy.disabled = saving;
     tb.apply.hidden = !recordedHere() || doc.corrected || corrEmpty();
-    const key = `${piece.title}|${piece.origin}|${dirty()}|${doc.notes.length}|${doc.end}|${doc.corrected}|${corr ? corr.summary + corr.on : ''}`;
+    const key = `${piece.title}|${piece.origin}|${dirty()}|${doc.notes.length}|${doc.end}|${doc.corrected}|${corr ? corr.summary + corr.on : ''}|${(doc.others || []).length}`;
     if (key !== headKey) { headKey = key; renderHead(); }
   }
 
@@ -372,7 +383,11 @@ export function editorScreen(root, [id], ui) {
           button('Up', () => rangeEdit(() => T.setPedal(doc, 'damper', a, b, 0), range))),
         group('Soft',
           button('Down', () => rangeEdit(() => T.setPedal(doc, 'soft', a, b, 255), range)),
-          button('Up', () => rangeEdit(() => T.setPedal(doc, 'soft', a, b, 0), range)))));
+          button('Up', () => rangeEdit(() => T.setPedal(doc, 'soft', a, b, 0), range))),
+        group('Sostenuto',
+          button('Hold over it', () => rangeEdit(() => T.holdSostenuto(doc, a, b), range), { title: 'Sostenuto pedal down at the start of the range, up at its end' }),
+          button('Clear', () => rangeEdit(() => T.clearSostenuto(doc, a, b), range), { title: 'Remove the sostenuto pedal from the range' })),
+        group('Cue marks', button('Clear', () => rangeEdit(() => T.clearCues(doc, a, b), range)))));
   }
 
   function cursorTools() {
@@ -383,7 +398,8 @@ export function editorScreen(root, [id], ui) {
           num('insert', 1, 0.1, (s) => {
             if (!(s > 0 && s <= 600)) return;
             rangeEdit(() => T.insertTime(doc, cursor, s * TICK_HZ), null, `${s} s of silence inserted.`);
-          }, 's', 'Insert')),
+          }, 's', 'Insert'),
+          button('Cue mark', () => rangeEdit(() => T.addCue(doc, cursor), undefined, 'Cue mark added at the cursor.'), { title: 'A cue mark (key 126) at the cursor, as Stahnke’s editor writes it' })),
         clipboard && group('Paste',
           button('Mix in', () => pasteClip(false), { title: 'Ctrl+V: add the copied notes at the cursor' }),
           button('Insert', () => pasteClip(true), { title: 'Ctrl+Shift+V: open a gap at the cursor and put the copy (with its pedals) in it' }),
@@ -521,6 +537,7 @@ export function editorScreen(root, [id], ui) {
     return {
       notes: doc.notes.map((n) => [n.key, n.on, n.off, n.vel]),
       damper: doc.damper, soft: doc.soft, end: doc.end, corrected: doc.corrected, ver, range,
+      others: (doc.others || []).map((o) => ({ ...o })),
       sel: [...sel].map((n) => index.get(n)).filter((i) => i !== undefined),
     };
   }
@@ -531,6 +548,7 @@ export function editorScreen(root, [id], ui) {
     doc.soft = s.soft;
     doc.end = s.end;
     doc.corrected = s.corrected;
+    doc.others = (s.others || []).map((o) => ({ ...o }));
     range = s.range || null;
     ver = s.ver;
     sel = new Set(s.sel.map((i) => doc.notes[i]).filter(Boolean));
@@ -637,6 +655,7 @@ export function editorScreen(root, [id], ui) {
       soft: doc.soft !== orig.soft ? doc.soft : null,
       end: doc.end,
       corrected: !!doc.corrected,
+      others: (doc.others || []).map((o) => [o.tick, o.key, o.on ? 1 : 0, o.vel]),
     };
   }
 
@@ -731,8 +750,9 @@ export function editorScreen(root, [id], ui) {
     const velTop = rollBottom + GAP;
     const damperTop = velTop + VEL_H + GAP;
     const softTop = damperTop + PED_H + GAP;
-    const overTop = softTop + PED_H + GAP;
-    return { rollTop, rollBottom, velTop, damperTop, softTop, overTop };
+    const sostTop = softTop + PED_H + GAP;
+    const overTop = sostTop + SOST_H + GAP;
+    return { rollTop, rollBottom, velTop, damperTop, softTop, sostTop, overTop };
   }
 
   function xOf(t) { return GUTTER + (t - view.t0) * view.ppt; }
@@ -796,6 +816,7 @@ export function editorScreen(root, [id], ui) {
     if (y >= L.velTop && y < L.velTop + VEL_H) return x < GUTTER ? 'none' : 'vel';
     if (y >= L.damperTop && y < L.damperTop + PED_H) return x < GUTTER ? 'none' : 'damper';
     if (y >= L.softTop && y < L.softTop + PED_H) return x < GUTTER ? 'none' : 'soft';
+    if (y >= L.sostTop && y < L.sostTop + SOST_H) return x < GUTTER ? 'none' : 'sost';
     if (y >= L.overTop && y < L.overTop + OVERVIEW) return 'overview';
     return 'none';
   }
@@ -1388,6 +1409,7 @@ export function editorScreen(root, [id], ui) {
 
     drawPedal(c, doc.damper, doc.dp, L.damperTop, step);
     drawPedal(c, doc.soft, doc.sp, L.softTop, step);
+    drawSostenuto(c, L.sostTop, step);
 
     // The ruler.
     c.fillStyle = colors.elev;
@@ -1404,6 +1426,22 @@ export function editorScreen(root, [id], ui) {
       if (x < GUTTER) continue;
       c.fillRect(x, RULER - 7, 1, 6);
       c.fillText(fmtClock(t, dec), x + 3, RULER / 2 - 1);
+    }
+
+    // Cue marks (key 126) on the ruler.
+    c.fillStyle = colors.ink2;
+    for (const o of doc.others || []) {
+      if (o.key !== T.CUE_KEY) continue;
+      const x = Math.round(xOf(o.tick));
+      if (x < GUTTER || x > cssW) continue;
+      c.beginPath();
+      c.moveTo(x, RULER - 2);
+      c.lineTo(x, 4);
+      c.lineTo(x + 7, 7);
+      c.lineTo(x, 10);
+      c.closePath();
+      c.fill();
+      c.fillRect(x, 4, 1, RULER - 6);
     }
 
     // The keyboard and the lane names.
@@ -1438,6 +1476,7 @@ export function editorScreen(root, [id], ui) {
     c.fillText('Loudness', 6, L.velTop + 4);
     c.fillText('Damper', 6, L.damperTop + 4);
     c.fillText('Soft', 6, L.softTop + 4);
+    c.fillText('Sostenuto', 6, L.sostTop + 4);
 
     // The whole piece, with the part in view.
     c.fillStyle = colors.sunk;
@@ -1462,7 +1501,7 @@ export function editorScreen(root, [id], ui) {
       const xa = Math.max(GUTTER, xOf(range.a));
       const xb = Math.min(cssW, xOf(range.b));
       if (xb > xa) {
-        const bottomR = L.softTop + PED_H;
+        const bottomR = L.sostTop + SOST_H;
         c.globalAlpha = 0.12;
         c.fillStyle = colors.accent;
         c.fillRect(xa, 0, xb - xa, bottomR);
@@ -1474,7 +1513,7 @@ export function editorScreen(root, [id], ui) {
     }
 
     // The cursor, and the playhead while a preview plays.
-    const bottom = L.softTop + PED_H;
+    const bottom = L.sostTop + SOST_H;
     for (const [t, color] of [[cursor, colors.accent], [playhead, colors.rec]]) {
       if (t == null) continue;
       const x = Math.round(xOf(t));
@@ -1488,6 +1527,24 @@ export function editorScreen(root, [id], ui) {
       c.closePath();
       c.fill();
     }
+  }
+
+  // The sostenuto pedal (key 0 events): down where it is shaded.
+  function drawSostenuto(c, top, step) {
+    const tw = cssW - GUTTER;
+    clip(c, GUTTER, top, tw, SOST_H);
+    c.fillStyle = colors.elev;
+    c.fillRect(GUTTER, top, tw, SOST_H);
+    gridLines(c, top, SOST_H, step);
+    c.globalAlpha = 0.45;
+    c.fillStyle = colors.accent;
+    for (const [a, b] of T.sostenutoSpans(doc)) {
+      const x1 = Math.max(GUTTER, xOf(a));
+      const x2 = Math.min(cssW, xOf(b));
+      if (x2 > x1) c.fillRect(x1, top + 3, Math.max(1, x2 - x1), SOST_H - 6);
+    }
+    c.globalAlpha = 1;
+    c.restore();
   }
 
   function drawPedal(c, arr, period, top, step) {

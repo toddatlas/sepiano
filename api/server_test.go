@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"sort"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -922,5 +923,55 @@ func TestKeyCheckMany(t *testing.T) {
 	}
 	if code, _ := e.do("GET", "/api/v1/keycheck", nil); code != 400 {
 		t.Errorf("no pieces: %d", code)
+	}
+}
+
+// TestEditorOthers: the events that are not notes (the sostenuto pedal on
+// key 0, marks outside the keyboard) go to the editor and come back moved.
+func TestEditorOthers(t *testing.T) {
+	e := newEnv(t)
+	p := sim.Phrase(10 * se.TicksPerSecond)
+	p.KB.Events = append(p.KB.Events, se.Event{Tick: 1600, Key: 0, On: true}, se.Event{Tick: 2400, Key: 0}, se.Event{Tick: 1000, Key: 11, On: true, Vel: 350}, se.Event{Tick: 1004, Key: 11})
+	sort.SliceStable(p.KB.Events, func(i, j int) bool { return p.KB.Events[i].Tick < p.KB.Events[j].Tick })
+	kb, lp, sp, err := p.Encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := e.upload(map[string][]byte{"Sost.kb": kb, "Sost.lp": lp, "Sost.sp": sp}).Added[0].ID
+	code, b := e.do("GET", "/api/v1/pieces/"+id+"/performance", nil)
+	var perf struct {
+		Notes  [][4]int64 `json:"notes"`
+		Others [][4]int64 `json:"others"`
+	}
+	if code != 200 || json.Unmarshal(b, &perf) != nil || len(perf.Others) != 4 {
+		t.Fatalf("others: %d %.400s", code, b)
+	}
+	// Everything a second later, as a time edit would move it.
+	for i := range perf.Others {
+		perf.Others[i][0] += se.TicksPerSecond
+	}
+	code, b = e.do("POST", "/api/v1/pieces/"+id+"/edits", map[string]any{"notes": perf.Notes, "others": perf.Others})
+	var saved struct {
+		Piece library.Piece `json:"piece"`
+	}
+	if code != 201 || json.Unmarshal(b, &saved) != nil {
+		t.Fatalf("save: %d %s", code, b)
+	}
+	_, b = e.do("GET", "/api/v1/pieces/"+saved.Piece.ID+"/performance", nil)
+	var again struct {
+		Others [][4]int64 `json:"others"`
+	}
+	json.Unmarshal(b, &again)
+	want := map[[2]int64]bool{{2400, 0}: true, {3200, 0}: true, {1800, 11}: true, {1804, 11}: true}
+	for _, o := range again.Others {
+		delete(want, [2]int64{o[0], o[1]})
+	}
+	if len(again.Others) != 4 || len(want) != 0 {
+		t.Errorf("after the save: %v (missing %v)", again.Others, want)
+	}
+	// A note's key is not one of them.
+	bad := map[string]any{"notes": perf.Notes, "others": [][4]int64{{100, 60, 1, 200}}}
+	if code, _ := e.do("POST", "/api/v1/pieces/"+id+"/edits", bad); code != 400 {
+		t.Errorf("a note among the others: %d", code)
 	}
 }

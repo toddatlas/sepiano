@@ -40,7 +40,8 @@ type performanceJSON struct {
 	DamperPeriod int           `json:"damper_period"`
 	Soft         []int         `json:"soft"`
 	SoftPeriod   int           `json:"soft_period"`
-	Kept         int           `json:"kept"` // key events outside the keyboard, kept as they are
+	Kept         int           `json:"kept"`   // events that are not notes: the sostenuto pedal, marks outside the keyboard
+	Others       [][4]uint32   `json:"others"` // those events: tick, key, 1 if a press (sostenuto down), velocity
 }
 
 type editRequest struct {
@@ -54,6 +55,9 @@ type editRequest struct {
 	To      int64      `json:"to"` // preview: stop here (0: to the end)
 	// Corrected says the recording corrections are in these notes.
 	Corrected bool `json:"corrected"`
+	// Others replaces the events that are not notes (as GET gives them),
+	// moved with the time edits; left out, they stay as they are.
+	Others *[][4]int64 `json:"others"`
 }
 
 func ints(b []byte) []int {
@@ -93,7 +97,14 @@ func (s *Server) getPerformance(w http.ResponseWriter, r *http.Request) {
 	}
 	out := performanceJSON{Piece: p, TickHz: se.TicksPerSecond, End: d.End, Text: d.Text,
 		Notes: make([][4]uint32, len(d.Notes)), Damper: ints(d.Damper), DamperPeriod: se.DamperPeriod,
-		Soft: ints(d.Soft), SoftPeriod: se.SoftPeriod, Kept: len(d.Other)}
+		Soft: ints(d.Soft), SoftPeriod: se.SoftPeriod, Kept: len(d.Other), Others: make([][4]uint32, len(d.Other))}
+	for i, e := range d.Other {
+		on := uint32(0)
+		if e.On {
+			on = 1
+		}
+		out.Others[i] = [4]uint32{e.Tick, uint32(e.Key), on, uint32(e.Vel)}
+	}
 	for i, n := range d.Notes {
 		out.Notes[i] = [4]uint32{uint32(n.Key), n.On, n.Off, uint32(n.Vel)}
 	}
@@ -141,6 +152,27 @@ func (s *Server) editedDoc(w http.ResponseWriter, r *http.Request) (library.Piec
 				return bad(fmt.Sprintf("%s sample %d is out of range (0 to 255)", c.name, i))
 			}
 			(*c.dst)[i] = byte(v)
+		}
+	}
+	if req.Others != nil {
+		// The sostenuto pedal (key 0) and the marks outside the keyboard,
+		// as the editor moved them. A note's key (21–108) or the filler
+		// (127) is not one of them.
+		others := *req.Others
+		if len(others) > edit.MaxNotes {
+			return bad("too many events that are not notes")
+		}
+		d.Other = make([]se.Event, 0, len(others))
+		for i, o := range others {
+			tick, key, on, vel := o[0], o[1], o[2], o[3]
+			if tick < 0 || tick > edit.MaxTicks || key < 0 || key >= se.FillerKey || (key >= edit.Lowest && key <= edit.Highest) || vel < 0 || vel > se.MaxVelocity {
+				return bad(fmt.Sprintf("event %d (not a note) is out of range", i+1))
+			}
+			e := se.Event{Tick: uint32(tick), Key: uint8(key), On: on != 0}
+			if e.On && e.Key != 0 {
+				e.Vel = uint16(vel)
+			}
+			d.Other = append(d.Other, e)
 		}
 	}
 	if req.End > 0 && req.End <= edit.MaxTicks {
