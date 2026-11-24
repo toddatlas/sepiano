@@ -214,7 +214,7 @@ only.
 
 ## Built in this order
 
-1. **Read only:**
+1. **Read only** (built 2026-11-23, commit b30d8d7, on the Pi):
    - backups from the app (`getlut` through the deck), the Overview,
      Keyboard and Key sheet views, the backup list and comparison;
    - the simulator's EEPROM.
@@ -235,4 +235,6 @@ only.
    that can stop the whole run. So an expert edit of a key's values, written
    to the piano, is wanted. It is still tier 3, with its own warnings.
 
-Next: build step 1, the read-only Piano screen.
+Step 1, the read-only Piano screen, is built and on the Pi. The first
+backup through it took 1.4 s, and matched the one taken earlier with
+`sehost` byte for byte. Next: step 2, software voicing (trims by ear).

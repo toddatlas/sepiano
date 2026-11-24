@@ -415,7 +415,7 @@ paths:
       description: |
         Runs getlut.exe on the piano (it reads the EEPROM and moves nothing),
         while the piano is idle; the deck shows `maintenance` meanwhile. It
-        takes about ten seconds. The reply says how the table differs from the
+        takes a few seconds. The reply says how the table differs from the
         previous backup.
       responses:
         "201":

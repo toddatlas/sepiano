@@ -90,7 +90,7 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   `http://raspberrypi.local/` on port 80, and keeps an idle link to the piano
   on `/dev/sepiano-piano` (a udev symlink to the PL2303).
 - Data: `/var/lib/sepiano/{library,programs,staging,settings.json}`.
-  `play.exe` and `record.exe` are installed in `programs/`. All 24 suite
+  `play.exe`, `record.exe` and `getlut.exe` are installed in `programs/`. All 24 suite
   programs are in `~/sepiano-data/suite/` for `sehost`.
 - **It owns the serial port.** Before using `sehost` by hand:
   `sudo systemctl stop sepianod`; afterwards `sudo systemctl start sepianod`.
@@ -277,5 +277,12 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 
   Worth telling the owner: E1 and C#3 are at the gentlest strike for soft
   notes, and A#0 is a slow-returning key.
-- Next: a "Tools" console in the app for the other programs, then an
-  editor for the settings.
+- **The Piano tab (read only) is live** (commit b30d8d7): backups through the
+  deck (`RunUtility` runs `getlut`; state `maintenance`), stored in
+  `/var/lib/sepiano/eeprom/` (the 20:37 backup imported). It shows notes, an
+  88-key strip, a key sheet and the player's constants, and compares any two
+  backups. `getlut.exe` is installed in the service. A backup takes about
+  1.5 s.
+- The owner's decisions for the editor are in `docs/SETTINGS-EDITOR.md`:
+  software voicing first, per-key loudness, no PIN, calibration overrides
+  wanted. Next: software voicing (step 2).

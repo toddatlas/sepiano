@@ -2525,7 +2525,7 @@ function backupButton(after, primary = true) {
   return btn;
 }
 
-const BACKUP_HINT = 'A backup runs getlut.exe on the piano. It only reads: nothing on the piano moves or changes. It takes about ten seconds, and the piano can’t play meanwhile.';
+const BACKUP_HINT = 'A backup runs getlut.exe on the piano. It only reads: nothing on the piano moves or changes. It takes a few seconds, and the piano can’t play meanwhile.';
 
 function pianoScreen(root) {
   let alive = true;

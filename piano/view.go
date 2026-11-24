@@ -261,11 +261,11 @@ func notes(t *lut.Table, v *View) []Note {
 		}
 	}
 	if s := v.Settings; s.FirstNote != v.Bottom || s.LastNote != v.Top {
-		r := lut.NoteName(s.FirstNote) + " to " + lut.NoteName(s.LastNote)
+		text := "The calibration range is " + lut.NoteName(s.FirstNote) + " to " + lut.NoteName(s.LastNote) + ": a calibration run now would only cover those keys."
 		if s.FirstNote == s.LastNote {
-			r = lut.NoteName(s.FirstNote) + " only"
+			text = "The calibration range is " + lut.NoteName(s.FirstNote) + " only: a calibration run now would only cover that key."
 		}
-		out = append(out, Note{"info", "The calibration range is " + r + ": a calibration run now would only cover those keys.", nil})
+		out = append(out, Note{"info", text, nil})
 	}
 	var trimmed []string
 	for _, k := range v.Keys {
