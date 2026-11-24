@@ -3722,14 +3722,50 @@ function toolScreen(root, [name, arg]) {
       card.append(h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backup to restore')), h('p', { class: 'muted small' }, 'Loading…'));
       api('GET', '/piano/backups').then((r) => {
         if (!alive) return;
+        const newest = (r.backups || [])[0];
         const backups = (r.backups || []).filter((b) => b.valid);
         if (!choice.backup && backups.length) choice.backup = backups[0].id;
-        const sel = h('select', { class: 'input', 'aria-label': 'Backup', onchange: () => { choice.backup = sel.value; update(); } },
+        const diffEl = h('div', { class: 'restore-diff' });
+        const sel = h('select', { class: 'input', 'aria-label': 'Backup', onchange: () => { choice.backup = sel.value; update(); showDiff(); } },
           backups.map((b) => h('option', { value: b.id, selected: b.id === choice.backup }, `${fmtDateTime(b.time)} · ${reasonText(b.reason)} · ${b.model}`)));
         fill(card, h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backup to restore')),
           backups.length ? sel : h('p', { class: 'muted' }, 'No backups yet.'),
-          h('p', { class: 'hint' }, 'Only a whole, valid table for this piano’s model can be restored. Compare backups on the ', h('a', { href: '#/piano/backups' }, 'Backups'), ' screen first if unsure.'));
+          diffEl,
+          h('p', { class: 'hint' }, 'Only a whole, valid table for a model this piano has had can be restored. Compare any two backups on the ', h('a', { href: '#/piano/backups' }, 'Backups'), ' screen.'));
         update();
+        showDiff();
+
+        // showDiff says what restoring the chosen backup would change,
+        // against the newest backup (the piano as last read).
+        async function showDiff() {
+          const id = choice.backup;
+          if (!id || !newest) { fill(diffEl); return; }
+          const when = `the newest backup (${fmtDateTime(newest.time)}, ${reasonText(newest.reason).toLowerCase()})`;
+          if (id === newest.id) {
+            fill(diffEl, h('p', { class: 'muted small' }, `This is ${when}, so restoring it changes nothing unless the settings changed since.`));
+            return;
+          }
+          fill(diffEl, h('p', { class: 'muted small' }, 'Comparing with the newest backup…'));
+          try {
+            const c = await api('GET', `/piano/compare?from=${encodeURIComponent(newest.id)}&to=${encodeURIComponent(id)}`);
+            if (!alive || choice.backup !== id) return;
+            const d = c.diff;
+            if (!d.bytes) {
+              fill(diffEl, h('p', { class: 'muted small' }, `The same as ${when}: restoring it changes nothing.`));
+              return;
+            }
+            const shown = d.changes.slice(0, 8);
+            const more = d.changes.length - shown.length;
+            fill(diffEl,
+              h('p', { class: 'small' }, `Restoring it would make ${changeCount(d)} from ${when}:`),
+              shown.length > 0 && h('ul', { class: 'restore-changes small' }, shown.map((x) => h('li', null,
+                [x.key, x.what].filter(Boolean).join(' '), `: ${x.from} → ${x.to}`))),
+              (more > 0 || d.other > 0) && h('p', { class: 'muted small' },
+                [more > 0 && `and ${more} more`, d.other > 0 && `${d.other} other bytes`].filter(Boolean).join('; ') + ' (the Backups screen shows them all).'));
+          } catch (err) {
+            if (alive) fill(diffEl, h('p', { class: 'muted small' }, 'Could not compare: ' + err.message));
+          }
+        }
       }, (err) => fill(card, h('p', { class: 'message message-error' }, err.message)));
       return;
     }

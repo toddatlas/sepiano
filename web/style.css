@@ -1385,3 +1385,8 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
 .prog-more > summary { cursor: pointer; font-weight: 600; color: var(--ink-2); padding: 6px 0; }
 .prog-more .prog { margin-top: 10px; }
 .np-edit { margin: 6px 0 0; }
+
+/* Restore a backup: what it would change */
+.restore-diff p { margin: 8px 0 4px; }
+.restore-changes { margin: 4px 0 4px 1.2em; padding: 0; }
+.restore-changes li { margin: 2px 0; }
