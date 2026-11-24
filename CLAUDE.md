@@ -38,7 +38,8 @@ and a file server (channel 2: the Z80 asks for blocks of `.kb/.lp/.sp`).
 | `api/` | REST + SSE (`openapi.yaml`), program installs, touch icon |
 | `web/` | the PWA: plain HTML/CSS/JS, no build step, embedded in `sepianod` |
 | `z80/` | Z80 decoder and tracer, for studying the suite's programs (and later the firmware) |
-| `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod`, `sesuite` (survey of the suite's programs) |
+| `lut/` | the instrument's EEPROM lookup table: header, settings, sections (`selut` prints and compares) |
+| `cmd/` | `sedump`, `se2mid`, `mid2se`, `sehost`, `sesniff`, `sepianod`, `sesuite` (survey of the suite's programs), `selut` |
 | `deploy/` | systemd unit, udev rule, avahi file, `install.sh` (on the Pi), `deploy.sh` (from here) |
 
 ## Commands
@@ -126,6 +127,7 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - **Never commit copyrighted material:**
   - Stahnke's programs (`*.exe`, extracted Z80 images);
   - the recordings (`.kb/.lp/.sp`, `.mid`);
+  - EEPROM tables (`.lut`, from `getlut`);
   - **full session captures** (`sehost -capture` `.tx` files contain the
     uploaded Z80 program).
 
@@ -224,7 +226,16 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - `record.exe` is installed in the service (V30.44); recording is still
   untested at the piano. All 24 programs are on the Pi in
   `~/sepiano-data/suite/`.
-- **Nothing new has been run on the piano.** Next, with the owner's OK:
-  back up the EEPROM with `getlut` (it reads only and moves nothing). Then
-  decode the table: model name, serial number, settings, calibration.
-  After that comes a "Tools" console in the app for the other programs.
+- **EEPROM backed up (2026-11-23, with the owner's OK):** `getlut`
+  through `sehost`. The service was stopped for a few seconds and nothing
+  moved. The 2048-byte image is in `~/sepiano-data/backups/eeprom-20261123.lut`
+  on the Pi and in the owner's `Desktop\SE\EEPROM backups\`.
+- What it holds:
+  - **"Steinway B-SE"** (a model B), table V30.17, serial 08;
+  - calibrated throughout, with the calibration range set to E1 only;
+  - E1 and C#3 at the maximum (255) in section 2.
+
+  `selut` decodes it; the sections are mapped in `docs/SUITE-PROGRAMS.md`.
+- Next: a "Tools" console in the app for the other programs. Then read the
+  firmware with the monitor's `D` to learn what the sections mean, before
+  editing anything.

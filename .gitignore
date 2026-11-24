@@ -21,5 +21,10 @@
 *.z80
 *.img
 
+# EEPROM lookup tables (getlut): Stahnke's prototype data and the owner's piano
+*.lut
+*.LUT
+*.$$$
+
 # sepianod -simulate data
 /devdata/

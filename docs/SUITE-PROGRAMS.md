@@ -4,8 +4,8 @@ What each program of *SE Program Suite v0.95* does, how it talks to the
 instrument, and what it can change. Found by tracing the Z80 program each
 one uploads (`cmd/sesuite`, `z80/`), from the owner's copy of
 `se_program_suite_v0.95_setup.exe` (an NSIS 2.25 installer; 7-Zip unpacks
-it). **None of these programs has been run on the piano yet**, except
-`play.exe`.
+it). Only `play.exe` and `getlut.exe` (one read-only backup) have been run on
+the piano.
 
 `sesuite FOLDER` prints the survey; `sesuite -dis NAME FOLDER` a listing.
 Keep listings, images and the programs out of the repository: they are
@@ -77,10 +77,11 @@ firmware reads and writes a byte at a time:
 | FW#44 | HL ← the EEPROM's size in bytes | the loop count of every whole-table read and write; the installers hold exactly 2048 bytes of table and padding |
 | FW#47 | HL ← offset of the version word (0) | `put*` print "PROTOTYPE LOOKUP TABLE, V" from it |
 | FW#65 | HL ← offset of the model name | `put*` print the name from it |
-| FW#61, #63, #64 | HL ← offsets of setup's fields | `setup` (below) |
+| FW#51 … FW#64 | HL ← the offset of section 0 … 13 (FW#51 + n gives section n) | `setup`'s fields land exactly on the bytes that differ in sections 10, 12 and 13 of the piano's table (below) |
 | FW#67, #68 | A ← the instrument's bottom and top note | `setup` prints them next to the calibration range |
 
-The prototype tables in `put*.exe` show the layout (little-endian words):
+The EEPROM is 2048 bytes. The prototype tables in `put*.exe`, and the
+piano's own table, share this layout (little-endian words):
 
 | Offset | Holds |
 |--------|-------|
@@ -89,21 +90,70 @@ The prototype tables in `put*.exe` show the layout (little-endian words):
 | 4 | a word, not understood yet (`6C15H` for the Steinway B-SE) |
 | 6 | 14 offsets of the table's sections, increasing |
 | 22H | the model's name, then CR LF 7FH (`Steinway B-SE`) |
-| … | the sections: per-note calibration, settings, curves, not decoded yet |
+| 32H | a word, not understood yet |
+| sections | below |
 
 The installers fill the rest of the EEPROM with `FF`.
 
-`setup` edits these, each a byte at a fixed distance from an offset the
-firmware supplies:
+The Steinway B-SE's sections. "Per key" means 88 values, A0 first; a grid
+of n × 88 is stored row by row. The users are the programs that ask for the
+section's offset.
 
-| Setting | Where |
-|---------|-------|
-| piano serial number (up to 65,535) | from FW#63 + 2 |
-| discard silent notes (true = FFH) | FW#64 + 1 |
-| display German note names (true = FFH) | FW#64 + 2 |
-| first adjustment/calibration note | FW#61 + 1 |
-| last adjustment/calibration note | FW#61 + 2 |
-| first calibration (0 = true, 1 = false) | FW#61 + 4 |
+| # | Offset | Size | Shape | Used by | What we know |
+|--:|-------:|-----:|-------|---------|--------------|
+| 0 | 34H | 16 | 8 words | cal | Breakpoints, ending in 0: 25 40 64 100 160 256 400 in the prototype |
+| 1 | 44H | 616 | 7 × 88 | cal | One row per breakpoint. Prototype rows are constants (28 36 48 64 80 108 136); calibrated per key in the piano |
+| 2 | 2ACH | 616 | 7 × 88 | cal | The same shape. Prototype rows 18 30 48 68 100 128 160; calibrated per key |
+| 3 | 514H | 2 | | | `20 01` |
+| 4 | 516H | 88 | per key | silent | Probably the silent actuate level ("SILENT ACTUATE"): 29 in the prototype, 28–29 in the piano |
+| 5 | 56EH | 6 | | cal | `3C 00 78 00 00 00` |
+| 6 | 574H | 176 | 2 × 88 | cal | Prototype rows 46 and 38; calibrated per key |
+| 7 | 624H | 88 | per key | cal | Prototype 44; calibrated per key |
+| 8 | 67CH | 1 | | | `FF` |
+| 9 | 67DH | 90 | | | Not per key (mostly 0) |
+| 10 | 6D7H | 9 | | setup, cal | +1 first and +2 last adjustment/calibration note, +4 first calibration |
+| 11 | 6E0H | 91 | | | Not per key |
+| 12 | 73BH | 13 | | setup | +2 piano serial number |
+| 13 | 748H | 9 | | setup | +1 discard silent notes, +2 German note names |
+
+`setup` edits these six settings, each one byte:
+
+| Setting | Where | Prototype |
+|---------|-------|-----------|
+| piano serial number (shown as two hex digits) | section 12 + 2 | 00 |
+| discard silent notes (true = FFH) | section 13 + 1 | true |
+| display German note names (true = FFH) | section 13 + 2 | false |
+| first adjustment/calibration note (MIDI number) | section 10 + 1 | 21 (A0) |
+| last adjustment/calibration note | section 10 + 2 | 108 (C8) |
+| first calibration (0 = true, 1 = false) | section 10 + 4 | true |
+
+`selut TABLE [OTHER]` prints a table this way, key by key, and lists every
+difference from another table.
+
+### This piano's table (backed up 2026-11-23)
+
+Retrieved with `getlut` through `sehost`. It took a few seconds, nothing
+moved, and the service went back online. The 2048-byte image is on the Pi
+in `~/sepiano-data/backups/eeprom-20261123.lut` and in the owner's
+`Desktop\SE\EEPROM backups\` (SHA-256 `e40de190…c53ce303b`). It is not in
+the repository.
+
+- **"Steinway B-SE", table V30.17**, 1873 bytes: the `putb` prototype's
+  layout, so a Steinway model B.
+- Settings: serial number **08**; discard silent notes **false** (the
+  prototype says true); German names false; calibration range **E1 to E1**;
+  first calibration **false** (it has been calibrated).
+- 1,537 of the 2,048 bytes differ from the prototype. Nearly all are the
+  per-key values of sections 1, 2, 4, 6 and 7: the piano's calibration.
+  The others are the settings, the first breakpoint (25 → 30) and one byte
+  each in sections 9 and 11.
+- Keys that stand out:
+  - **E1** and **C#3** reach 255, the largest value a byte holds, in the
+    top rows of section 2.
+  - **A#0** is high in sections 6 and 7.
+
+  E1 is also the only key in the calibration range, so the last
+  calibration or adjustment was probably of that key alone.
 
 ### Warning: `play.exe` checks the table version
 
@@ -140,9 +190,10 @@ at about 3.8 KB/s of text. Nothing in it reads or writes PC files.
 
 ## What this means for sepiano
 
-1. **Back up first.** `getlut` copies the EEPROM to a file without writing
-   anything to the piano and without moving it (it only reads the EEPROM
-   and sends bytes). On the Pi, with the service stopped:
+1. **Back up first** (done 2026-11-23). `getlut` copies the EEPROM to a
+   file without writing anything to the piano and without moving it (it only
+   reads the EEPROM and sends bytes). Stop a paused or playing piece first
+   (`POST /api/v1/deck/stop`) so the player quits cleanly. Then, on the Pi:
 
    ```bash
    sudo systemctl stop sepianod
@@ -150,11 +201,12 @@ at about 3.8 KB/s of text. Nothing in it reads or writes PC files.
    sudo systemctl start sepianod
    ```
 
-   The file comes back as `name.$$$` and is renamed when complete. Keep a
-   copy off the Pi too. `putlut` can write it back.
-2. **Read the table.** The backup shows the piano's model name, serial
-   number, settings and calibration. Comparing it with `putb`'s prototype
-   shows what calibration changed.
+   The file comes back as `name.$$$` and is renamed when complete; a file
+   of the same name is replaced, so use a new name. Keep a copy off the Pi
+   too. `putlut` can write it back.
+2. **Read the table** (started: `selut`, above). Next: what each section
+   means. Section 1 and 2 are the heart of the calibration. The firmware
+   (through the monitor's `D`) will say how it uses them.
 3. **Run any program from the app.** `sepianod` runs `play` and `record`
    today. A "Tools" screen could run any installed program as a console:
    its text, its keys, and a file folder of its own. R and M programs first;
