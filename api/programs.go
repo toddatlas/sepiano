@@ -39,9 +39,9 @@ type ProgramInfo struct {
 }
 
 // ProgramFiles maps API names to file names.
-var ProgramFiles = map[string]string{"play": "play.exe", "record": "record.exe"}
+var ProgramFiles = map[string]string{"play": "play.exe", "record": "record.exe", "getlut": "getlut.exe"}
 
-// Load returns the named program ("play" or "record"), re-reading the file
+// Load returns the named program ("play", "record" or "getlut"), re-reading the file
 // when it changes.
 func (p *Programs) Load(name string) (*host.Program, error) {
 	file, ok := ProgramFiles[name]

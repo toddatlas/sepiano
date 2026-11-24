@@ -19,6 +19,7 @@ import (
 
 	"sepiano/deck"
 	"sepiano/library"
+	"sepiano/piano"
 	"sepiano/sim"
 )
 
@@ -45,6 +46,10 @@ type Server struct {
 
 	// PlayDir holds the joined performances of albums and play lists.
 	PlayDir string
+
+	// Piano keeps the backups of the piano's stored settings.
+	Piano    *piano.Store
+	backupMu sync.Mutex
 
 	qmu   sync.Mutex
 	queue queue
@@ -97,6 +102,7 @@ func (s *Server) Handler() http.Handler {
 		w.Header().Set("Content-Type", "application/yaml")
 		w.Write(OpenAPI)
 	})
+	s.pianoRoutes(m)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "no such API endpoint") })
 	m.HandleFunc("GET /apple-touch-icon.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
@@ -424,7 +430,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 		"simulated": info.Simulated,
 		"link": linkStats{info.RxBytes, info.TxBytes, info.Retransmits, info.Naks,
 			info.ConnectedSince, info.LastError},
-		"programs": map[string]ProgramInfo{"play": s.Programs.Info("play"), "record": s.Programs.Info("record")},
+		"programs": map[string]ProgramInfo{"play": s.Programs.Info("play"), "record": s.Programs.Info("record"), "getlut": s.Programs.Info("getlut")},
 		"console":  console,
 		"version":  s.Version,
 	})
@@ -433,7 +439,7 @@ func (s *Server) instrument(w http.ResponseWriter, r *http.Request) {
 func (s *Server) installProgram(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	if _, ok := ProgramFiles[name]; !ok {
-		fail(w, 404, "program must be play or record")
+		fail(w, 404, "program must be play, record or getlut")
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 16<<20)

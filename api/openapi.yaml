@@ -354,9 +354,9 @@ paths:
 
   /programs/{name}:
     parameters:
-      - { name: name, in: path, required: true, schema: { type: string, enum: [play, record] } }
+      - { name: name, in: path, required: true, schema: { type: string, enum: [play, record, getlut] } }
     put:
-      summary: Install a suite program (play.exe or record.exe)
+      summary: Install a suite program (play.exe, record.exe or getlut.exe)
       description: |
         The body is the .exe itself (`application/octet-stream`), or
         `multipart/form-data` with a `file` part. The Z80 program inside is
@@ -383,6 +383,83 @@ paths:
         content: { application/json: { schema: { $ref: "#/components/schemas/Settings" } } }
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Settings" } } } }
+
+  /piano/table:
+    get:
+      summary: The piano's stored settings, from a backup of its EEPROM table
+      description: |
+        The latest backup, or the one named by `backup`. Read only: nothing
+        here changes the piano. See docs/SETTINGS-EDITOR.md.
+      parameters:
+        - { name: backup, in: query, schema: { type: string } }
+      responses:
+        "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/PianoView" } } } }
+        "404": { $ref: "#/components/responses/Error" }
+        "422": { $ref: "#/components/responses/Error" }
+
+  /piano/backups:
+    get:
+      summary: The backups of the piano's settings, newest first
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backups: { type: array, items: { $ref: "#/components/schemas/PianoBackup" } }
+                  retriever: { $ref: "#/components/schemas/Program" }
+    post:
+      summary: Read the piano's settings now and keep them
+      description: |
+        Runs getlut.exe on the piano (it reads the EEPROM and moves nothing),
+        while the piano is idle; the deck shows `maintenance` meanwhile. It
+        takes about ten seconds. The reply says how the table differs from the
+        previous backup.
+      responses:
+        "201":
+          description: Kept
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  backup: { $ref: "#/components/schemas/PianoBackup" }
+                  previous: { $ref: "#/components/schemas/PianoBackup" }
+                  same_as_previous: { type: boolean }
+                  changes: { $ref: "#/components/schemas/PianoDiff" }
+                  console: { type: array, items: { type: string } }
+                  problem: { type: string }
+        "409": { $ref: "#/components/responses/Error" }
+        "503": { $ref: "#/components/responses/Error" }
+
+  /piano/backups/{id}:
+    get:
+      summary: Download a backup's .lut file (2048 bytes)
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "200": { description: The table image, content: { application/octet-stream: {} } }
+        "404": { $ref: "#/components/responses/Error" }
+
+  /piano/compare:
+    get:
+      summary: How one backup differs from another, in words
+      parameters:
+        - { name: from, in: query, required: true, schema: { type: string } }
+        - { name: to, in: query, required: true, schema: { type: string } }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  from: { $ref: "#/components/schemas/PianoBackup" }
+                  to: { $ref: "#/components/schemas/PianoBackup" }
+                  diff: { $ref: "#/components/schemas/PianoDiff" }
 
   /sim/power:
     post:
@@ -424,7 +501,7 @@ components:
         * `recording`
         * `saving`: recording stopped, files being written.
         * `fault`: something went wrong; `message` says what. The service recovers by itself.
-      enum: [offline, connecting, idle, loading, playing, paused, stopping, armed, recording, saving, fault]
+      enum: [offline, connecting, idle, loading, playing, paused, stopping, armed, recording, saving, maintenance, fault]
 
     Status:
       type: object
@@ -578,5 +655,101 @@ components:
           properties:
             play: { $ref: "#/components/schemas/Program" }
             record: { $ref: "#/components/schemas/Program" }
+            getlut: { $ref: "#/components/schemas/Program" }
         console: { type: array, items: { type: string }, description: The last lines the piano's program printed }
         version: { type: string }
+
+    PianoBackup:
+      type: object
+      properties:
+        id: { type: string, description: "YYYYMMDD-HHMMSS-reason, local time" }
+        time: { type: string, format: date-time }
+        reason: { type: string, description: "manual or imported (later before-write, after-write)" }
+        size: { type: integer }
+        sha256: { type: string }
+        model: { type: string }
+        version: { type: string }
+        valid: { type: boolean }
+        problem: { type: string }
+
+    PianoView:
+      type: object
+      description: A table in plain terms (docs/SUITE-PROGRAMS.md has every field's meaning)
+      properties:
+        backup: { $ref: "#/components/schemas/PianoBackup" }
+        name: { type: string }
+        version: { type: string }
+        version_ok: { type: boolean }
+        length: { type: integer }
+        bottom: { type: integer, description: MIDI note of the first key }
+        top: { type: integer }
+        settings:
+          type: object
+          properties:
+            serial: { type: string }
+            discard_silent: { type: boolean }
+            german_names: { type: boolean }
+            first_note: { type: integer }
+            last_note: { type: integer }
+            first_calibration: { type: boolean }
+        breakpoints: { type: array, items: { type: integer }, description: SE velocities }
+        trims_on: { type: boolean }
+        hold_level: { type: integer }
+        velocities: { type: array, items: { type: integer }, description: where each key's curve is sampled }
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              note: { type: integer }
+              name: { type: string }
+              trim: { type: integer }
+              lead: { type: array, items: { type: integer }, description: "section 1, per breakpoint (ticks)" }
+              level: { type: array, items: { type: integer }, description: "section 2, per breakpoint (smaller is harder)" }
+              silent_level: { type: integer }
+              release: { type: array, items: { type: integer }, description: the 60- and 120-tick release levels }
+              free_release: { type: integer, description: ticks }
+              curve: { type: array, items: { type: array, items: { type: integer } }, description: "[lead, level] at each of `velocities`" }
+              trim_effect:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    label: { type: string }
+                    velocity: { type: integer }
+                    becomes: { type: integer }
+                    speed_pct: { type: number }
+              flags: { type: array, items: { type: string, enum: [gentlest, slow] } }
+        player:
+          type: array
+          items:
+            type: object
+            properties:
+              offset: { type: integer }
+              value: { type: integer }
+              factory: { type: integer }
+              label: { type: string }
+              explain: { type: string }
+        notes:
+          type: array
+          items:
+            type: object
+            properties:
+              level: { type: string, enum: [info, warn, danger] }
+              text: { type: string }
+              keys: { type: array, items: { type: string } }
+
+    PianoDiff:
+      type: object
+      properties:
+        bytes: { type: integer, description: bytes that differ in the whole image }
+        changes:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              what: { type: string }
+              from: { type: string }
+              to: { type: string }
+        other: { type: integer, description: differing bytes not described by changes }

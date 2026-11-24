@@ -224,13 +224,15 @@ only.
    tier 1 fields; then Restore.
 4. **Tier 2 player options,** then the tier 3 expert edits.
 
-## Open decisions for the owner
+## The owner's decisions (2026-11-23)
 
-1. Start with software voicing (try by ear, nothing written to the piano)
-   before any EEPROM write? *Recommended.*
-2. Which tier 1 edits matter most: per-key loudness, silent notes, the
-   calibration range?
-3. Should writes need a PIN, or may anyone on the home network with the app
-   make them?
-4. Should calibration values ever be edited by hand, or only by
-   recalibrating?
+1. **Software voicing first.** Trims are tried by ear while `sepianod`
+   serves the piece, before anything is written to the piano.
+2. **Per-key loudness** is the tier 1 edit that matters most.
+3. **No PIN.** Anyone on the home network with the app may write.
+4. **Calibration values can be overridden by hand.** The calibrator
+   sometimes can't calibrate a note ("CALIBRATION IMPOSSIBLE ON NOTE"), and
+   that can stop the whole run. So an expert edit of a key's values, written
+   to the piano, is wanted. It is still tier 3, with its own warnings.
+
+Next: build step 1, the read-only Piano screen.

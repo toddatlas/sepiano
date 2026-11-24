@@ -18,6 +18,7 @@ import (
 	"sepiano/deck"
 	"sepiano/host"
 	"sepiano/library"
+	"sepiano/piano"
 	"sepiano/se"
 	"sepiano/sim"
 )
@@ -38,7 +39,7 @@ func newEnv(t *testing.T) *env {
 	in := sim.New()
 	in.Baud, in.Speed = 1_000_000, 10
 	progs := &Programs{Dir: t.TempDir(), Fallback: map[string]*host.Program{
-		"play": sim.PlayerProgram(), "record": sim.RecorderProgram()}}
+		"play": sim.PlayerProgram(), "record": sim.RecorderProgram(), "getlut": sim.RetrieverProgram()}}
 	d := deck.New(deck.Config{
 		Connect: func(ctx context.Context, o host.ConnectOptions) (*host.Conn, error) {
 			p, err := in.Dial()
@@ -60,7 +61,7 @@ func newEnv(t *testing.T) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(),
+	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(), Piano: &piano.Store{Dir: t.TempDir()},
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -359,5 +360,62 @@ func waitFor(t *testing.T, e *env, ok func(deck.Status) bool) {
 			t.Fatalf("waited for a state; have %+v", st)
 		}
 		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestPianoSettings takes a backup of the simulated piano's table, reads its
+// view, takes another after a change, and compares the two.
+func TestPianoSettings(t *testing.T) {
+	e := newEnv(t)
+	if code, _ := e.do("GET", "/api/v1/piano/table", nil); code != 404 {
+		t.Fatalf("table before any backup: %d", code)
+	}
+	code, body := e.do("POST", "/api/v1/piano/backups", nil)
+	if code != 201 {
+		t.Fatalf("backup: %d %s", code, body)
+	}
+	var first struct {
+		Backup piano.Backup `json:"backup"`
+	}
+	json.Unmarshal(body, &first)
+	if !first.Backup.Valid || first.Backup.Model != "Simulated SE" {
+		t.Fatalf("backup %+v", first.Backup)
+	}
+	e.waitState("idle")
+	code, body = e.do("GET", "/api/v1/piano/table", nil)
+	var v piano.View
+	if code != 200 || json.Unmarshal(body, &v) != nil || len(v.Keys) != 88 || v.Backup == nil || v.Backup.ID != first.Backup.ID {
+		t.Fatalf("table: %d %.300s", code, body)
+	}
+
+	e.in.EEPROM[0x67F+41] = 2           // the simulated piano's D4 trim, +4 → +2
+	time.Sleep(1100 * time.Millisecond) // a new second, so a new id
+	code, body = e.do("POST", "/api/v1/piano/backups", nil)
+	if code != 201 {
+		t.Fatalf("second backup: %d %s", code, body)
+	}
+	var second struct {
+		Backup  piano.Backup `json:"backup"`
+		Same    bool         `json:"same_as_previous"`
+		Changes piano.Diff   `json:"changes"`
+	}
+	json.Unmarshal(body, &second)
+	if second.Same || second.Changes.Bytes != 1 || len(second.Changes.Changes) != 1 || second.Changes.Changes[0].Key != "D4" {
+		t.Errorf("second backup reply %.400s", body)
+	}
+	code, body = e.do("GET", "/api/v1/piano/backups", nil)
+	if code != 200 || !strings.Contains(string(body), second.Backup.ID) || !strings.Contains(string(body), `"retriever"`) {
+		t.Errorf("list: %d %.300s", code, body)
+	}
+	code, body = e.do("GET", "/api/v1/piano/compare?from="+first.Backup.ID+"&to="+second.Backup.ID, nil)
+	if code != 200 || !strings.Contains(string(body), `"what":"Trim"`) {
+		t.Errorf("compare: %d %.300s", code, body)
+	}
+	code, body = e.do("GET", "/api/v1/piano/backups/"+first.Backup.ID, nil)
+	if code != 200 || len(body) != 2048 {
+		t.Errorf("download: %d, %d bytes", code, len(body))
+	}
+	if code, _ := e.do("GET", "/api/v1/piano/backups/nope", nil); code != 404 {
+		t.Errorf("missing backup: %d", code)
 	}
 }

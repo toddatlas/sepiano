@@ -32,6 +32,7 @@ import (
 	"sepiano/deck"
 	"sepiano/host"
 	"sepiano/library"
+	"sepiano/piano"
 	"sepiano/sim"
 	"sepiano/web"
 )
@@ -91,7 +92,8 @@ func run(args []string) int {
 		if *verbose {
 			inst.Log = logf
 		}
-		progs.Fallback = map[string]*host.Program{"play": sim.PlayerProgram(), "record": sim.RecorderProgram()}
+		progs.Fallback = map[string]*host.Program{"play": sim.PlayerProgram(), "record": sim.RecorderProgram(),
+			"getlut": sim.RetrieverProgram()}
 		connect = func(ctx context.Context, o host.ConnectOptions) (*host.Conn, error) {
 			p, err := inst.Dial()
 			if err != nil {
@@ -146,7 +148,7 @@ func run(args []string) int {
 	go func() { d.Run(ctx); close(deckDone) }()
 
 	s := &api.Server{Deck: d, Lib: lib, Programs: progs, Sim: inst, UI: web.Files, Version: version, Log: logf,
-		PlayDir: filepath.Join(*data, "play")}
+		PlayDir: filepath.Join(*data, "play"), Piano: &piano.Store{Dir: filepath.Join(*data, "eeprom")}}
 	srv := &http.Server{Addr: *addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	srvErr := make(chan error, 1)
 	go func() { srvErr <- srv.ListenAndServe() }()

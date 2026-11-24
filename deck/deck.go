@@ -40,6 +40,7 @@ const (
 	Armed      State = "armed"
 	Recording  State = "recording"
 	Saving     State = "saving"
+	Working    State = "maintenance" // a utility program (getlut) is running
 	Fault      State = "fault"
 )
 
@@ -205,7 +206,7 @@ type Deck struct {
 }
 
 type session struct {
-	kind     string // "play" or "record"
+	kind     string // "play", "record" or "utility"
 	job      *Job
 	title    string
 	name     string // staging base name for a recording
@@ -218,6 +219,13 @@ type session struct {
 	deadline time.Time
 	aborted  bool
 	discard  bool
+
+	// A utility program: its command-line file, its console, when it must
+	// have finished, and who waits for it.
+	path  string
+	lines []string
+	limit time.Time
+	done  chan UtilityResult
 }
 
 type pending struct {
@@ -229,6 +237,7 @@ type pending struct {
 type command struct {
 	op    string
 	job   *Job
+	util  *session
 	title string
 	level *int
 	delta int
@@ -365,6 +374,31 @@ func (d *Deck) Arm(ctx context.Context, title string) error {
 func (d *Deck) StartRecording(ctx context.Context) error { return d.do(ctx, command{op: "recstart"}) }
 func (d *Deck) StopRecording(ctx context.Context) error  { return d.do(ctx, command{op: "recstop"}) }
 func (d *Deck) Discard(ctx context.Context) error        { return d.do(ctx, command{op: "discard"}) }
+
+// UtilityResult is how a utility program ended: its console text, and nil
+// when it finished on its own.
+type UtilityResult struct {
+	Console []string
+	Err     error
+}
+
+// RunUtility runs one of the suite's utility programs (getlut, …) to its end
+// on a fresh connection, with its file service at path (the file the
+// original takes on its command line). The piano must be idle; play and
+// record are refused until it ends. It gives up after limit.
+func (d *Deck) RunUtility(ctx context.Context, prog *host.Program, path string, limit time.Duration) UtilityResult {
+	s := &session{kind: "utility", prog: prog, path: path, limit: time.Now().Add(limit),
+		done: make(chan UtilityResult, 1)}
+	if err := d.do(ctx, command{op: "utility", util: s}); err != nil {
+		return UtilityResult{Err: err}
+	}
+	select {
+	case r := <-s.done:
+		return r
+	case <-ctx.Done():
+		return UtilityResult{Err: ctx.Err()}
+	}
+}
 
 func (d *Deck) do(ctx context.Context, c command) error {
 	c.reply = make(chan error, 1)
@@ -613,6 +647,7 @@ func (d *Deck) connDone(m connDone) {
 	}
 	if m.err != nil {
 		d.sess = nil
+		d.finishUtility(s, m.err)
 		if s.aborted {
 			d.afterSession(false)
 			return
@@ -627,7 +662,11 @@ func (d *Deck) connDone(m connDone) {
 	d.setConn(m.conn)
 	d.st.Online = true
 	d.backoff = 0
-	fs := host.NewFileService(filepath.Join(s.dir(d), s.base()+".kb"))
+	path := s.path // a utility program's file
+	if s.kind != "utility" {
+		path = filepath.Join(s.dir(d), s.base()+".kb")
+	}
+	fs := host.NewFileService(path)
 	hs := &host.Session{Program: s.prog, Files: fs, Keys: s.keys,
 		Console: &lineWriter{emit: func(line string) { d.send(conLine{s, line}) }}}
 	go func() {
@@ -696,6 +735,32 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 	return nil
 }
 
+// startUtility closes the idle link and opens a fresh one for a utility program.
+func (d *Deck) startUtility(s *session) {
+	ctx, cancel := context.WithCancel(d.ctx)
+	s.ctx, s.cancel = ctx, cancel
+	s.keys = make(chan []byte, 1)
+	s.deadline = time.Now().Add(d.cfg.StartTimeout)
+	d.sess = s
+	d.st.Piece, d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, nil, 0
+	d.st.PositionMs, d.st.DurationMs, d.st.RecordingTitle = 0, 0, ""
+	d.st.Program = s.prog.Banner
+	d.st.Message = ""
+	d.release(d.conn)
+	d.setConn(nil)
+	d.setState(Working)
+	d.connect(ctx, s)
+}
+
+// finishUtility tells whoever waits for a utility program how it ended.
+func (d *Deck) finishUtility(s *session, err error) {
+	if s.kind != "utility" || s.done == nil {
+		return
+	}
+	s.done <- UtilityResult{Console: s.lines, Err: err}
+	s.done = nil
+}
+
 // abort ends the session at once by dropping the link.
 func (d *Deck) abort() {
 	if s := d.sess; s != nil {
@@ -714,6 +779,16 @@ func (d *Deck) sessDone(m sessDone) {
 	d.setConn(nil)
 	ok := errors.Is(m.err, host.ErrQuit)
 	failed := !ok && !s.aborted
+	if s.kind == "utility" {
+		var err error
+		switch {
+		case s.aborted:
+			err = errors.New("the program did not finish")
+		case !ok:
+			err = m.err
+		}
+		d.finishUtility(s, err)
+	}
 	if s.kind == "record" {
 		d.finishRecording(s, ok)
 	}
@@ -802,6 +877,12 @@ func (d *Deck) addConsole(line string) {
 }
 
 func (d *Deck) consoleLine(line string) {
+	if s := d.sess; s != nil && s.kind == "utility" {
+		s.started = true
+		s.lines = append(s.lines, line)
+		d.addConsole(line)
+		return
+	}
 	d.addConsole(line)
 	s := d.sess
 	ev, n := parseLine(line)
@@ -955,6 +1036,8 @@ func (d *Deck) command(c command) {
 	switch c.op {
 	case "play":
 		switch {
+		case d.sess != nil && d.sess.kind == "utility":
+			reply(fmt.Errorf("%w: the piano is busy with %s", ErrState, d.sess.prog.Banner))
 		case d.sess != nil && d.sess.kind == "record":
 			reply(fmt.Errorf("%w: a recording is in progress", ErrState))
 		case d.sess != nil:
@@ -1074,6 +1157,16 @@ func (d *Deck) command(c command) {
 		d.key([]byte{0x0D})
 		d.setState(Saving)
 		reply(nil)
+	case "utility":
+		switch {
+		case d.sess != nil:
+			reply(fmt.Errorf("%w: the piano is busy (%s)", ErrState, st))
+		case st != Idle:
+			reply(ErrOffline)
+		default:
+			d.startUtility(c.util)
+			reply(nil)
+		}
 	case "discard":
 		if d.sess == nil || d.sess.kind != "record" || st == Saving {
 			reply(fmt.Errorf("%w: %s", ErrState, st))
@@ -1149,6 +1242,10 @@ func (d *Deck) tick() {
 		} else {
 			d.resolve("level", fmt.Errorf("%w (level)", ErrNoConfirm))
 		}
+	}
+	if s := d.sess; s != nil && s.kind == "utility" && !s.aborted && now.After(s.limit) {
+		d.notice("error", "The piano did not finish %s", s.prog.Banner)
+		d.abort()
 	}
 	if s := d.sess; s != nil && !s.started && now.After(s.deadline) {
 		s.deadline = now.Add(time.Hour)

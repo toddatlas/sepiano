@@ -3,6 +3,7 @@ package deck
 import (
 	"context"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -444,5 +445,41 @@ func TestTracksFollowThePosition(t *testing.T) {
 	f.d.Stop(f.ctx())
 	if st := f.wait(Idle, 5*time.Second); st.Collection != nil || len(st.Tracks) != 0 {
 		t.Fatalf("after stop: %+v", st)
+	}
+}
+
+// TestUtility runs the simulated table retriever to its end, refuses play
+// meanwhile, and returns to idle.
+func TestUtility(t *testing.T) {
+	f := newFixture(t, nil)
+	path := filepath.Join(f.dir, "table.lut")
+	done := make(chan UtilityResult, 1)
+	go func() {
+		done <- f.d.RunUtility(context.Background(), sim.RetrieverProgram(), path, 20*time.Second)
+	}()
+	f.wait(Working, 5*time.Second)
+	err := f.d.Play(context.Background(), Job{Piece: PieceRef{ID: "x", Title: "x"}, Dir: f.dir, Name: "x"})
+	if !errors.Is(err, ErrState) {
+		t.Errorf("play during maintenance: %v, want ErrState", err)
+	}
+	r := <-done
+	if r.Err != nil {
+		t.Fatalf("utility: %v (console %q)", r.Err, r.Console)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(f.inst.EEPROM) {
+		t.Errorf("retrieved %d bytes, not the instrument's table", len(got))
+	}
+	if !strings.Contains(strings.Join(r.Console, "\n"), "RETRIEVAL COMPLETE") {
+		t.Errorf("console %q", r.Console)
+	}
+	f.wait(Idle, 5*time.Second)
+	// A second run works too.
+	r = f.d.RunUtility(context.Background(), sim.RetrieverProgram(), path, 20*time.Second)
+	if r.Err != nil {
+		t.Fatalf("second run: %v", r.Err)
 	}
 }

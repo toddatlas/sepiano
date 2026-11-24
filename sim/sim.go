@@ -29,6 +29,7 @@ import (
 
 	"sepiano/host"
 	"sepiano/link"
+	"sepiano/lut"
 	"sepiano/se"
 )
 
@@ -48,6 +49,9 @@ type Instrument struct {
 	// InterlockFailure makes the recorder fail as the real one does when the
 	// keyboard interlock is not ready.
 	InterlockFailure bool
+	// EEPROM is the instrument's lookup table, which a retriever program
+	// (getlut) reads. New fills it with lut.Example().
+	EEPROM []byte
 	// Log, if set, receives one line per notable event.
 	Log func(format string, args ...any)
 
@@ -61,7 +65,7 @@ type Instrument struct {
 
 // New returns a powered-on instrument running in real time at 57600 baud.
 func New() *Instrument {
-	return &Instrument{Speed: 1, Baud: 57600, MinLevel: -16, on: true}
+	return &Instrument{Speed: 1, Baud: 57600, MinLevel: -16, on: true, EEPROM: lut.Example()}
 }
 
 func (in *Instrument) logf(format string, args ...any) {
@@ -225,7 +229,9 @@ func (in *Instrument) serve(ctx context.Context, port link.Port, gen int) {
 		}
 		in.logf("sim: running %q", p.Banner)
 		c.clk.set(0, false)
-		if strings.Contains(p.Banner, "RECORDER") {
+		if strings.Contains(p.Banner, "LOOKUP TABLE RETRIEVER") {
+			err = c.retriever(p.Banner)
+		} else if strings.Contains(p.Banner, "RECORDER") {
 			err = c.recorder(p.Banner)
 		} else {
 			err = c.player(p.Banner)
@@ -596,4 +602,44 @@ func PlayerProgram() *host.Program {
 // RecorderProgram is a placeholder for record.exe's program.
 func RecorderProgram() *host.Program {
 	return placeholder("SIMULATED SE/PC PERFORMANCE RECORDER, V30.44", 4330)
+}
+
+// retriever imitates the LOOKUP TABLE RETRIEVER (getlut.exe): it sends the
+// whole EEPROM to the host's file service as name.$$$ in 128-byte blocks,
+// then has it renamed to name.ext, with the original's console text.
+func (c *conn) retriever(banner string) error {
+	c.in.mu.Lock()
+	img := append([]byte(nil), c.in.EEPROM...)
+	c.in.mu.Unlock()
+	if err := c.print("\r\n" + banner + "\r\n"); err != nil {
+		return err
+	}
+	if _, err := c.call([]byte{host.ReqCreateFile}, 1); err != nil {
+		return err
+	}
+	if err := c.print("\r\nBEGIN RETRIEVAL\r\n"); err != nil {
+		return err
+	}
+	for i := 0; i < len(img); i += 128 {
+		n := min(128, len(img)-i)
+		req := append([]byte{host.ReqWriteFile, byte(n), byte(n >> 8)}, img[i:i+n]...)
+		if _, err := c.call(req, 3); err != nil {
+			return err
+		}
+	}
+	if err := c.print("RETRIEVAL COMPLETE\r\n"); err != nil {
+		return err
+	}
+	if _, err := c.call([]byte{host.ReqCloseFile}, 1); err != nil {
+		return err
+	}
+	if _, err := c.call([]byte{host.ReqCommitFile}, 1); err != nil {
+		return err
+	}
+	return c.end("")
+}
+
+// RetrieverProgram is a placeholder for getlut.exe's program.
+func RetrieverProgram() *host.Program {
+	return placeholder("SIMULATED SE/PC LOOKUP TABLE RETRIEVER, V50.44", 987)
 }

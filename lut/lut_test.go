@@ -157,3 +157,37 @@ func TestTrimVelocity(t *testing.T) {
 		}
 	}
 }
+
+// TestExample checks the made-up table has the real 88-key layout.
+func TestExample(t *testing.T) {
+	b := Example()
+	if len(b) != Size {
+		t.Fatalf("%d bytes", len(b))
+	}
+	tb, err := Parse(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := [14]int{0x34, 0x44, 0x2AC, 0x514, 0x516, 0x56E, 0x574, 0x624, 0x67C, 0x67D, 0x6D7, 0x6E0, 0x73B, 0x748}
+	if tb.Sections != want || tb.Length != 0x751 || tb.Keys() != 88 || tb.TrimAt != 0x67E {
+		t.Errorf("layout %X length %X keys %d trims at %X", tb.Sections, tb.Length, tb.Keys(), tb.TrimAt)
+	}
+	s := tb.Settings()
+	if s.FirstNote != 21 || s.LastNote != 108 || s.FirstCalibration || s.DiscardSilent {
+		t.Errorf("settings %+v", s)
+	}
+	on, trims := tb.Trims()
+	if !on || trims[41] != 4 {
+		t.Errorf("trims on=%v D4=%d", on, trims[41])
+	}
+	for k := 0; k < 88; k++ {
+		if _, _, err := tb.Lookup(21+k, 100); err != nil {
+			t.Fatalf("Lookup key %d: %v", k, err)
+		}
+	}
+	for _, x := range b[tb.Length:] {
+		if x != 0xFF {
+			t.Fatal("the tail is not FF")
+		}
+	}
+}

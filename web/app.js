@@ -80,12 +80,17 @@ const ICONS = {
   },
   dot: { fill: ['M12 5a7 7 0 1 0 0 14 7 7 0 0 0 0-14z'] },
   status: { stroke: ['M3 12h4l3-7 4 14 3-7h4'] },
+  piano: {
+    stroke: ['M3.5 5h17v14h-17z', 'M7.75 13v6M12 13v6M16.25 13v6'],
+    fill: ['M6.6 5h2.3v8H6.6zM10.85 5h2.3v8h-2.3zM15.1 5h2.3v8h-2.3z'],
+  },
   upload: { stroke: ['M12 15V4M7.5 8.5 12 4l4.5 4.5M5 20h14'] },
   download: { stroke: ['M12 4v11M7.5 10.5 12 15l4.5-4.5M5 20h14'] },
   edit: { stroke: ['M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16v4z'] },
   trash: { stroke: ['M4 7h16M9 7V4.5h6V7M6.5 7l1 13h9l1-13M10 11v5.5M14 11v5.5'] },
   search: { stroke: ['M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM20 20l-4-4'] },
   back: { stroke: ['M15 5l-7 7 7 7'] },
+  forward: { stroke: ['M9 5l7 7-7 7'] },
   close: { stroke: ['M6 6l12 12M18 6 6 18'] },
   check: { stroke: ['M5 12.5l4.5 4.5L19 7'] },
   refresh: { stroke: ['M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4'] },
@@ -431,6 +436,7 @@ const STATE_WORDS = {
   armed: 'Ready to record',
   recording: 'Recording',
   saving: 'Saving…',
+  maintenance: 'Reading the piano’s settings…',
   fault: 'Something went wrong',
 };
 function stateWords(s) { return s ? (STATE_WORDS[s.state] || s.state) : 'Connecting…'; }
@@ -807,6 +813,9 @@ const ROUTES = [
   { name: 'piece', re: /^\/piece\/([^/]+)$/, tab: 'library', title: 'Piece', back: true, screen: pieceScreen },
   { name: 'upload', re: /^\/upload$/, tab: 'library', title: 'Upload', back: true, screen: uploadScreen },
   { name: 'record', re: /^\/record$/, tab: 'record', title: 'Record', screen: recordScreen },
+  { name: 'piano', re: /^\/piano$/, tab: 'piano', title: 'Piano', screen: pianoScreen },
+  { name: 'piano-key', re: /^\/piano\/key\/(\d+)$/, tab: 'piano', title: 'Key', back: { href: '#/piano', label: 'Piano' }, screen: pianoKeyScreen },
+  { name: 'piano-backups', re: /^\/piano\/backups$/, tab: 'piano', title: 'Backups', back: { href: '#/piano', label: 'Piano' }, screen: pianoBackupsScreen },
   { name: 'status', re: /^\/status$/, tab: 'status', title: 'Status', screen: statusScreen },
 ];
 
@@ -2441,6 +2450,358 @@ function recordScreen(root) {
   };
 }
 
+// ======================================================================= Piano
+
+// The piano's stored settings (its EEPROM table), read only for now: see
+// docs/SETTINGS-EDITOR.md. A backup is taken with getlut.exe on the piano.
+
+const pianoCache = { view: null, at: 0 };
+
+async function loadPianoView(force) {
+  if (!force && pianoCache.view && Date.now() - pianoCache.at < 60000) return pianoCache.view;
+  const v = await api('GET', '/piano/table');
+  pianoCache.view = v;
+  pianoCache.at = Date.now();
+  return v;
+}
+
+const NOTE_NAMES = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+function noteName(n) { return NOTE_NAMES[n % 12] + (Math.floor(n / 12) - 1); }
+function isBlackKey(n) { return [1, 3, 6, 8, 10].includes(n % 12); }
+function keyHref(note) { return '#/piano/key/' + note; }
+function signedNum(n) { return n > 0 ? `+${n}` : n < 0 ? `${MINUS}${-n}` : '0'; }
+function signedPct(x) { return `${x > 0 ? '+' : x < 0 ? MINUS : ''}${Math.abs(x).toFixed(1)}%`; }
+
+const BACKUP_REASONS = { manual: 'by hand', imported: 'imported', 'before-write': 'before a write', 'after-write': 'after a write' };
+function reasonText(r) { return BACKUP_REASONS[r] || r || ''; }
+
+function curveAt(view, k, velocity, i) {
+  const j = view.velocities.indexOf(velocity);
+  return j >= 0 && k.curve[j] && k.curve[j][i] >= 0 ? k.curve[j][i] : null;
+}
+
+// The measures the keyboard strip can show.
+const PIANO_METRICS = [
+  { id: 'strike', label: 'Strike', hint: 'Strike level at medium loudness (velocity 100): smaller is a harder strike.', value: (v, k) => curveAt(v, k, 100, 1) },
+  { id: 'lead', label: 'Lead', hint: 'Lead time at medium loudness: ticks from the strike command to the hammer.', value: (v, k) => curveAt(v, k, 100, 0) },
+  { id: 'release', label: 'Release', hint: 'Free release time: ticks for the key to come back up when let go.', value: (v, k) => k.free_release },
+  { id: 'silent', label: 'Silent', hint: 'Silent press level: the gentle press for notes too soft to sound.', value: (v, k) => k.silent_level },
+  { id: 'trim', label: 'Trim', hint: 'Velocity trim: positive is louder.', value: (v, k) => k.trim, signed: true },
+];
+
+function pianoNote(n) {
+  const cls = n.level === 'danger' ? 'message message-error' : n.level === 'warn' ? 'message message-warn' : 'message message-info';
+  return h('div', { class: cls }, h('p', null, n.text));
+}
+
+function changeCount(d) {
+  const n = d.changes.length + (d.other ? 1 : 0);
+  return n === 1 ? '1 change' : `${n} changes`;
+}
+
+// A button that reads the piano's settings now. after(reply) runs on success.
+function backupButton(after, primary = true) {
+  const label = 'Back up now';
+  const btn = h('button', { class: primary ? 'btn btn-primary' : 'btn', type: 'button', onclick: run }, icon('download'), label);
+  async function run() {
+    btn.disabled = true;
+    fill(btn, 'Reading the piano’s settings…');
+    try {
+      const r = await api('POST', '/piano/backups');
+      pianoCache.view = null;
+      let text = 'Backed up the piano’s settings.';
+      if (r.problem) text = `Backed up, but: ${r.problem}`;
+      else if (r.same_as_previous) text = 'Backed up: nothing has changed since the last backup.';
+      else if (r.changes) text = `Backed up: ${changeCount(r.changes)} since the last backup.`;
+      toast(text, r.problem ? 'error' : 'info');
+      if (after) after(r);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+      fill(btn, icon('download'), label);
+    }
+  }
+  return btn;
+}
+
+const BACKUP_HINT = 'A backup runs getlut.exe on the piano. It only reads: nothing on the piano moves or changes. It takes about ten seconds, and the piano can’t play meanwhile.';
+
+function pianoScreen(root) {
+  let alive = true;
+  let view = null;
+  let metric = localStorage.getItem('pianoMetric') || 'strike';
+  root.append(h('h1', { class: 'screen-title' }, 'Piano'), h('p', { class: 'muted center' }, 'Loading…'));
+  load(false);
+
+  async function load(force) {
+    try {
+      const v = await loadPianoView(force);
+      if (!alive) return;
+      view = v;
+      render();
+    } catch (err) {
+      if (!alive) return;
+      if (err.status === 404) renderEmpty();
+      else fill(root, h('h1', { class: 'screen-title' }, 'Piano'), h('div', { class: 'message message-error' }, h('p', null, err.message)));
+    }
+  }
+
+  function renderEmpty() {
+    fill(root,
+      h('h1', { class: 'screen-title' }, 'Piano'),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'The piano’s settings')),
+        h('p', null, 'The piano keeps its calibration and settings in its own memory. Back them up to see them here.'),
+        h('div', { class: 'btn-row' }, backupButton(() => load(true))),
+        h('p', { class: 'hint' }, BACKUP_HINT, ' Install getlut.exe on the Status page first.')));
+  }
+
+  function render() {
+    const v = view;
+    const s = v.settings;
+    const range = s.first_note === s.last_note ? `${noteName(s.first_note)} only` : `${noteName(s.first_note)} to ${noteName(s.last_note)}`;
+    fill(root,
+      h('h1', { class: 'screen-title' }, 'Piano'),
+      h('p', { class: 'piano-sub' }, `${v.name} · serial ${s.serial} · ${noteName(v.bottom)} to ${noteName(v.top)}, ${v.keys.length} keys`),
+      !v.version_ok && pianoNote({ level: 'danger', text: `Table version ${v.version}: not the 30.17 play.exe expects.` }),
+      v.notes.length > 0 && h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Notes')),
+        h('div', { class: 'piano-notes' }, v.notes.map(pianoNote))),
+      keysCard(),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Switches')),
+        metaList([
+          ['Silent notes', s.discard_silent ? 'Left out' : 'Played as silent key presses'],
+          ['Calibration range', range],
+          ['First calibration', s.first_calibration ? 'Not done yet' : 'Done'],
+          ['Velocity trims', v.trims_on ? 'On' : 'Off'],
+          ['Hold level', String(v.hold_level)],
+          ['German note names', s.german_names ? 'On' : 'Off'],
+        ])),
+      playerCard(),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backups')),
+        metaList([
+          ['Shown here', `${fmtDateTime(v.backup.time)}, ${reasonText(v.backup.reason)}`],
+          ['Table', `version ${v.version}, ${v.length} bytes`],
+        ]),
+        h('div', { class: 'btn-row' }, backupButton(() => load(true)), h('a', { class: 'btn', href: '#/piano/backups' }, 'All backups')),
+        h('p', { class: 'hint' }, BACKUP_HINT)),
+      h('p', { class: 'hint center' }, 'Read only for now. Trims come next, tried by ear before anything is written to the piano.'));
+  }
+
+  function keysCard() {
+    const v = view;
+    const m = PIANO_METRICS.find((x) => x.id === metric) || PIANO_METRICS[0];
+    const vals = v.keys.map((k) => m.value(v, k));
+    const nums = vals.filter((x) => Number.isFinite(x));
+    let lo = Math.min(...nums);
+    let hi = Math.max(...nums);
+    if (m.signed) { hi = Math.max(Math.abs(lo), Math.abs(hi), 1); lo = 0; }
+    const span = hi - lo || 1;
+    const strip = h('div', { class: 'kb-strip', role: 'list', 'aria-label': m.hint });
+    v.keys.forEach((k, i) => {
+      const x = vals[i];
+      let pct = 0;
+      if (Number.isFinite(x)) pct = m.signed ? (x === 0 ? 0 : 10 + 90 * Math.abs(x) / span) : 10 + 90 * (x - lo) / span;
+      const cls = ['kb-key', isBlackKey(k.note) && 'kb-black', (k.flags || []).length > 0 && 'kb-flag', m.signed && x < 0 && 'kb-neg'].filter(Boolean).join(' ');
+      const text = `${k.name}: ${Number.isFinite(x) ? (m.signed ? signedNum(x) : x) : 'n/a'}`;
+      strip.append(h('a', { class: cls, href: keyHref(k.note), role: 'listitem', title: text, 'aria-label': text },
+        h('span', { class: 'kb-bar', style: `height:${pct.toFixed(1)}%` })));
+    });
+    const seg = h('div', { class: 'segmented piano-metrics', role: 'group', 'aria-label': 'Measure shown' },
+      PIANO_METRICS.map((x) => h('button', {
+        type: 'button', 'aria-pressed': x.id === m.id ? 'true' : 'false',
+        onclick: () => { metric = x.id; localStorage.setItem('pianoMetric', metric); render(); },
+      }, x.label)));
+    const range = m.signed ? '' : ` Range ${lo} to ${hi}.`;
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Keys')),
+      seg, strip,
+      h('div', { class: 'kb-axis' }, h('span', null, noteName(v.bottom)), h('span', null, 'C4'), h('span', null, noteName(v.top))),
+      h('p', { class: 'hint' }, `${m.hint}${range} Tap a key for its details; keys with a note are marked.`));
+  }
+
+  function playerCard() {
+    const rows = view.player.map((c) => h('div', { class: 'player-row' },
+      h('span', { class: 'player-label' }, c.label),
+      h('span', { class: 'player-value' }, String(c.value),
+        c.factory != null && c.factory !== c.value && h('span', { class: 'pill pill-warn piano-factory' }, `factory ${c.factory}`)),
+      c.explain && h('span', { class: 'player-explain' }, c.explain)));
+    return h('section', { class: 'card' },
+      h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'How notes are played')),
+      h('div', { class: 'player-list' }, rows),
+      h('p', { class: 'hint' }, 'The player’s settings, kept in the piano. Times are in ticks of its 800 Hz clock (1.25 ms).'));
+  }
+
+  return { unmount() { alive = false; } };
+}
+
+function svgEl(tag, attrs, ...children) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) el.setAttribute(k, String(v));
+  for (const c of children.flat(Infinity)) if (c != null && c !== false) el.append(c);
+  return el;
+}
+
+// A small chart of a key's strike level and lead time against velocity.
+function strikeChart(v, k) {
+  const W = 330, H = 170, L = 30, R = 8, T = 10, B = 26;
+  const n = v.velocities.length;
+  const x = (i) => L + (W - L - R) * i / (n - 1);
+  const y = (val) => T + (H - T - B) * (1 - val / 255);
+  const path = (idx) => k.curve.map((p, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)} ${y(Math.max(p[idx], 0)).toFixed(1)}`).join(' ');
+  const grid = [0, 128, 255].map((g) => [
+    svgEl('line', { x1: L, x2: W - R, y1: y(g), y2: y(g), class: 'chart-grid' }),
+    svgEl('text', { x: L - 6, y: y(g) + 4, 'text-anchor': 'end', class: 'chart-label' }, String(g)),
+  ]);
+  const ticks = [0, v.velocities.indexOf(100), v.velocities.indexOf(400), n - 1].filter((i) => i >= 0).map((i) =>
+    svgEl('text', { x: x(i), y: H - 8, 'text-anchor': 'middle', class: 'chart-label' }, String(v.velocities[i])));
+  return svgEl('svg', { viewBox: `0 0 ${W} ${H}`, class: 'piano-chart', role: 'img',
+    'aria-label': `${k.name}: strike level and lead time from velocity ${v.velocities[0]} (loud) to ${v.velocities[n - 1]} (soft)` },
+  grid, ticks,
+  svgEl('path', { d: path(1), class: 'chart-level' }),
+  svgEl('path', { d: path(0), class: 'chart-lead' }));
+}
+
+function pianoKeyScreen(root, [noteStr]) {
+  let alive = true;
+  const note = Number(noteStr);
+  root.append(h('p', { class: 'muted center' }, 'Loading…'));
+  loadPianoView(false).then((v) => { if (alive) render(v); }, (err) => {
+    if (!alive) return;
+    fill(root, h('div', { class: 'message message-error' }, h('p', null, err.status === 404 ? 'There is no backup of the piano’s settings yet.' : err.message)));
+  });
+
+  function render(v) {
+    const i = v.keys.findIndex((k) => k.note === note);
+    if (i < 0) {
+      fill(root, h('p', { class: 'muted center' }, 'This piano has no such key.'));
+      return;
+    }
+    const k = v.keys[i];
+    document.title = `${k.name} · Piano`;
+    const prev = v.keys[i - 1];
+    const next = v.keys[i + 1];
+    const notes = v.notes.filter((n) => (n.keys || []).includes(k.name));
+    const effect = k.trim !== 0 && h('table', { class: 'piano-table' },
+      h('thead', null, h('tr', null, h('th', null, 'Played as'), h('th', null, 'Velocity'), h('th', null, 'Becomes'), h('th', null, 'Hammer speed'))),
+      h('tbody', null, (k.trim_effect || []).map((e) => h('tr', null,
+        h('td', null, e.label), h('td', null, String(e.velocity)), h('td', null, String(e.becomes)), h('td', null, signedPct(e.speed_pct))))));
+    fill(root,
+      h('header', { class: 'key-head' },
+        prev ? h('a', { class: 'btn btn-small', href: keyHref(prev.note), 'aria-label': `Previous key, ${prev.name}` }, icon('back'), prev.name) : h('span'),
+        h('h1', { class: 'key-title' }, k.name, h('span', { class: 'key-midi' }, `MIDI ${k.note}`)),
+        next ? h('a', { class: 'btn btn-small', href: keyHref(next.note), 'aria-label': `Next key, ${next.name}` }, next.name, icon('forward')) : h('span')),
+      notes.map(pianoNote),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Loudness trim')),
+        k.trim === 0
+          ? h('p', null, 'No trim: this key plays as calibrated.')
+          : h('p', null, `Trim ${signedNum(k.trim)}: ${k.trim > 0 ? 'louder' : 'softer'}${v.trims_on ? '' : ' (trims are switched off, so it does nothing)'}.`),
+        effect,
+        h('p', { class: 'hint' }, 'A trim changes the hammer’s speed, more on soft notes than on loud ones. Changing trims comes next, tried by ear first.')),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Strike')),
+        strikeChart(v, k),
+        h('p', { class: 'chart-legend' }, h('span', { class: 'legend-level' }, 'Strike level'), h('span', { class: 'legend-lead' }, 'Lead time (ticks)')),
+        h('table', { class: 'piano-table' },
+          h('thead', null, h('tr', null, h('th', null, 'Velocity'), h('th', null, 'Lead time'), h('th', null, 'Strike level'))),
+          h('tbody', null, v.breakpoints.map((bp, r) => h('tr', null,
+            h('td', null, String(bp)), h('td', null, String(k.lead[r])), h('td', { class: k.level[r] === 255 ? 'at-limit' : null }, String(k.level[r])))))),
+        h('p', { class: 'hint' }, 'Measured by the calibrator at each velocity: loud on the left, soft on the right. A smaller strike level is a harder strike; 255 is the gentlest the table can hold.')),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Release and silent press')),
+        metaList([
+          ['Free release time', `${k.free_release} ticks`],
+          ['60-tick release level', String(k.release[0])],
+          ['120-tick release level', String(k.release[1])],
+          ['Silent press level', String(k.silent_level)],
+        ]),
+        h('p', { class: 'hint' }, 'A bigger level is less force. A tick is 1.25 ms.')),
+      h('p', { class: 'hint center' }, `From the backup of ${fmtDateTime(v.backup.time)}. Read only for now.`));
+  }
+
+  return { unmount() { alive = false; } };
+}
+
+function pianoBackupsScreen(root) {
+  let alive = true;
+  let list = [];
+  const listEl = h('ul', { class: 'list' });
+  const fromSel = h('select', { class: 'input', id: 'cmp-from' });
+  const toSel = h('select', { class: 'input', id: 'cmp-to' });
+  const result = h('div', { class: 'piano-compare' });
+  const compareCard = h('section', { class: 'card', hidden: true },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Compare')),
+    h('div', { class: 'field' }, h('label', { for: 'cmp-from' }, 'From'), h('div', { class: 'select-wrap' }, fromSel)),
+    h('div', { class: 'field' }, h('label', { for: 'cmp-to' }, 'To'), h('div', { class: 'select-wrap' }, toSel)),
+    h('div', { class: 'btn-row' }, h('button', { class: 'btn', type: 'button', onclick: compare }, 'Compare')),
+    result);
+  root.append(h('h1', { class: 'screen-title' }, 'Backups'),
+    h('section', { class: 'card' },
+      h('p', null, 'Every backup of the piano’s settings is kept.'),
+      h('div', { class: 'btn-row' }, backupButton(() => load(true))),
+      h('p', { class: 'hint' }, BACKUP_HINT)),
+    compareCard,
+    h('section', { class: 'card' }, h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'All backups')), listEl));
+  load(false);
+
+  async function load(compareNewest) {
+    try {
+      const r = await api('GET', '/piano/backups');
+      if (!alive) return;
+      list = r.backups || [];
+      render();
+      if (compareNewest && list.length > 1) compare();
+    } catch (err) {
+      if (alive) fill(listEl, h('li', { class: 'message message-error' }, h('p', null, err.message)));
+    }
+  }
+
+  function label(b) { return `${fmtDateTime(b.time)} (${reasonText(b.reason)})`; }
+
+  function render() {
+    compareCard.hidden = list.length < 2;
+    fill(fromSel, list.map((b, i) => h('option', { value: b.id, selected: i === 1 }, label(b))));
+    fill(toSel, list.map((b, i) => h('option', { value: b.id, selected: i === 0 }, label(b))));
+    if (!list.length) {
+      fill(listEl, h('li', { class: 'muted' }, 'No backups yet.'));
+      return;
+    }
+    fill(listEl, list.map((b) => h('li', { class: 'row' },
+      h('div', { class: 'row-main' },
+        h('div', { class: 'row-title' }, fmtDateTime(b.time)),
+        h('div', { class: 'row-sub' }, [reasonText(b.reason), b.model, b.valid ? `version ${b.version}` : b.problem].filter(Boolean).join(' · ')),
+        h('div', { class: 'row-file' }, b.id)),
+      h('a', { class: 'btn btn-small', href: `${API}/piano/backups/${encodeURIComponent(b.id)}`, download: '', 'aria-label': `Download ${b.id}` }, icon('download'), '.lut'))));
+  }
+
+  async function compare() {
+    fill(result, h('p', { class: 'muted' }, 'Comparing…'));
+    try {
+      const r = await api('GET', `/piano/compare?from=${encodeURIComponent(fromSel.value)}&to=${encodeURIComponent(toSel.value)}`);
+      if (!alive) return;
+      const d = r.diff;
+      if (d.bytes === 0) {
+        fill(result, h('p', null, 'No differences: the two tables are identical.'));
+        return;
+      }
+      fill(result,
+        h('p', null, `${changeCount(d)} (${d.bytes} ${d.bytes === 1 ? 'byte' : 'bytes'} differ).`),
+        d.changes.length > 0 && h('table', { class: 'piano-table' },
+          h('thead', null, h('tr', null, h('th', null, 'Key'), h('th', null, 'What'), h('th', null, 'From'), h('th', null, 'To'))),
+          h('tbody', null, d.changes.map((c) => h('tr', null, h('td', null, c.key || ''), h('td', null, c.what), h('td', null, c.from), h('td', null, c.to))))),
+        d.other > 0 && h('p', { class: 'hint' }, `${d.other} other ${d.other === 1 ? 'byte differs' : 'bytes differ'} in parts not yet named.`));
+    } catch (err) {
+      if (alive) fill(result, h('div', { class: 'message message-error' }, h('p', null, err.message)));
+    }
+  }
+
+  return { unmount() { alive = false; } };
+}
+
 // ====================================================================== Status
 
 function statusScreen(root) {
@@ -2467,7 +2828,7 @@ function statusScreen(root) {
   const progBody = h('div');
   const progCard = h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Programs')),
-    h('p', { class: 'muted small' }, 'Stahnke’s play.exe and record.exe run on the piano. They are not part of this software: install your own copies.'),
+    h('p', { class: 'muted small' }, 'Stahnke’s play.exe, record.exe and getlut.exe (which reads the piano’s settings) run on the piano. They are not part of this software: install your own copies.'),
     progBody);
 
   const consoleEl = h('pre', { class: 'console', tabindex: '0', 'aria-label': 'Piano console output' });
@@ -2583,7 +2944,7 @@ function statusScreen(root) {
     const key = JSON.stringify([!!inst, progs, [...installing]]);
     if (key === progKey) return;
     progKey = key;
-    fill(progBody, programRow('play', progs.play), programRow('record', progs.record));
+    fill(progBody, programRow('play', progs.play), programRow('record', progs.record), programRow('getlut', progs.getlut));
   }
 
   function programRow(name, prog) {
