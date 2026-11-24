@@ -95,6 +95,7 @@ export function editorScreen(root, [id], ui) {
   let playhead = null;
   let medianVel = 200;
   let saving = false;
+  let corr = null; // the recording corrections (GET /corrections)
   const view = { t0: 0, ppt: 0.05, rowH: 10, y: 0 };
   let cssW = 0;
   let cssH = 0;
@@ -143,6 +144,7 @@ export function editorScreen(root, [id], ui) {
       doc = {
         notes: r.notes.map(([key, on, off, vel]) => ({ key, on, off, vel })),
         damper: r.damper, soft: r.soft, dp: r.damper_period, sp: r.soft_period, end: r.end, kept: r.kept,
+        corrected: !!piece.corrected, // the recording corrections are in these notes
       };
       orig = { damper: doc.damper, soft: doc.soft };
     }
@@ -159,6 +161,9 @@ export function editorScreen(root, [id], ui) {
     renderBar();
     renderInspector();
     sizeCanvas();
+    if (recordedHere()) {
+      api('GET', '/corrections').then((c) => { if (alive) { corr = c; renderBar(); } }, () => {});
+    }
     if (!draft || draft.sha !== piece.kb_sha256) initialView();
     if (handoff && handoff.id === id) {
       Object.assign(view, handoff.view);
@@ -206,6 +211,9 @@ export function editorScreen(root, [id], ui) {
 
   function dirty() { return ver !== savedVer; }
   function isCopy() { return piece.origin === 'edited'; }
+  // A recording made on this piano, or a copy of one: the corrections apply.
+  function recordedHere() { return piece.origin === 'recorded' || !!piece.from_recording; }
+  function corrEmpty() { return !corr || (!corr.fill_zero && !corr.keys.some((k) => k.speed || k.release_ms)); }
 
   function renderHead() {
     fill(head,
@@ -214,7 +222,11 @@ export function editorScreen(root, [id], ui) {
         isCopy() ? 'Edited copy: Save writes over this copy.' : 'Original: saving makes an edited copy; this piece stays as it is.',
         ` ${doc.notes.length.toLocaleString()} notes · ${fmtClock(doc.end, 0)}`,
         doc.kept ? ` · ${doc.kept} marks outside the keyboard kept as they are` : '',
-        dirty() && h('span', { class: 'ed-dirty' }, ' · Unsaved changes')));
+        dirty() && h('span', { class: 'ed-dirty' }, ' · Unsaved changes')),
+      recordedHere() && h('p', { class: 'ed-sub ed-rec' }, 'Recorded on this piano. ',
+        doc.corrected ? 'The recording corrections are in these notes.'
+          : corr && corr.active ? h('span', null, 'It plays with the ', h('a', { href: '#/record/corrections' }, 'recording corrections'), ` (${corr.summary}); “Apply corrections” puts them into the notes.`)
+            : h('span', null, 'No ', h('a', { href: '#/record/corrections' }, 'recording corrections'), ' apply now.')));
   }
 
   function button(label, onclick, opts = {}) {
@@ -232,6 +244,7 @@ export function editorScreen(root, [id], ui) {
     tb.stop = button('Stop', stopPlay, { icon: 'stop' });
     tb.save = button('Save', () => save(false), { title: 'Ctrl+S' });
     tb.copy = button('Save as new copy', () => save(true));
+    tb.apply = button('Apply corrections', applyCorrections, { title: 'Put the recording corrections into the notes (undoable)' });
     fill(bar,
       h('div', { class: 'ed-group' }, tb.undo, tb.redo),
       h('div', { class: 'ed-group' },
@@ -239,6 +252,7 @@ export function editorScreen(root, [id], ui) {
         button('+', () => zoomAt(1.6, GUTTER + (cssW - GUTTER) / 2), { title: 'Zoom in (+)', aria: 'Zoom in' }),
         button('Whole piece', fitAll, { title: 'Show the whole piece (0)' })),
       h('div', { class: 'ed-group' }, tb.play, tb.stop),
+      h('div', { class: 'ed-group' }, tb.apply),
       h('div', { class: 'ed-group ed-save' }, tb.save, tb.copy));
   }
 
@@ -254,7 +268,8 @@ export function editorScreen(root, [id], ui) {
     tb.save.classList.toggle('btn-primary', dirty() || !isCopy());
     tb.copy.hidden = !isCopy();
     tb.copy.disabled = saving;
-    const key = `${piece.title}|${piece.origin}|${dirty()}|${doc.notes.length}|${doc.end}`;
+    tb.apply.hidden = !recordedHere() || doc.corrected || corrEmpty();
+    const key = `${piece.title}|${piece.origin}|${dirty()}|${doc.notes.length}|${doc.end}|${doc.corrected}|${corr ? corr.summary + corr.on : ''}`;
     if (key !== headKey) { headKey = key; renderHead(); }
   }
 
@@ -333,7 +348,7 @@ export function editorScreen(root, [id], ui) {
     const index = new Map(doc.notes.map((n, i) => [n, i]));
     return {
       notes: doc.notes.map((n) => [n.key, n.on, n.off, n.vel]),
-      damper: doc.damper, soft: doc.soft, end: doc.end, ver,
+      damper: doc.damper, soft: doc.soft, end: doc.end, corrected: doc.corrected, ver,
       sel: [...sel].map((n) => index.get(n)).filter((i) => i !== undefined),
     };
   }
@@ -343,6 +358,7 @@ export function editorScreen(root, [id], ui) {
     doc.damper = s.damper;
     doc.soft = s.soft;
     doc.end = s.end;
+    doc.corrected = s.corrected;
     ver = s.ver;
     sel = new Set(s.sel.map((i) => doc.notes[i]).filter(Boolean));
   }
@@ -447,7 +463,27 @@ export function editorScreen(root, [id], ui) {
       damper: doc.damper !== orig.damper ? doc.damper : null,
       soft: doc.soft !== orig.soft ? doc.soft : null,
       end: doc.end,
+      corrected: !!doc.corrected,
     };
+  }
+
+  // applyCorrections puts the recording corrections into the notes, as
+  // the server applies them when a recording plays (one undoable step).
+  async function applyCorrections() {
+    tb.apply.disabled = true;
+    try {
+      const r = await api('POST', '/corrections/apply', { notes: doc.notes.map((n) => [n.key, n.on, n.off, n.vel]) });
+      begin();
+      doc.notes = r.notes.map(([key, on, off, vel]) => ({ key, on, off, vel }));
+      doc.corrected = true;
+      sel = new Set();
+      changed();
+      toast(`${r.changed} notes corrected (${r.summary}). Undo takes it back.`);
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      tb.apply.disabled = false;
+    }
   }
 
   async function save(asNew) {

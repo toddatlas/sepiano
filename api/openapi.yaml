@@ -563,6 +563,9 @@ paths:
                       window_ms: { type: integer }
                       keys: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
                       outliers: { type: array, items: { $ref: "#/components/schemas/ReleaseStat" } }
+                  recorded_here: { type: boolean, description: "A recording made on this piano, or an edited copy of one" }
+                  corrected: { type: boolean, description: The recording corrections are already in it }
+                  suggestions: { type: array, items: { $ref: "#/components/schemas/Suggestion" } }
         "404": { $ref: "#/components/responses/Error" }
 
   /pieces/{id}/performance:
@@ -669,6 +672,88 @@ paths:
         "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+
+  /corrections:
+    get:
+      summary: The per-key corrections for recordings made on this piano
+      description: |
+        Each key's loudness (`speed`, % hammer speed: positive plays louder)
+        and release (`release_ms`: positive lets go later), and whether
+        presses with no hammer reading (velocity 0) take the loudness of
+        the notes around them. When `on`, a recording made here (and an
+        edited copy of one not yet corrected) plays corrected; the files
+        are never changed. docs/RECORDING-EDITOR.md.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Corrections" }
+    put:
+      summary: Replace the corrections
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/Corrections" }
+      responses:
+        "200":
+          description: Stored
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Corrections" }
+        "400": { $ref: "#/components/responses/Error" }
+
+  /corrections/apply:
+    post:
+      summary: Correct notes sent by the editor, as playback does
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                notes:
+                  type: array
+                  description: "[key, on, off, velocity]"
+                  items: { type: array, items: { type: integer }, minItems: 4, maxItems: 4 }
+      responses:
+        "200":
+          description: The corrected notes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  notes: { type: array, items: { type: array, items: { type: integer } } }
+                  changed: { type: integer }
+                  summary: { type: string }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /pieces/{id}/corrected:
+    post:
+      summary: Save a recording, corrected, as a new edited copy
+      description: |
+        For a recording made on this piano (or an edited copy of one) not
+        corrected yet. The copy is marked `corrected`, so the corrections
+        are not applied again when it plays.
+      parameters:
+        - { name: id, in: path, required: true, schema: { type: string } }
+      responses:
+        "201":
+          description: Saved (or, with `duplicate`, the library already held it)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  piece: { $ref: "#/components/schemas/Piece" }
+                  changed: { type: integer, description: Notes changed }
+                  duplicate: { type: boolean }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
 
   /tools:
     get:
@@ -831,6 +916,7 @@ components:
         recording_title: { type: string, description: Title for the recording in progress }
         program: { type: string, description: Banner of the program running on the piano }
         voiced: { type: boolean, description: The performance playing carries software voicing }
+        corrected: { type: boolean, description: A recording made on this piano playing with the per-key corrections }
         simulated: { type: boolean, description: True when talking to the built-in simulator }
         since: { type: string, format: date-time, description: When the state last changed }
 
@@ -856,13 +942,15 @@ components:
         perf_key: { type: string, description: "Same value for every rendering of one performance; group by it" }
         duration_ms: { type: integer }
         notes: { type: string }
-        origin: { type: string, enum: [import, upload, midi, recorded, edited] }
+        origin: { type: string, enum: [import, upload, midi, recorded, edited], description: "`edited`: a copy made in the editor, or a corrected copy" }
         source_name: { type: string, description: The original file base name }
         header_text: { type: string, description: Text stored in the .kb header (often a copyright line) }
         kb_sha256: { type: string }
         has_midi_source: { type: boolean, description: The piece was converted from an uploaded MIDI file, which is kept }
         album: { type: string, description: "Album and catalog number, e.g. \"Earl Wild: The Art of the Transcription (FP-1002)\"" }
         track: { type: integer, description: Track number on the album, 0 when none }
+        from_recording: { type: boolean, description: An edited copy of a recording made on this piano }
+        corrected: { type: boolean, description: The recording corrections are in this copy }
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
         meta_version: { type: integer, description: Version of the parser that described the piece }
         added_at: { type: string, format: date-time }
@@ -1093,3 +1181,30 @@ components:
         end: { type: integer, description: The end of the performance in ticks; later notes extend it }
         title: { type: string, description: "A new copy's title (default: the original's, with \" (edited)\")" }
         replace: { type: boolean, description: Save over this piece, which must be an edited copy }
+
+    Corrections:
+      type: object
+      properties:
+        on: { type: boolean, description: Correct recordings made here when they play }
+        fill_zero: { type: boolean, description: Give presses with no hammer reading the loudness of the notes around them }
+        keys:
+          type: array
+          items:
+            type: object
+            properties:
+              note: { type: integer, minimum: 21, maximum: 108 }
+              name: { type: string }
+              speed: { type: integer, minimum: -50, maximum: 100, description: "% hammer speed; positive is louder" }
+              release_ms: { type: integer, minimum: -1000, maximum: 1000, description: positive lets go later }
+        active: { type: boolean, readOnly: true }
+        summary: { type: string, readOnly: true }
+        updated: { type: string, format: date-time, readOnly: true }
+
+    Suggestion:
+      type: object
+      properties:
+        note: { type: integer }
+        name: { type: string }
+        speed: { type: integer }
+        release_ms: { type: integer }
+        why: { type: string }

@@ -51,6 +51,8 @@ type editRequest struct {
 	Title   string     `json:"title"`
 	Replace bool       `json:"replace"`
 	From    int64      `json:"from"`
+	// Corrected says the recording corrections are in these notes.
+	Corrected bool `json:"corrected"`
 }
 
 func ints(b []byte) []int {
@@ -119,17 +121,11 @@ func (s *Server) editedDoc(w http.ResponseWriter, r *http.Request) (library.Piec
 		fail(w, 400, msg)
 		return p, d, req, false
 	}
-	if len(req.Notes) > edit.MaxNotes {
-		return bad(fmt.Sprintf("too many notes (at most %d)", edit.MaxNotes))
+	notes, err := notesFrom(req.Notes)
+	if err != nil {
+		return bad(err.Error())
 	}
-	d.Notes = make([]edit.Note, len(req.Notes))
-	for i, n := range req.Notes {
-		key, on, off, vel := n[0], n[1], n[2], n[3]
-		if key < 0 || key > 127 || on < 0 || off < 0 || on > edit.MaxTicks || off > edit.MaxTicks || vel < 0 || vel > se.MaxVelocity {
-			return bad(fmt.Sprintf("note %d is out of range", i+1))
-		}
-		d.Notes[i] = edit.Note{Key: uint8(key), On: uint32(on), Off: uint32(off), Vel: uint16(vel)}
-	}
+	d.Notes = notes
 	for _, c := range []struct {
 		src  []int
 		dst  *[]byte
@@ -168,7 +164,7 @@ func (s *Server) saveEdit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if req.Replace {
-		saved, err := s.Lib.ReplaceEdited(p.ID, perf)
+		saved, err := s.Lib.ReplaceEdited(p.ID, perf, req.Corrected)
 		switch {
 		case errors.Is(err, library.ErrNotEdited):
 			fail(w, 409, err.Error())
@@ -181,7 +177,7 @@ func (s *Server) saveEdit(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	saved, dup, err := s.Lib.AddEdited(p, perf, req.Title)
+	saved, dup, err := s.Lib.AddEdited(p, perf, library.EditedCopy{Title: req.Title, Corrected: req.Corrected})
 	if err != nil {
 		fail(w, 500, err.Error())
 		return
@@ -205,6 +201,12 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "from is outside the piece")
 		return
 	}
+	// A recording made here plays with the corrections, unless they are
+	// already in the notes.
+	corrected := false
+	if c := s.corrections(); c.Active() && p.NeedsCorrection() && !req.Corrected {
+		corrected = c.Apply(&d) > 0
+	}
 	part := d.From(uint32(req.From), PreviewLead)
 	perf, err := part.Performance()
 	if err != nil {
@@ -221,7 +223,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := deck.Job{Piece: deck.PieceRef{ID: p.ID, Title: p.Title, Performer: PreviewPerformer},
-		Dir: dir, Name: "e", Duration: perf.Duration()}
+		Dir: dir, Name: "e", Duration: perf.Duration(), Corrected: corrected}
 	if err := s.voice(&job, true); err != nil {
 		fail(w, 500, err.Error())
 		return

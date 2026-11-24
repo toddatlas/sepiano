@@ -85,9 +85,9 @@ func TestAlbumsPreferSteinwayAndJoin(t *testing.T) {
 	}
 	_ = v2
 
-	parts, err := l.Join([]string{a.Tracks[0].Piece.ID, a.Tracks[2].Piece.ID}, filepath.Join(t.TempDir(), "q"), "Q", "Goldberg")
-	if err != nil {
-		t.Fatal(err)
+	parts, fixed, err := l.Join([]string{a.Tracks[0].Piece.ID, a.Tracks[2].Piece.ID}, filepath.Join(t.TempDir(), "q"), "Q", "Goldberg", nil)
+	if err != nil || fixed {
+		t.Fatal(err, fixed)
 	}
 	if len(parts) != 2 || parts[0].StartMs != 0 || parts[1].StartMs != 11000 || parts[1].DurationMs != 15000 {
 		t.Fatalf("parts %+v", parts)

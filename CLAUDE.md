@@ -52,15 +52,15 @@ in plain words, and say what they should see or hear at the piano.
      **Deferred by the owner:**
      - writing trims to the piano (`putlut`);
      - setting calibration values by hand (the calibrator sometimes fails
-       on a note, and that stops the whole run);
-     - per-key recording corrections.
+       on a note, and that stops the whole run).
 
      First the owner wants to learn from recordings which keys record at
      the wrong velocity.
   4. The recording editor (asked for 2026-11-23, while the formal tests
      wait). The piano roll is built (docs/RECORDING-EDITOR.md). The
      detailed work is done on a computer, so every screen also has a
-     wide-screen layout.
+     wide-screen layout. Per-key recording corrections are built too (the
+     owner chose them next, 2026-11-23).
   5. Later: an iPhone app.
 
   Finish and verify one stage before starting the next. Ask before
@@ -388,3 +388,16 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - Checked in the simulator with the owner's test recording: select, drag,
   release shift by key, pedal drawing, undo and redo, save as copy, play
   from cursor, and phone and laptop layouts. Not yet tried at the piano.
+- **Per-key recording corrections** (`piano/corrections.go`,
+  `api/corrections.go`, Record → Corrections; docs/RECORDING-EDITOR.md):
+  - each key gets a loudness (% hammer speed) and a release (ms) correction;
+  - "fill in" gives a velocity-0 press the loudness of the notes around it;
+  - they are applied as recordings made here play (alone, in collections,
+    and in the editor's preview); the files never change;
+  - "Save a corrected copy" and the editor's "Apply corrections" put them
+    into a copy marked `corrected`, which is never corrected twice;
+  - a recording's Key check suggests them, with checkboxes.
+
+  Checked in the simulator with the test recording: G3 velocity 361 → 234,
+  its release 400 ms later, and the two velocity-0 notes → 273. Nothing
+  is set on the Pi yet: with an empty list nothing changes.

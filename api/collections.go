@@ -109,15 +109,19 @@ func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collec
 		}
 		dir, base, _ := s.Lib.Files(p.ID)
 		job = deck.Job{Piece: ref(p), Dir: dir, Name: base, Duration: time.Duration(p.DurationMs) * time.Millisecond}
+		if err := s.correct(&job, p); err != nil {
+			return fmt.Errorf("corrections: %w", err)
+		}
 	} else {
 		dir, err := s.playDir()
 		if err != nil {
 			return err
 		}
-		parts, err := s.Lib.Join(sel, dir, "q", coll.Title)
+		parts, fixed, err := s.Lib.Join(sel, dir, "q", coll.Title, s.correctFix())
 		if err != nil {
 			return err
 		}
+		job.Corrected = fixed
 		var total int64
 		for _, part := range parts {
 			p, _ := s.Lib.Get(part.ID)
@@ -127,7 +131,7 @@ func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collec
 		job.Piece, job.Dir, job.Name = job.Tracks[0].Piece, dir, "q"
 		job.Duration = time.Duration(total) * time.Millisecond
 	}
-	if err := s.voice(&job, len(sel) > 1); err != nil {
+	if err := s.voice(&job, len(sel) > 1 || job.Corrected); err != nil {
 		return fmt.Errorf("voicing: %w", err)
 	}
 	if coll != nil {

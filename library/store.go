@@ -66,6 +66,13 @@ type Piece struct {
 	Album         string    `json:"album"`
 	Track         int       `json:"track"`
 
+	// FromRecording marks an edited copy of a recording made on this
+	// piano: like the recording, it holds what the sensors measured.
+	FromRecording bool `json:"from_recording,omitempty"`
+	// Corrected says the per-key recording corrections are already in the
+	// performance, so they are not applied again when it plays.
+	Corrected bool `json:"corrected,omitempty"`
+
 	// Locked lists the fields set by hand or from a catalog (by Update);
 	// re-deriving metadata from the files never changes them.
 	Locked []string `json:"locked,omitempty"`
@@ -549,3 +556,11 @@ func (l *Library) SaveSettings(s Settings) error {
 	l.set = s
 	return nil
 }
+
+// RecordedHere reports whether the piece holds what this piano's sensors
+// measured: a recording made on it, or an edited copy of one.
+func (p Piece) RecordedHere() bool { return p.Origin == OriginRecorded || p.FromRecording }
+
+// NeedsCorrection reports whether the per-key recording corrections apply
+// to the piece: recorded here, and not corrected yet.
+func (p Piece) NeedsCorrection() bool { return p.RecordedHere() && !p.Corrected }

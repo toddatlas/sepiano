@@ -142,18 +142,67 @@ browser.
 On a phone the editor works for looking, small changes and playing from a
 point.
 
+## Per-key corrections (built 2026-11-23, the owner's choice)
+
+Corrections put right what this piano's sensors get wrong when it records.
+They are kept in one list, `data/corrections.json` (`piano.Corrections`).
+
+- **For each key**:
+  - **Loudness**, in % hammer speed. +20 makes the key's notes 20% faster
+    (velocity ÷ 1.2), so louder. The limits are −50 to +100.
+  - **Release**, in ms. Plus lets go later. The limit is ±1000.
+- **Fill in notes with no hammer reading.** A velocity-0 press takes the
+  median velocity of the notes within one second of it (silent presses
+  left out). This is worked out after the keys are corrected, and from
+  measured notes only.
+- **Where they apply.** When "on", corrections apply as a recording made
+  on this piano plays (`Piece.NeedsCorrection`):
+  - an origin `recorded`;
+  - or an edited copy of one (`from_recording`) that is not `corrected`.
+
+  They apply alone, in albums and play lists (`library.Join` takes a
+  `Fix`), and in the editor's "Play from cursor". Now Playing shows
+  "Recording corrections on".
+- **The files never change.** The Key check therefore always reads what
+  the sensors measured, and its suggestions stay true.
+- **Putting them into a copy**:
+  - "Save a corrected copy" on a recording's page (`POST
+    /pieces/{id}/corrected`) makes "Title (corrected)", marked `corrected`;
+  - in the editor, "Apply corrections" (`POST /corrections/apply`, the same
+    code as playback) puts them into the notes as one undoable step, and a
+    save marks the copy `corrected`.
+
+  A `corrected` piece is never corrected again.
+- **Suggestions**. A recording's Key check suggests corrections (`piano.Suggest`):
+  - a key d% off its neighbours gets the speed that brings it back
+    (1 / (1 + d) − 1);
+  - a key that lets go early or late in its chords gets its typical
+    difference the other way, rounded to 5 ms;
+  - "fill in" is suggested when there are velocity-0 presses.
+
+  Each suggestion has a checkbox. "Use the checked ones" replaces those
+  keys' corrections. In an ordinary piece, many keys stand out only because
+  of how they were played. The suggestions are only as good as the test
+  recording behind them: each key several times at one loudness, and
+  chords let go together.
+- **Screens**:
+  - Record → Corrections (`#/record/corrections`): on or off, fill-in,
+    the keys, and the recordings made here;
+  - the Key check;
+  - a recording's page;
+  - the editor.
+
+From the first test recording, for example, "G3 loudness +54%, release
++435 ms" is suggested. That rests on only two notes and two chords.
+
 ## Next steps, for the owner to choose
 
 1. **Formal tests at the piano** (velocity, releases, playback), then the
-   Key check on each recording.
-2. **Per-key corrections kept and applied**. For example "G3 releases +400
-   ms, velocity +35%", learned from the tests and applied to any recording
-   with one button. Later, applied automatically as each recording is saved.
-   This is the "per-key recording corrections" the owner deferred.
-3. **More editing**:
+   Key check on each recording and its suggested corrections.
+2. **More editing**:
    - insert or remove time at the cursor;
    - stretch the tempo of a passage;
    - copy and paste;
    - set a pedal up or down over a selection.
-4. **Decode `edit.exe`**: sostenuto and cue-mark events, and how Stahnke's
+3. **Decode `edit.exe`**: sostenuto and cue-mark events, and how Stahnke's
    own editor works.

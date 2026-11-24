@@ -73,31 +73,46 @@ type Part struct {
 	DurationMs int64
 }
 
+// Fix changes one piece's performance before it is joined (the recording
+// corrections), and reports whether it changed anything.
+type Fix func(p Piece, perf *se.Performance) (*se.Performance, bool, error)
+
 // Join writes the pieces, in order, as one performance dir/name.{kb,lp,sp}
-// and returns where each piece starts in it.
-func (l *Library) Join(ids []string, dir, name, title string) ([]Part, error) {
+// and returns where each piece starts in it. fix, if not nil, is given each
+// piece first; fixed says whether it changed any.
+func (l *Library) Join(ids []string, dir, name, title string, fix Fix) (parts []Part, fixed bool, err error) {
 	perfs := make([]*se.Performance, len(ids))
 	for i, id := range ids {
-		if _, err := l.Get(id); err != nil {
-			return nil, fmt.Errorf("%s: %w", id, err)
+		piece, err := l.Get(id)
+		if err != nil {
+			return nil, false, fmt.Errorf("%s: %w", id, err)
 		}
 		p, err := se.Load(filepath.Join(l.dir, id))
 		if err != nil {
-			return nil, fmt.Errorf("%s: %w", id, err)
+			return nil, false, fmt.Errorf("%s: %w", id, err)
+		}
+		if fix != nil {
+			q, changed, err := fix(piece, p)
+			if err != nil {
+				return nil, false, fmt.Errorf("%s: %w", id, err)
+			}
+			if changed {
+				p, fixed = q, true
+			}
 		}
 		perfs[i] = p
 	}
 	joined, starts, err := JoinPerformances(perfs, title+"\r\n")
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	if err := joined.Save(filepath.Join(dir, name)); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	parts := make([]Part, len(ids))
+	parts = make([]Part, len(ids))
 	for i, id := range ids {
 		end := joined.KB.End
 		if i+1 < len(starts) {
@@ -106,5 +121,5 @@ func (l *Library) Join(ids []string, dir, name, title string) ([]Part, error) {
 		parts[i] = Part{ID: id, StartMs: se.TickDuration(starts[i]).Milliseconds(),
 			DurationMs: se.TickDuration(end - starts[i]).Milliseconds()}
 	}
-	return parts, nil
+	return parts, fixed, nil
 }

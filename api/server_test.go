@@ -64,7 +64,7 @@ func newEnv(t *testing.T) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(), Piano: &piano.Store{Dir: t.TempDir()}, Voicing: &piano.VoicingStore{Path: t.TempDir() + "/voicing.json"},
+	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(), Piano: &piano.Store{Dir: t.TempDir()}, Voicing: &piano.VoicingStore{Path: t.TempDir() + "/voicing.json"}, Corrections: &piano.CorrectionsStore{Path: t.TempDir() + "/corrections.json"},
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -633,5 +633,109 @@ func TestEditor(t *testing.T) {
 	st := e.waitState("playing")
 	if st.Piece == nil || st.Piece.Performer != PreviewPerformer {
 		t.Errorf("playing %+v", st.Piece)
+	}
+}
+
+func TestCorrections(t *testing.T) {
+	e := newEnv(t)
+	// A recording made on this piano (as the deck imports one), and an
+	// uploaded piece.
+	dir := t.TempDir()
+	if err := sim.Phrase(10 * se.TicksPerSecond).Save(dir + "/rec"); err != nil {
+		t.Fatal(err)
+	}
+	rec, err := e.lib.AddRecording(dir, "rec", "Sensor test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kb, lp, sp, _ := sim.Phrase(12 * se.TicksPerSecond).Encode()
+	up := e.upload(map[string][]byte{"Zenph_Piece.kb": kb, "Zenph_Piece.lp": lp, "Zenph_Piece.sp": sp}).Added[0]
+
+	// None yet: nothing to apply or copy.
+	code, b := e.do("GET", "/api/v1/corrections", nil)
+	if code != 200 || !strings.Contains(string(b), `"active":false`) {
+		t.Fatalf("get: %d %s", code, b)
+	}
+	if code, _ := e.do("POST", "/api/v1/pieces/"+rec.ID+"/corrected", nil); code != 409 {
+		t.Errorf("copy with no corrections: %d", code)
+	}
+
+	code, b = e.do("PUT", "/api/v1/corrections", map[string]any{"on": true, "fill_zero": true,
+		"keys": []map[string]any{{"note": 60, "speed": 20, "release_ms": 100}}})
+	if code != 200 || !strings.Contains(string(b), `"active":true`) || !strings.Contains(string(b), "C4 loudness +20%, release +100 ms") {
+		t.Fatalf("put: %d %s", code, b)
+	}
+	if code, _ := e.do("PUT", "/api/v1/corrections", map[string]any{"on": true, "keys": []map[string]any{{"note": 60, "speed": 500}}}); code != 400 {
+		t.Errorf("out of range: %d", code)
+	}
+
+	// The recording plays corrected; the uploaded piece does not.
+	play := func(id string) deck.Status {
+		t.Helper()
+		if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"piece": id}); code != 202 {
+			t.Fatalf("play: %d %s", code, b)
+		}
+		st := e.waitState("playing")
+		e.do("POST", "/api/v1/deck/stop", nil)
+		e.waitState("idle")
+		return st
+	}
+	if st := play(rec.ID); !st.Corrected {
+		t.Error("the recording played without its corrections")
+	}
+	if st := play(up.ID); st.Corrected {
+		t.Error("an uploaded piece was corrected")
+	}
+
+	// A corrected copy: marked, and not corrected again when it plays.
+	code, b = e.do("POST", "/api/v1/pieces/"+rec.ID+"/corrected", nil)
+	var cp struct {
+		Piece   library.Piece `json:"piece"`
+		Changed int           `json:"changed"`
+	}
+	if code != 201 || json.Unmarshal(b, &cp) != nil || !cp.Piece.Corrected || !cp.Piece.FromRecording || cp.Changed == 0 ||
+		cp.Piece.Title != "Sensor test (corrected)" || !strings.Contains(cp.Piece.Notes, "C4 loudness +20%") {
+		t.Fatalf("copy: %d %s", code, b)
+	}
+	if st := play(cp.Piece.ID); st.Corrected {
+		t.Error("the corrected copy was corrected again")
+	}
+	if code, _ := e.do("POST", "/api/v1/pieces/"+cp.Piece.ID+"/corrected", nil); code != 409 {
+		t.Errorf("correcting a corrected copy: %d", code)
+	}
+	if code, _ := e.do("POST", "/api/v1/pieces/"+up.ID+"/corrected", nil); code != 409 {
+		t.Errorf("correcting an uploaded piece: %d", code)
+	}
+
+	// The editor's apply: C4 louder and later, a velocity 0 filled in.
+	code, b = e.do("POST", "/api/v1/corrections/apply", map[string]any{"notes": [][4]int{{60, 800, 1200, 240}, {62, 900, 1300, 0}}})
+	if code != 200 || !strings.Contains(string(b), `[60,800,1280,200]`) || !strings.Contains(string(b), `[62,900,1300,200]`) {
+		t.Errorf("apply: %d %s", code, b)
+	}
+
+	// An edited copy of the recording keeps playing corrected until the
+	// corrections are put into it.
+	code, b = e.do("GET", "/api/v1/pieces/"+rec.ID+"/performance", nil)
+	var perf struct {
+		Notes [][4]int64 `json:"notes"`
+	}
+	if code != 200 || json.Unmarshal(b, &perf) != nil {
+		t.Fatalf("performance: %d", code)
+	}
+	code, b = e.do("POST", "/api/v1/pieces/"+rec.ID+"/edits", map[string]any{"notes": perf.Notes[1:]})
+	var ed struct {
+		Piece library.Piece `json:"piece"`
+	}
+	if code != 201 || json.Unmarshal(b, &ed) != nil || !ed.Piece.FromRecording || ed.Piece.Corrected {
+		t.Fatalf("edited copy: %d %s", code, b)
+	}
+	if st := play(ed.Piece.ID); !st.Corrected {
+		t.Error("an edited copy of the recording played without the corrections")
+	}
+
+	// The Key check offers corrections for a recording.
+	code, b = e.do("GET", "/api/v1/pieces/"+rec.ID+"/keys", nil)
+	if code != 200 || !strings.Contains(string(b), `"suggestions":`) || !strings.Contains(string(b), `"recorded_here":true`) {
+		t.Errorf("keys: %d %.300s", code, b)
 	}
 }
