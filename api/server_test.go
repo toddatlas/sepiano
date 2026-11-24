@@ -18,6 +18,7 @@ import (
 	"sepiano/deck"
 	"sepiano/host"
 	"sepiano/library"
+	"sepiano/lut"
 	"sepiano/piano"
 	"sepiano/se"
 	"sepiano/sim"
@@ -526,7 +527,7 @@ func TestTools(t *testing.T) {
 		t.Errorf("key with no tool: %d", code)
 	}
 
-	if code, b := e.do("POST", "/api/v1/tools/cal/start", map[string]bool{"confirm": false}); code != 409 || !strings.Contains(string(b), "backed up first") {
+	if code, b := e.do("POST", "/api/v1/tools/cal/start", map[string]bool{"confirm": false}); code != 409 || !strings.Contains(string(b), "backed up before") {
 		t.Errorf("cal without confirm: %d %s", code, b)
 	}
 	code, b = e.do("POST", "/api/v1/tools/cal/start", map[string]bool{"confirm": true})
@@ -541,6 +542,7 @@ func TestTools(t *testing.T) {
 		t.Error("stop")
 	}
 	e.waitState("idle")
+	e.waitBackups(2) // before and after the tool
 }
 
 // TestPieceKeys reports each key's velocities in a piece.
@@ -738,4 +740,143 @@ func TestCorrections(t *testing.T) {
 	if code != 200 || !strings.Contains(string(b), `"suggestions":`) || !strings.Contains(string(b), `"recorded_here":true`) {
 		t.Errorf("keys: %d %.300s", code, b)
 	}
+}
+
+// waitBackups waits until the settings store holds n backups.
+func (e *env) waitBackups(n int) []piano.Backup {
+	e.t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		var r struct {
+			Backups []piano.Backup `json:"backups"`
+		}
+		_, b := e.do("GET", "/api/v1/piano/backups", nil)
+		json.Unmarshal(b, &r)
+		if len(r.Backups) >= n {
+			e.waitState("idle")
+			return r.Backups
+		}
+		if time.Now().After(deadline) {
+			e.t.Fatalf("%d backups, want %d", len(r.Backups), n)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+func (e *env) eeprom() []byte {
+	return append([]byte(nil), e.in.EEPROM...)
+}
+
+// TestToolTables restores a backup and installs a factory table, each
+// backed up before and after, the restore checked against the piano.
+func TestToolTables(t *testing.T) {
+	e := newEnv(t)
+	first := e.eeprom()
+	if code, b := e.do("POST", "/api/v1/piano/backups", nil); code != 201 {
+		t.Fatalf("backup: %d %s", code, b)
+	}
+	saved := e.waitBackups(1)[0]
+
+	// The piano's table changes (as a calibration would change it).
+	e.in.EEPROM[0x300] ^= 0xFF
+
+	// A factory table needs its word typed.
+	if code, b := e.do("POST", "/api/v1/tools/putb/start", map[string]any{"confirm": true}); code != 409 || !strings.Contains(string(b), "ERASE") {
+		t.Fatalf("putb without the word: %d %s", code, b)
+	}
+	if code, b := e.do("POST", "/api/v1/tools/putb/start", map[string]any{"confirm": true, "phrase": "erase"}); code != 202 {
+		t.Fatalf("putb: %d %s", code, b)
+	}
+	e.waitBackups(3) // first, before, after
+	if !bytes.Equal(e.eeprom(), lut.Example()) {
+		t.Error("the factory table was not installed")
+	}
+
+	// Restoring needs a backup, and a confirmation.
+	if code, _ := e.do("POST", "/api/v1/tools/putlut/start", map[string]any{"confirm": true}); code != 400 {
+		t.Errorf("restore without a backup: %d", code)
+	}
+	if code, _ := e.do("POST", "/api/v1/tools/putlut/start", map[string]any{"backup": saved.ID}); code != 409 {
+		t.Errorf("restore without confirming: %d", code)
+	}
+	if code, b := e.do("POST", "/api/v1/tools/putlut/start", map[string]any{"confirm": true, "backup": saved.ID}); code != 202 {
+		t.Fatalf("restore: %d %s", code, b)
+	}
+	e.waitBackups(5)
+	if !bytes.Equal(e.eeprom(), first) {
+		t.Error("the backup was not restored")
+	}
+}
+
+func TestCheckRestore(t *testing.T) {
+	good := lut.Example()
+	if err := checkRestore(good); err != nil {
+		t.Fatal(err)
+	}
+	bad := append([]byte(nil), good...)
+	bad[0] = 0
+	if err := checkRestore(bad); err == nil || !strings.Contains(err.Error(), "3017H") {
+		t.Errorf("first word: %v", err)
+	}
+	if err := checkRestore(good[:100]); err == nil {
+		t.Error("short table accepted")
+	}
+}
+
+// TestToolFiles covers the tools that read or write files: a tape load
+// joins the library; the MIDI player takes an uploaded file; the editor
+// works on a copy of a piece.
+func TestToolFiles(t *testing.T) {
+	e := newEnv(t)
+	if code, b := e.do("POST", "/api/v1/tools/load/start", nil); code != 202 {
+		t.Fatalf("load: %d %s", code, b)
+	}
+	e.waitState("maintenance")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		_, b := e.do("GET", "/api/v1/pieces?q=Loaded+from+tape", nil)
+		if strings.Contains(string(b), "Loaded from tape") {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no loaded piece: %.300s", b)
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	e.waitState("idle")
+
+	if code, _ := e.do("POST", "/api/v1/tools/playmidi/start", nil); code != 400 {
+		t.Errorf("playmidi with no file: %d", code)
+	}
+	req, _ := http.NewRequest("POST", e.srv.URL+"/api/v1/tools/files?name="+url.QueryEscape("My Song (live).midi"), strings.NewReader("MThd fake"))
+	res, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var up struct {
+		File string `json:"file"`
+	}
+	json.NewDecoder(res.Body).Decode(&up)
+	res.Body.Close()
+	if res.StatusCode != 201 || up.File != "mysongli.mid" {
+		t.Fatalf("upload: %d %q", res.StatusCode, up.File)
+	}
+	if code, b := e.do("POST", "/api/v1/tools/playmidi/start", map[string]any{"file": up.File}); code != 202 {
+		t.Fatalf("playmidi: %d %s", code, b)
+	}
+	e.waitState("maintenance")
+	e.do("POST", "/api/v1/tools/stop", nil)
+	e.waitState("idle")
+
+	kb, lp, sp, _ := sim.Phrase(8 * se.TicksPerSecond).Encode()
+	p := e.upload(map[string][]byte{"Edit_Me.kb": kb, "Edit_Me.lp": lp, "Edit_Me.sp": sp}).Added[0]
+	if code, _ := e.do("POST", "/api/v1/tools/edit/start", nil); code != 400 {
+		t.Errorf("edit with no piece: %d", code)
+	}
+	if code, b := e.do("POST", "/api/v1/tools/edit/start", map[string]any{"piece": p.ID}); code != 202 {
+		t.Fatalf("edit: %d %s", code, b)
+	}
+	e.waitState("maintenance")
+	e.do("POST", "/api/v1/tools/key", map[string]string{"key": "enter"})
+	e.waitState("idle")
 }

@@ -395,11 +395,16 @@ type UtilityResult struct {
 // StartTool runs one of the suite's programs as a tool the user drives:
 // it returns once the program is starting; its text arrives as console
 // events, ToolKey sends it keys, and StopTool ends it. The piano must be
-// idle; play and record are refused until it ends.
-func (d *Deck) StartTool(ctx context.Context, prog *host.Program, path string) error {
+// idle; play and record are refused until it ends. The channel returned
+// gets how it ended, once.
+func (d *Deck) StartTool(ctx context.Context, prog *host.Program, path string) (<-chan UtilityResult, error) {
+	done := make(chan UtilityResult, 1)
 	s := &session{kind: "utility", interactive: true, prog: prog, path: path,
-		limit: time.Now().Add(4 * time.Hour), done: make(chan UtilityResult, 1)}
-	return d.do(ctx, command{op: "utility", util: s})
+		limit: time.Now().Add(4 * time.Hour), done: done}
+	if err := d.do(ctx, command{op: "utility", util: s}); err != nil {
+		return nil, err
+	}
+	return done, nil
 }
 
 // ToolKey sends keystrokes (PC console codes) to the running tool.
@@ -528,6 +533,10 @@ func (d *Deck) setState(s State) {
 	}
 	d.publish()
 }
+
+// Notice tells the clients something (level info, warn or error), as the
+// deck does itself.
+func (d *Deck) Notice(level, text string) { d.notice(level, "%s", text) }
 
 func (d *Deck) notice(level, format string, args ...any) {
 	text := fmt.Sprintf(format, args...)

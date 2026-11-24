@@ -6,7 +6,7 @@
 // alone, so the event stream, uploads and downloads always go straight to the
 // network.
 
-const VERSION = 'v8';
+const VERSION = 'v9';
 const PREFIX = 'piano-shell-';
 const CACHE = PREFIX + VERSION;
 const SHELL = ['/', '/app.js', '/editor.js', '/style.css', '/icon.svg', '/manifest.webmanifest'];

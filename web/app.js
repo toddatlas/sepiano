@@ -832,7 +832,7 @@ const ROUTES = [
   { name: 'piano', re: /^\/piano$/, tab: 'piano', title: 'Piano', screen: pianoScreen },
   { name: 'piano-key', re: /^\/piano\/key\/(\d+)$/, tab: 'piano', title: 'Key', back: { href: '#/piano', label: 'Piano' }, screen: pianoKeyScreen },
   { name: 'piano-backups', re: /^\/piano\/backups$/, tab: 'piano', title: 'Backups', back: { href: '#/piano', label: 'Piano' }, screen: pianoBackupsScreen },
-  { name: 'piano-tool', re: /^\/piano\/tool\/([a-z]+)$/, tab: 'piano', title: 'Tool', back: { href: '#/piano', label: 'Piano' }, screen: toolScreen },
+  { name: 'piano-tool', re: /^\/piano\/tool\/([a-z0-9]+)(?:\/([^/]+))?$/, tab: 'piano', title: 'Tool', back: { href: '#/piano', label: 'Piano' }, screen: toolScreen },
   { name: 'status', re: /^\/status$/, tab: 'status', title: 'Status', screen: statusScreen },
 ];
 
@@ -876,7 +876,7 @@ function route() {
   if (!r) { location.replace('#/'); return; }
   let params;
   try {
-    params = m.slice(1).map(decodeURIComponent);
+    params = m.slice(1).map((x) => (x === undefined ? undefined : decodeURIComponent(x)));
   } catch {
     location.replace('#/library');
     return;
@@ -1915,6 +1915,13 @@ function pieceScreen(root, [id]) {
         h('p', { class: 'muted small' }, 'How loudly each key plays in this piece, and in chords, when each key lets go. For a recording, what each key’s sensors measured.'),
         h('a', { class: 'btn', href: pieceKeysHref(id) }, 'Open')),
       (p.origin === 'recorded' || p.from_recording) && correctionsCard(p),
+      h('section', { class: 'card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Stahnke’s programs')),
+        h('p', { class: 'muted small' }, 'The suite’s own programs can work on this piece too.'),
+        h('div', { class: 'btn-row' },
+          h('a', { class: 'btn btn-small', href: toolHref('edit', id) }, 'His editor (edit.exe)'),
+          p.has_midi_source && h('a', { class: 'btn btn-small', href: toolHref('playmidi', id) }, 'Play the original MIDI with his MIDI player'),
+          h('a', { class: 'btn btn-small', href: toolHref('dump', id) }, 'Dump to tape'))),
       renderingsSection,
       h('div', { class: 'danger-zone' },
         h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete this piece')));
@@ -2525,7 +2532,7 @@ function keyHref(note) { return '#/piano/key/' + note; }
 function signedNum(n) { return n > 0 ? `+${n}` : n < 0 ? `${MINUS}${-n}` : '0'; }
 function signedPct(x) { return `${x > 0 ? '+' : x < 0 ? MINUS : ''}${Math.abs(x).toFixed(1)}%`; }
 
-const BACKUP_REASONS = { manual: 'by hand', imported: 'imported', 'before-write': 'before a write', 'after-write': 'after a write' };
+const BACKUP_REASONS = { manual: 'by hand', imported: 'imported', 'before-write': 'before a write', 'after-write': 'after a write', 'before-tool': 'before a tool', 'after-tool': 'after a tool' };
 function reasonText(r) { return BACKUP_REASONS[r] || r || ''; }
 
 function curveAt(view, k, velocity, i) {
@@ -3056,7 +3063,9 @@ function pianoBackupsScreen(root) {
         h('div', { class: 'row-title' }, fmtDateTime(b.time)),
         h('div', { class: 'row-sub' }, [reasonText(b.reason), b.model, b.valid ? `version ${b.version}` : b.problem].filter(Boolean).join(' · ')),
         h('div', { class: 'row-file' }, b.id)),
-      h('a', { class: 'btn btn-small', href: `${API}/piano/backups/${encodeURIComponent(b.id)}`, download: '', 'aria-label': `Download ${b.id}` }, icon('download'), '.lut'))));
+      h('div', { class: 'backup-actions' },
+        b.valid && h('a', { class: 'btn btn-small', href: toolHref('putlut', b.id), 'aria-label': `Restore ${b.id} to the piano` }, 'Restore…'),
+        h('a', { class: 'btn btn-small', href: `${API}/piano/backups/${encodeURIComponent(b.id)}`, download: '', 'aria-label': `Download ${b.id}` }, icon('download'), '.lut')))));
   }
 
   async function compare() {
@@ -3431,41 +3440,75 @@ function correctionsCard(p) {
 
 // ======================================================================= Tools
 
-const RISK_WORDS = { reads: 'Reads the sensors', moves: 'Moves the piano', writes: 'Changes settings' };
+const RISK_WORDS = { reads: 'Reads the sensors', moves: 'Moves the piano', writes: 'Changes settings', erases: 'Erases calibration' };
 const KEY_LABELS = { space: 'Space', enter: 'Enter', esc: 'Esc', up: 'Up', down: 'Down', left: 'Left', right: 'Right' };
 
 let toolsCache = null;
+let toolGroups = [];
 async function loadTools(force) {
-  if (!toolsCache || force) toolsCache = (await api('GET', '/tools')).tools || [];
+  if (!toolsCache || force) {
+    const r = await api('GET', '/tools');
+    toolsCache = r.tools || [];
+    toolGroups = r.groups || [];
+  }
   return toolsCache;
 }
+
+function toolHref(name, arg) { return `#/piano/tool/${name}` + (arg ? '/' + encodeURIComponent(arg) : ''); }
 
 function toolsCard() {
   const list = h('div', { class: 'tool-list' }, h('p', { class: 'muted small' }, 'Loading…'));
   loadTools(false).then((tools) => {
-    fill(list, tools.map((t) => h('a', { class: 'tool-row', href: `#/piano/tool/${t.name}` },
-      h('span', { class: 'tool-title' }, t.title),
-      h('span', { class: `pill ${t.risk === 'writes' ? 'pill-warn' : ''}` }, RISK_WORDS[t.risk] || t.risk),
-      !t.present && h('span', { class: 'pill pill-off' }, 'Not installed'))));
+    const groups = toolGroups.length ? toolGroups : [...new Set(tools.map((t) => t.group))];
+    fill(list, groups.map((g) => {
+      const ts = tools.filter((t) => t.group === g);
+      if (!ts.length) return null;
+      return h('div', { class: 'tool-group' },
+        h('p', { class: 'label' }, g),
+        ts.map((t) => h('a', { class: 'tool-row', href: toolHref(t.name) },
+          h('span', { class: 'tool-title' }, t.title),
+          h('span', { class: `pill ${t.risk === 'writes' ? 'pill-warn' : t.risk === 'erases' ? 'pill-danger' : ''}` }, RISK_WORDS[t.risk] || t.risk),
+          !t.present && h('span', { class: 'pill pill-off' }, 'Not installed'))));
+    }));
   }, (err) => fill(list, h('p', { class: 'message message-error' }, err.message)));
   return h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Tools')),
-    h('p', { class: 'muted small' }, 'Stahnke’s other programs: sensor tests, the dampers, MIDI input, and the calibrators. They run on the piano while it is idle.'),
+    h('p', { class: 'muted small' }, 'Every one of Stahnke’s programs: sensor tests, the dampers, the players, the calibrators, restoring a backup, his editor and the tape programs. They run on the piano while it is idle.'),
     list);
 }
 
-function toolScreen(root, [name]) {
+// A small search over the library, for a tool that works on a piece.
+function piecePicker(onPick, filter) {
+  const input = h('input', { class: 'input', type: 'search', placeholder: 'Search the library', 'aria-label': 'Search for a piece', autocomplete: 'off' });
+  const results = h('div', { class: 'pick-results' });
+  let pieces = [];
+  getAllPieces().then((ps) => { pieces = filter ? ps.filter(filter) : ps; show(); }, () => {});
+  input.addEventListener('input', debounce(show, 150));
+  function show() {
+    const q = fold(input.value.trim());
+    const hits = pieces.filter((p) => !q || fold([p.title, p.composer, p.performer, p.source_name].join(' ')).includes(q)).slice(0, 8);
+    fill(results, hits.length
+      ? hits.map((p) => h('button', { class: 'pick-row', type: 'button', onclick: () => onPick(p) },
+        h('span', { class: 'pick-title' }, p.title || 'Untitled'), h('span', { class: 'muted small' }, [byline(p), p.source_name].filter(Boolean).join(' · '))))
+      : h('p', { class: 'muted small' }, pieces.length ? 'No match.' : 'No pieces to choose from.'));
+  }
+  return h('div', { class: 'piece-picker' }, input, results);
+}
+
+function toolScreen(root, [name, arg]) {
   let alive = true;
   let tool = null;
+  const choice = { backup: '', piece: null, file: '' };
   const consoleEl = h('pre', { class: 'console', tabindex: '0', 'aria-label': 'What the program prints' });
   const stateEl = h('p', { class: 'tool-state' });
   const startBtn = h('button', { class: 'btn btn-primary', type: 'button', onclick: start }, icon('play'), 'Start');
   const stopBtn = h('button', { class: 'btn btn-danger', type: 'button', onclick: stop }, icon('stop'), 'Stop');
   const keysEl = h('div', { class: 'btn-row tool-keys' });
-  const textInput = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Answer to type', maxlength: '20' });
+  const textInput = h('input', { class: 'input', type: 'text', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Answer or command to type', maxlength: '60' });
   const textForm = h('form', { class: 'tool-text', hidden: true, onsubmit: (e) => { e.preventDefault(); sendText(); } },
     textInput, h('button', { class: 'btn', type: 'submit' }, 'Send'));
-  const body = h('div');
+  const needsEl = h('div', { class: 'tool-needs' });
+  const phraseInput = h('input', { class: 'input tool-phrase', type: 'text', autocomplete: 'off', autocapitalize: 'characters', 'aria-label': 'Confirmation word' });
   let lines = [];
   root.append(h('p', { class: 'muted center' }, 'Loading…'));
 
@@ -3476,7 +3519,11 @@ function toolScreen(root, [name]) {
       fill(root, h('p', { class: 'muted center' }, 'No such tool.'));
       return;
     }
+    if (arg && tool.needs === 'backup') choice.backup = arg;
     render();
+    if (arg && (tool.needs === 'piece' || tool.needs === 'midi')) {
+      api('GET', piecePath(arg)).then((p) => { if (alive) { choice.piece = p; renderNeeds(); update(); } }, () => {});
+    }
   }, (err) => { if (alive) fill(root, h('div', { class: 'message message-error' }, h('p', null, err.message))); });
 
   function running() {
@@ -3487,21 +3534,86 @@ function toolScreen(root, [name]) {
   function render() {
     document.title = `${tool.title} · Piano`;
     fill(keysEl, tool.keys.map((k) => h('button', { class: 'btn', type: 'button', onclick: () => sendKey(k) }, KEY_LABELS[k] || k)));
-    textForm.hidden = !tool.input;
     fill(root,
       h('h1', { class: 'screen-title' }, tool.title),
-      h('p', { class: 'piano-sub' }, `${tool.file} · `, RISK_WORDS[tool.risk] || tool.risk),
+      h('p', { class: 'piano-sub' }, `${tool.file} · ${tool.group} · `, RISK_WORDS[tool.risk] || tool.risk),
       h('p', null, tool.does),
-      tool.warning && h('div', { class: 'message message-warn' }, h('p', null, tool.warning)),
+      tool.warning && h('div', { class: `message ${tool.risk === 'erases' ? 'message-error' : 'message-warn'}` }, h('p', null, tool.warning)),
       !tool.present && h('div', { class: 'message message-error' }, h('p', null, `${tool.file} is not installed. Install it on the Status page.`)),
+      tool.name === 'edit' && h('p', { class: 'hint' }, 'The ', h('a', { href: '#/piano' }, 'piano-roll editor'), ' (a piece’s page → Open in the editor) does most of this more easily.'),
+      needsEl,
       h('section', { class: 'card' },
         stateEl,
+        tool.phrase && h('label', { class: 'tool-phrase-label' }, `Type ${tool.phrase} to confirm: `, phraseInput),
         h('div', { class: 'btn-row' }, startBtn, stopBtn),
         keysEl,
         textForm,
         consoleEl,
-        h('p', { class: 'hint' }, 'The program’s keys are the buttons above. Stop ends it at once; quitting with its own key is gentler.')));
+        h('p', { class: 'hint' }, tool.keys.length ? 'The program’s keys are the buttons above. Stop ends it at once; quitting with its own key is gentler.' : 'This program needs no keys: it runs to its end by itself.')));
+    phraseInput.addEventListener('input', update);
+    renderNeeds();
     update();
+  }
+
+  // What the program needs before it starts: a backup, a piece or a file.
+  function renderNeeds() {
+    const need = tool.needs;
+    if (!need) { fill(needsEl); return; }
+    const card = h('section', { class: 'card' });
+    fill(needsEl, card);
+    if (need === 'backup') {
+      card.append(h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backup to restore')), h('p', { class: 'muted small' }, 'Loading…'));
+      api('GET', '/piano/backups').then((r) => {
+        if (!alive) return;
+        const backups = (r.backups || []).filter((b) => b.valid);
+        if (!choice.backup && backups.length) choice.backup = backups[0].id;
+        const sel = h('select', { class: 'input', 'aria-label': 'Backup', onchange: () => { choice.backup = sel.value; update(); } },
+          backups.map((b) => h('option', { value: b.id, selected: b.id === choice.backup }, `${fmtDateTime(b.time)} · ${reasonText(b.reason)} · ${b.model}`)));
+        fill(card, h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backup to restore')),
+          backups.length ? sel : h('p', { class: 'muted' }, 'No backups yet.'),
+          h('p', { class: 'hint' }, 'Only a whole, valid table for this piano’s model can be restored. Compare backups on the ', h('a', { href: '#/piano/backups' }, 'Backups'), ' screen first if unsure.'));
+        update();
+      }, (err) => fill(card, h('p', { class: 'message message-error' }, err.message)));
+      return;
+    }
+    const title = need === 'file' ? 'File to play' : need === 'midi' ? 'MIDI file to play' : 'Piece';
+    card.append(h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, title)));
+    if (choice.piece) {
+      card.append(h('p', null, h('strong', null, choice.piece.title || 'Untitled'), ' ',
+        h('button', { class: 'btn btn-small', type: 'button', onclick: () => { choice.piece = null; renderNeeds(); update(); } }, 'Change')));
+    } else if (choice.file) {
+      card.append(h('p', null, h('strong', null, choice.file), ' ',
+        h('button', { class: 'btn btn-small', type: 'button', onclick: () => { choice.file = ''; renderNeeds(); update(); } }, 'Change')));
+    } else {
+      if (need === 'piece' || need === 'midi') {
+        card.append(
+          need === 'midi' && h('p', { class: 'muted small' }, 'A piece converted from MIDI keeps its original file:'),
+          piecePicker((p) => { choice.piece = p; renderNeeds(); update(); }, need === 'midi' ? (p) => p.has_midi_source : null));
+      }
+      if (need === 'file' || need === 'midi') {
+        const fileInput = h('input', { type: 'file', accept: tool.accept || '', 'aria-label': 'File to upload' });
+        fileInput.addEventListener('change', async () => {
+          const f = fileInput.files && fileInput.files[0];
+          if (!f) return;
+          try {
+            const r = await api('POST', '/tools/files?name=' + encodeURIComponent(f.name), f, { contentType: 'application/octet-stream' });
+            choice.file = r.file;
+            renderNeeds();
+            update();
+          } catch (err) {
+            toast(err.message, 'error');
+          }
+        });
+        card.append(h('p', { class: 'muted small' }, need === 'midi' ? 'Or upload a MIDI file:' : 'Upload the file:'), fileInput);
+      }
+    }
+  }
+
+  function ready() {
+    if (!tool.needs) return true;
+    if (tool.needs === 'backup') return !!choice.backup;
+    if (tool.needs === 'piece') return !!choice.piece;
+    return !!(choice.piece || choice.file);
   }
 
   function update() {
@@ -3512,9 +3624,11 @@ function toolScreen(root, [name]) {
     if (on) words = 'Running on the piano.';
     else if (s && s.state === 'maintenance') words = `The piano is busy with ${s.program || 'another program'}.`;
     else if (s && s.state !== 'idle') words = `The piano is ${stateWords(s).toLowerCase()}; the tool starts once it is idle.`;
+    else if (!ready()) words = 'Choose what it works on, above, to start.';
     setText(stateEl, words);
     startBtn.hidden = on;
-    startBtn.disabled = !tool.present || !(s && s.state === 'idle');
+    const phraseOk = !tool.phrase || phraseInput.value.trim().toUpperCase() === tool.phrase;
+    startBtn.disabled = !tool.present || !(s && s.state === 'idle') || !ready() || !phraseOk;
     stopBtn.hidden = !on;
     for (const b of keysEl.children) b.disabled = !on;
     textForm.hidden = !tool.input || !on;
@@ -3528,15 +3642,20 @@ function toolScreen(root, [name]) {
   }
 
   async function start() {
-    if (tool.risk === 'writes') {
+    const writes = tool.risk === 'writes' || tool.risk === 'erases';
+    if (writes) {
       const ok = await confirmDialog({ title: `Start ${tool.title}?`, text: tool.warning, ok: 'Back up and start', danger: true });
       if (!ok) return;
     }
     startBtn.disabled = true;
     lines = [];
-    setText(consoleEl, tool.risk === 'writes' ? 'Backing up the piano’s settings first…' : 'Starting…');
+    setText(consoleEl, writes ? 'Backing up the piano’s settings first…' : 'Starting…');
+    const body = { confirm: writes, phrase: phraseInput.value };
+    if (tool.needs === 'backup') body.backup = choice.backup;
+    if (choice.piece) body.piece = choice.piece.id;
+    if (choice.file) body.file = choice.file;
     try {
-      const r = await api('POST', `/tools/${tool.name}/start`, { confirm: tool.risk === 'writes' });
+      const r = await api('POST', `/tools/${tool.name}/start`, body);
       if (r && r.status && isStatus(r.status)) applyReplyStatus(r.status);
       if (r && r.backup) { pianoCache.view = null; toast(`Settings backed up (${fmtDateTime(r.backup.time)}).`); }
     } catch (err) {
@@ -3567,6 +3686,7 @@ function toolScreen(root, [name]) {
     if (!text) return;
     try {
       await api('POST', '/tools/key', { text });
+      addLine('> ' + text);
       textInput.value = '';
     } catch (err) {
       toast(err.message, 'error');

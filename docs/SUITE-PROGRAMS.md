@@ -447,13 +447,36 @@ ports and fixed memory each one reaches; `-list` prints the listing.
 2. **Read the table** (done: `selut`, and the section map above, from the
    firmware). Still open: sections 2, 4, 6, 7 and 11 in physical terms, and
    how the actuation event uses section 2's value.
-3. **Run any program from the app** (built; untried at the piano). The
-   Piano tab's Tools run anykey, anyham, midiin, sustain, adjust, cal,
-   silent and setup as a console: their text and their keys
-   (`api/tools.go`). The writing ones (cal, silent, setup) ask for a
-   confirmation and back up the EEPROM before they start. Recording
-   follows the recorder's code above, and "Velocity by key" checks a
-   recording's sensors.
+3. **Run any program from the app** (built 2026-11-23 and 24; none run at
+   the piano yet). The service runs play, record and getlut itself. The
+   Piano tab's Tools (`api/tools.go`) run every other program as a console,
+   showing its text and offering its keys:
+
+   | Group | Programs | Given at start | Afterwards |
+   |-------|----------|----------------|------------|
+   | Tests | anykey, anyham | | |
+   | Keys and pedals | sustain, adjust | | |
+   | Players | midiin; playmidi (a piece's original MIDI, or an upload); playeseq (an uploaded PianoSoft file) | the file, as `name.ext` | |
+   | Calibration and settings | cal, silent, setup; putlut ("Restore a backup") | putlut: the backup, as `restore.lut` | backed up again; a restore is read back and compared |
+   | Stahnke's editor | edit | a copy of a piece | a changed performance joins the library as an edited copy |
+   | Tape | dump (a piece), load, tape | dump: a copy of the piece | load: the performance joins the library |
+   | Factory tables | put225, put275, put290, putb, putc7 | | backed up again |
+   | Expert | monitor | | backed up again |
+
+   The safeguards:
+   - **Changing settings** (cal, silent, setup, putlut, monitor) needs a
+     confirmation, and an EEPROM backup is taken before and after.
+   - **Factory tables** also need "ERASE" typed: they replace the whole
+     calibration.
+   - **putlut writes only a valid table.** The table must be whole
+     (2048 bytes), start with 3017H, and belong to the same model as the
+     piano's latest backup (`checkRestore`). The piano is then read back,
+     and a notice says whether it matches.
+
+   The simulator imitates the installers and the tape loader, so these
+   paths are tested (`TestToolTables`, `TestToolFiles`). Recording follows
+   the recorder's code above, and the Key check reads a recording's
+   sensors.
 4. **Edit the settings.** The first editor is `setup`'s six fields: a few
    bytes at known places, written through `setup.exe` or `putlut`.
    Calibration (`cal`, `silent`) rewrites many values. Run it only when the

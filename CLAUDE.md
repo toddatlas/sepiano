@@ -401,3 +401,26 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   Checked in the simulator with the test recording: G3 velocity 361 → 234,
   its release 400 ms later, and the two velocity-0 notes → 273. Nothing
   is set on the Pi yet: with an empty list nothing changes.
+
+## Status (overnight build, 2026-11-24: every program usable)
+
+The owner asked for an unattended overnight build: every suite program
+usable from the app, then more editing tools.
+
+- **All 24 programs are usable.** The service runs play, record and
+  getlut; Piano → Tools runs the other 21, grouped (docs/SUITE-PROGRAMS.md,
+  "Run any program from the app"). New:
+  - Restore a backup (putlut). It checks the table first, backs up before
+    and after, then reads the piano back and compares (`checkRestore`,
+    `afterTool`). The Backups screen has a Restore button on each backup.
+  - The five factory tables, which need "ERASE" typed.
+  - playmidi, with a piece's original MIDI or an upload; playeseq, with an
+    uploaded file.
+  - Stahnke's editor (edit), on a copy of a piece; a changed result
+    becomes an edited copy.
+  - dump, load and tape; a tape load joins the library.
+  - The monitor.
+- Every tool that changes settings now also takes an "after-tool" backup,
+  so before and after can be compared.
+- `deck.StartTool` returns a channel that reports when the tool ends.
+  `sim` imitates the installers and the tape loader.

@@ -1339,3 +1339,19 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
   .corr-row > .btn { grid-column: 2 / -1; justify-self: start; }
   .corr-head > span:last-child { display: none; }
 }
+
+/* ---------- tools: groups, choosing a piece or file ---------- */
+
+.tool-group { margin-top: 10px; }
+.tool-group:first-child { margin-top: 0; }
+.tool-group > .label { margin: 6px 0 4px; }
+.pill-danger { background: var(--danger); color: #fff; }
+.tool-needs .card { margin-top: 12px; }
+.piece-picker { display: grid; gap: 8px; }
+.pick-results { display: grid; gap: 4px; }
+.pick-row { display: flex; flex-direction: column; align-items: flex-start; gap: 1px; width: 100%; padding: 8px 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elev); color: var(--ink); text-align: left; font: inherit; cursor: pointer; }
+.pick-row:hover { border-color: var(--line-strong); }
+.pick-title { font-weight: 600; }
+.tool-phrase-label { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0 10px; font-weight: 600; color: var(--danger); }
+.tool-phrase-label .input.tool-phrase { width: 140px; min-height: 40px; }
+.backup-actions { display: flex; flex-wrap: wrap; gap: 6px; justify-content: flex-end; }

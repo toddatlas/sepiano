@@ -757,7 +757,10 @@ paths:
 
   /tools:
     get:
-      summary: The suite's other programs, run from the app
+      summary: Every program of the suite the app runs as a tool
+      description: |
+        All the suite's programs except play, record and getlut, which the
+        service runs itself, grouped as `groups` lists them.
       responses:
         "200":
           description: OK
@@ -766,6 +769,7 @@ paths:
               schema:
                 type: object
                 properties:
+                  groups: { type: array, items: { type: string } }
                   tools:
                     type: array
                     items:
@@ -774,27 +778,65 @@ paths:
                         name: { type: string }
                         file: { type: string }
                         title: { type: string }
+                        group: { type: string }
                         does: { type: string }
-                        risk: { type: string, enum: [reads, moves, writes] }
+                        risk: { type: string, enum: [reads, moves, writes, erases], description: "erases: replaces the calibration (a factory table)" }
                         keys: { type: array, items: { type: string } }
-                        input: { type: boolean, description: it asks for typed answers }
+                        input: { type: boolean, description: it asks for typed answers or commands }
                         warning: { type: string }
+                        needs: { type: string, enum: [backup, piece, midi, file], description: What it reads; given when it starts }
+                        accept: { type: string, description: File types for an upload }
+                        result: { type: string, enum: [performance, table], description: "performance: what it writes joins the library; table: the piano's table is checked against the one restored" }
+                        phrase: { type: string, description: A word to type to confirm }
                         present: { type: boolean }
                         banner: { type: string }
                         error: { type: string }
+
+  /tools/files:
+    post:
+      summary: Upload a file for a tool to read (a MIDI or PianoSoft file)
+      parameters:
+        - { name: name, in: query, required: true, schema: { type: string }, description: "The file's name; it is fitted to an 8.3 name" }
+      requestBody:
+        required: true
+        content: { application/octet-stream: { schema: { type: string, format: binary } } }
+      responses:
+        "201":
+          description: Stored
+          content:
+            application/json:
+              schema: { type: object, properties: { file: { type: string }, size: { type: integer } } }
+        "400": { $ref: "#/components/responses/Error" }
 
   /tools/{name}/start:
     post:
       summary: Start a tool on the piano (it must be idle)
       description: |
-        A tool whose `risk` is `writes` needs `confirm: true`; the service then
-        backs up the piano's settings (reason `before-tool`) before starting
-        it. The deck shows `maintenance` while the tool runs; its text arrives
-        as `console` events.
+        A tool whose `risk` is `writes` or `erases` needs `confirm: true`, and
+        one with a `phrase` needs it typed. The service backs up the piano's
+        settings before (reason `before-tool`) and after (`after-tool`) such a
+        tool. For `needs`: `backup` takes a backup id (only a whole table whose
+        first word is 3017H, for the same model, is restored), `piece` a
+        piece id (the tool works on a copy), `midi` a piece converted from
+        MIDI or an uploaded `file`, `file` an uploaded file. When the tool
+        ends: a `performance` result joins the library (an edited copy of
+        the piece, or one loaded from tape); a restore is read back and
+        compared, and a notice says whether the piano matches the backup.
+        The deck shows `maintenance` while the tool runs; its text arrives as
+        `console` events.
       parameters:
         - { name: name, in: path, required: true, schema: { type: string } }
       requestBody:
-        content: { application/json: { schema: { type: object, properties: { confirm: { type: boolean } } } } }
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                confirm: { type: boolean }
+                phrase: { type: string }
+                backup: { type: string }
+                piece: { type: string }
+                file: { type: string }
       responses:
         "202":
           description: Started
@@ -805,6 +847,8 @@ paths:
                 properties:
                   status: { $ref: "#/components/schemas/Status" }
                   backup: { $ref: "#/components/schemas/PianoBackup" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
 

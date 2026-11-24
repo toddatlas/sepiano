@@ -231,6 +231,10 @@ func (in *Instrument) serve(ctx context.Context, port link.Port, gen int) {
 		c.clk.set(0, false)
 		if strings.Contains(p.Banner, "LOOKUP TABLE RETRIEVER") {
 			err = c.retriever(p.Banner)
+		} else if strings.Contains(p.Banner, "LOOKUP TABLE INSTALLER") {
+			err = c.installer(p.Banner, !strings.Contains(p.Banner, "PROTOTYPE"))
+		} else if strings.Contains(p.Banner, "PERFORMANCE LOADER") {
+			err = c.loader(p.Banner)
 		} else if strings.HasPrefix(p.Banner, "SIMULATED TOOL") {
 			err = c.tool(p.Banner)
 		} else if strings.Contains(p.Banner, "RECORDER") {
@@ -780,4 +784,115 @@ func (c *conn) tool(banner string) error {
 // ToolProgram is a placeholder for one of the suite's other programs.
 func ToolProgram(title string) *host.Program {
 	return placeholder("SIMULATED TOOL: "+strings.ToUpper(title), 600)
+}
+
+// installer imitates the LOOKUP TABLE INSTALLER. putlut.exe reads a table
+// from the host's file (name.ext) and writes it into the EEPROM; the
+// prototype installers (put225, put275, put290, putb, putc7) write the
+// table they carry, for which the simulator writes lut.Example().
+func (c *conn) installer(banner string, fromFile bool) error {
+	if err := c.print("\r\n" + banner + "\r\n"); err != nil {
+		return err
+	}
+	var img []byte
+	if fromFile {
+		if _, err := c.call([]byte{host.ReqOpenFile}, 1); err != nil {
+			return err
+		}
+		for {
+			hdr, err := c.call([]byte{host.ReqReadFile, 128, 0}, 3)
+			if err != nil {
+				return err
+			}
+			n := int(hdr[1]) | int(hdr[2])<<8
+			buf := make([]byte, n)
+			if _, err := io.ReadFull(c.file, buf); err != nil {
+				return err
+			}
+			img = append(img, buf...)
+			if n == 0 {
+				break
+			}
+		}
+	} else {
+		img = lut.Example()
+		if err := c.print("\r\nPROTOTYPE LOOKUP TABLE, V30.17\r\n"); err != nil {
+			return err
+		}
+	}
+	if err := c.print("\r\nBEGIN INSTALLATION\r\n"); err != nil {
+		return err
+	}
+	c.in.mu.Lock()
+	copy(c.in.EEPROM, img)
+	c.in.mu.Unlock()
+	if !c.pause(300 * time.Millisecond) { // writing 2 KB a byte at a time takes a moment
+		return c.ctx.Err()
+	}
+	return c.end("INSTALLATION COMPLETE\r\n")
+}
+
+// InstallerProgram is a placeholder for putlut.exe (fromFile) or one of the
+// prototype installers.
+func InstallerProgram(fromFile bool) *host.Program {
+	if fromFile {
+		return placeholder("SIMULATED SE/PC LOOKUP TABLE INSTALLER, V50.44", 1010)
+	}
+	return placeholder("SIMULATED SE/PC LOOKUP TABLE INSTALLER (PROTOTYPE), V50.44", 2595)
+}
+
+// loader imitates the PERFORMANCE LOADER (load.exe), which reads a
+// performance from tape into files: the simulator "loads" a short phrase.
+func (c *conn) loader(banner string) error {
+	if err := c.print("\r\n" + banner + "\r\n\r\nSTART TAPE RECORDER TO LOAD\r\nDEPRESS ENTER TO QUIT\r\n"); err != nil {
+		return err
+	}
+	if !c.pause(300 * time.Millisecond) {
+		return c.ctx.Err()
+	}
+	kb, lp, sp, err := Phrase(6 * se.TicksPerSecond).Encode()
+	if err != nil {
+		return err
+	}
+	if _, err := c.call([]byte{host.ReqCreatePerf}, 1); err != nil {
+		return err
+	}
+	if err := c.print("START LOADING\r\n"); err != nil {
+		return err
+	}
+	for fn, data := range [][]byte{kb, lp, sp} {
+		for i := 0; i < len(data); i += 256 {
+			n := min(256, len(data)-i)
+			req := append([]byte{host.ReqWritePerf, byte(fn), byte(n), byte(n >> 8)}, data[i:i+n]...)
+			if _, err := c.call(req, 4); err != nil {
+				return err
+			}
+		}
+	}
+	if err := c.print("END OF PERFORMANCE\r\n"); err != nil {
+		return err
+	}
+	if _, err := c.call([]byte{host.ReqClosePerf}, 1); err != nil {
+		return err
+	}
+	if _, err := c.call([]byte{host.ReqCommitPerf}, 1); err != nil {
+		return err
+	}
+	return c.end("")
+}
+
+// LoaderProgram is a placeholder for load.exe.
+func LoaderProgram() *host.Program {
+	return placeholder("SIMULATED SE/PC PERFORMANCE LOADER, V50.44", 3503)
+}
+
+// pause waits d of real time (the clock does not run for these programs);
+// false if the connection ended.
+func (c *conn) pause(d time.Duration) bool {
+	select {
+	case <-c.ctx.Done():
+		return false
+	case <-time.After(d):
+		return true
+	}
 }
