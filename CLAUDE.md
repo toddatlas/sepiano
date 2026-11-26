@@ -633,3 +633,9 @@ The owner approved building three roadmap items in one go:
     the corrections (`playFix`, `markFixes`; `Status.Fitted`).
 - Not answered yet: the owner told the other session the piano is a 1909
   Steinway D. The EEPROM table says "Steinway B-SE".
+- **Imported into the Pi (2026-11-26):** all 1,422 pieces (Vienna 110,
+  Batik 36, MAESTRO 1,276), none failed, as 27 new albums. The library is
+  now 3,170 pieces: 1,858 native, 1,276 performance, 36 se-midi. The data
+  folder is 176 MB, up from 29 MB, so nightly backups grow to match.
+- Batch 2 (SUPRA rolls, ASAP, PiJAMA) is downloaded and waits for the
+  owner's choice (docs/ROADMAP.md, idea 4).
