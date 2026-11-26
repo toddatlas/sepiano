@@ -198,6 +198,42 @@ the competitors' names, and for the winners to be marked.
   `sepianod datasets -details -only maestro,asap DOWNLOADS` puts them on
   pieces already in the library, without uploading anything.
 
+## The competition's original files (2026-11-26)
+
+The owner chose these next. They are the Piano-e-Competition's own
+Disklavier PRO recordings, 2002–2018, which the other session found on a
+mirror of the competition's site (`DOWNLOADS/ecompetition/`, 2,730
+files). MAESTRO is a stripped-down subset of them.
+- **Only what MAESTRO lacks is imported**: 1,279 performances, 170 hours,
+  including all of 2002. MAESTRO often cuts or joins the competition's
+  files differently, so an original counts as new only if:
+  - its opening doesn't match a MAESTRO file (the other session's
+    catalogue);
+  - its entry wasn't matched to a MAESTRO piece by title;
+  - none of three 16-note stretches (start, middle, three quarters in) is
+    in a MAESTRO file of its year with the same timing, within 15 ms. The
+    same piece by another pianist has the same notes but not the same
+    timing. This last test removed 344 more.
+- **Named from the competition's pages**: pianist (with nationality),
+  round, composer and title, for all but 7. Those 7 are missing from the
+  archived lists, so their pianist is guessed from the file name and
+  their notes say so.
+- **Prizes as for MAESTRO**: 136 carry an award, and the 40 by first-prize
+  winners are starred (Mei-Ting Sun 2002, Peter Friis Johansson 2014 and
+  others).
+- Albums "Piano-e-Competition YEAR (originals)", one per year, with
+  tracks by pianist. Collection "Piano-e-Competition originals", grade
+  Performance (MIDI), the Disklavier curve.
+- **What the originals add over MAESTRO is set aside for now**:
+  - note-on loudness is the same 7-bit MIDI;
+  - the real release speeds have no place in the SE format;
+  - the key-position data (polyphonic aftertouch on keys that aren't
+    sounding) is not understood well enough to use.
+
+  So there is no gain in re-sourcing the MAESTRO pieces from these.
+- `sepianod datasets -only ecomp DOWNLOADS` (`cmd/sepianod/ecomporig.go`);
+  it needs `DOWNLOADS/ecomp/` for the names.
+
 ## The holiday collection (2026-11-26)
 
 The owner asked (through the other session) for holiday music first, in a

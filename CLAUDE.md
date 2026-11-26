@@ -719,3 +719,15 @@ needs no further decision:
   files, 88 1st-prize performances). The holiday collection was imported
   (115 new, 26 already there and starred; 4 starred play lists): 7,031
   pieces. A backup is now 251.5 MB and took 47 s into Google Drive.
+
+## Status (2026-11-26, night: the competition's original files)
+
+- The working copy moved to `C:\Users\todd\sepiano\progress\sepiano` (the
+  owner's choice). The app's move copied no `.git`, so git was restored
+  in place: `git init`, the two remotes, `git reset origin/main`.
+- The owner chose the Piano-e-Competition originals next. `sepianod
+  datasets -only ecomp` (`cmd/sepianod/ecomporig.go`) imports the 1,279
+  MAESTRO lacks: 170 h, named from the competition's pages, 136 with
+  prizes, 40 starred. `maestroHas` finds performances MAESTRO holds cut
+  or joined differently: 16-note stretches with the same timing within
+  15 ms. Tried in the simulator (all convert).

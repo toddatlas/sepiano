@@ -420,12 +420,10 @@ To do:
 
 Waiting for the owner's choice (downloaded by the other session, kept in
 `C:\Users\todd\sepiano\datasets`, personal use only):
-- [ ] **The original Piano-e-Competition files** (`downloads/ecompetition/`):
-      2,730 Disklavier PRO files, 2002–2018, of which MAESTRO is a stripped
-      subset. About 1,668 are not in MAESTRO (at least 200 hours, including
-      all of 2002), and they are named by competitor. They also carry
-      release velocities and key-position data that MAESTRO dropped. Not
-      yet understood well enough to use beyond notes and pedals.
+- [x] **The original Piano-e-Competition files** (the owner chose them
+      next, 2026-11-26): the 1,279 that MAESTRO lacks, 170 hours, named and
+      with prizes (docs/LIBRARIES.md, "The competition's original files").
+      Their release speeds and key-position data are set aside.
 - [ ] **ATEPP** (12,011 transcriptions of 49 famous pianists),
       **Aria-MIDI** (32,522, the roughest) and **GiantMIDI-Piano** (10,855
       from YouTube). Together about 55,000 pieces: decide first how big the
