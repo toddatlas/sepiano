@@ -1051,8 +1051,14 @@ function nowPlayingScreen(root) {
 
     const live = s.state === 'playing' || s.state === 'paused';
     level.render(live ? s.level : s.target_level, s.min_level, busy.has('level'));
-    setText(levelNote, live ? '' : 'Used when the next piece starts.');
-    levelNote.hidden = live;
+    if (s.level_on_pi) {
+      // The Pi softens the notes it sends; the piano reads a few seconds ahead.
+      setText(levelNote, live ? 'Heard after a few seconds: the piano reads a little ahead.' : 'Used when the next piece starts.');
+      levelNote.hidden = false;
+    } else {
+      setText(levelNote, live ? '' : 'Used when the next piece starts.');
+      levelNote.hidden = live;
+    }
   }
 
   function renderPlaying(s) {
@@ -4116,7 +4122,7 @@ function statusScreen(root) {
       h('div', { class: 'select-wrap' }, prefSel),
       h('p', { class: 'hint' }, 'When a performance has several renderings, the library shows this one.')),
     defLevel.el,
-    h('p', { class: 'level-hint' }, 'The level each piece starts at.'));
+    h('p', { class: 'level-hint' }, 'The level each piece starts at. The Pi makes the notes softer as it sends them; the piano’s own level command stays at 0.'));
 
   const rescanBtn = h('button', { class: 'btn', type: 'button', onclick: rescan }, icon('refresh'), 'Rescan library folder');
   const libCard = h('section', { class: 'card' },

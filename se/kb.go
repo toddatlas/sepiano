@@ -3,6 +3,7 @@ package se
 import (
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 )
 
@@ -144,67 +145,132 @@ func (k *KB) Notes() []Event {
 // original encoder does it, so re-encoding a parsed file reproduces it exactly
 // (including the 0xFF padding when pad is true).
 func (k *KB) Encode(pad bool) ([]byte, error) {
+	r, err := k.Reader(pad, nil)
+	if err != nil {
+		return nil, err
+	}
+	return io.ReadAll(r)
+}
+
+// Reader encodes the key stream lazily, exactly as Encode does: each event
+// is encoded only when reading reaches it, and vel, if not nil, gives a
+// pressed key's velocity at that moment. Bytes already read never change,
+// so vel can change what is still to come while the file is being read (the
+// player's volume on the Pi). A velocity vel returns above MaxVelocity is
+// an error at that point.
+func (k *KB) Reader(pad bool, vel func(Event) uint16) (io.Reader, error) {
+	for i := 0; i < len(k.Text); i++ {
+		if k.Text[i] == FillerKey {
+			return nil, errors.New("se: header text may not contain 0x7F")
+		}
+	}
 	ev := append([]Event(nil), k.Events...)
 	sort.SliceStable(ev, func(i, j int) bool { return ev[i].Tick < ev[j].Tick })
 	if len(ev) == 0 || ev[0].Tick != 0 || ev[0].Key != FillerKey || ev[0].On {
 		// The header text is terminated by the first event byte, which must be 0x7F.
 		ev = append([]Event{{Tick: 0, Key: FillerKey}}, ev...)
 	}
+	for _, e := range ev {
+		if e.Key > 0x7F {
+			return nil, fmt.Errorf("se: key %d out of range", e.Key)
+		}
+		if e.On && e.Key != 0 && vel == nil && e.Vel > MaxVelocity {
+			return nil, fmt.Errorf("se: velocity %d out of range", e.Vel)
+		}
+	}
 	end := k.End
 	if last := ev[len(ev)-1].Tick; end < last {
 		end = last
 	}
-	out := append([]byte(nil), k.Seed[:]...)
-	out = append(out, k.Format, k.Model, byte(len(k.Extra)>>8), byte(len(k.Extra)))
-	out = append(out, k.Extra...)
-	for i := 0; i < len(k.Text); i++ {
-		if k.Text[i] == FillerKey {
-			return nil, errors.New("se: header text may not contain 0x7F")
-		}
+	r := &kbReader{ev: ev, end: end, pad: pad, vel: vel, c: NewCipher(k.Seed)}
+	r.buf = append(r.buf, k.Seed[:]...) // the seed itself is stored in the clear
+	hdr := append([]byte{k.Format, k.Model, byte(len(k.Extra) >> 8), byte(len(k.Extra))}, k.Extra...)
+	r.add(append(hdr, k.Text...)...)
+	return r, nil
+}
+
+// kbReader is Reader's lazy encoder.
+type kbReader struct {
+	ev   []Event
+	i    int // the next event to encode
+	end  uint32
+	pad  bool
+	vel  func(Event) uint16
+	c    *Cipher
+	buf  []byte // encoded and scrambled, not read yet
+	done bool
+	err  error
+}
+
+// add scrambles b and queues it.
+func (r *kbReader) add(b ...byte) {
+	for _, x := range b {
+		r.buf = append(r.buf, r.c.Byte(x))
 	}
-	out = append(out, k.Text...)
-	for i, e := range ev {
-		if e.Key > 0x7F {
-			return nil, fmt.Errorf("se: key %d out of range", e.Key)
+}
+
+func (r *kbReader) Read(p []byte) (int, error) {
+	for len(r.buf) < len(p) && !r.done && r.err == nil {
+		r.next()
+	}
+	n := copy(p, r.buf)
+	r.buf = r.buf[n:]
+	if n == 0 {
+		if r.err != nil {
+			return 0, r.err
 		}
-		next := end
-		if i+1 < len(ev) {
-			next = ev[i+1].Tick
+		return 0, io.EOF
+	}
+	return n, nil
+}
+
+// next encodes one event, or the end of the stream.
+func (r *kbReader) next() {
+	if r.i == len(r.ev) {
+		r.add(0xFF)
+		if r.pad {
+			// Zenph files end with 20 0xFF bytes in total; the player stops at the first.
+			for range 19 {
+				r.add(0xFF)
+			}
 		}
-		if e.On && e.Key == 0 {
-			out = append(out, 0x80) // marker byte with no velocity, like 0x00
-		} else if e.On {
-			v := e.Vel
-			if v > MaxVelocity {
-				return nil, fmt.Errorf("se: velocity %d out of range", v)
-			}
-			if v >= 1 && v <= 3 {
-				v = 4 // not representable; nearest encodable value
-			}
-			out = append(out, 0x80|e.Key)
-			if v > 0xFF {
-				out = append(out, byte(v>>8), byte(v))
-			} else {
-				out = append(out, byte(v))
-			}
+		r.done = true
+		return
+	}
+	e := r.ev[r.i]
+	next := r.end
+	if r.i+1 < len(r.ev) {
+		next = r.ev[r.i+1].Tick
+	}
+	r.i++
+	if e.On && e.Key == 0 {
+		r.add(0x80) // marker byte with no velocity, like 0x00
+	} else if e.On {
+		v := e.Vel
+		if r.vel != nil {
+			v = r.vel(e)
+		}
+		if v > MaxVelocity {
+			r.err = fmt.Errorf("se: velocity %d out of range", v)
+			return
+		}
+		if v >= 1 && v <= 3 {
+			v = 4 // not representable; nearest encodable value
+		}
+		r.add(0x80 | e.Key)
+		if v > 0xFF {
+			r.add(byte(v>>8), byte(v))
 		} else {
-			out = append(out, e.Key)
+			r.add(byte(v))
 		}
-		gap := next - e.Tick
-		step := min(gap, 255)
-		out = append(out, byte(step))
-		for gap -= step; gap > 0; gap -= step {
-			step = min(gap, 255)
-			out = append(out, FillerKey, byte(step))
-		}
+	} else {
+		r.add(e.Key)
 	}
-	out = append(out, 0xFF)
-	if pad {
-		// Zenph files end with 20 0xFF bytes in total; the player stops at the first.
-		for range 19 {
-			out = append(out, 0xFF)
-		}
+	gap := next - e.Tick
+	step := min(gap, 255)
+	r.add(byte(step))
+	for gap -= step; gap > 0; gap -= step {
+		step = min(gap, 255)
+		r.add(FillerKey, byte(step))
 	}
-	Crypt(out)
-	return out, nil
 }

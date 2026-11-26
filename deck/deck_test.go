@@ -1,9 +1,11 @@
 package deck
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -29,7 +31,7 @@ type fixture struct {
 	events []Event
 }
 
-func newFixture(t *testing.T, tweak func(*sim.Instrument)) *fixture {
+func newFixture(t *testing.T, tweak func(*sim.Instrument), configure ...func(*Config)) *fixture {
 	inst := sim.New()
 	inst.Baud = 1_000_000 // ~100 KB/s: uploads take a few ms
 	inst.Speed = 10
@@ -37,7 +39,7 @@ func newFixture(t *testing.T, tweak func(*sim.Instrument)) *fixture {
 		tweak(inst)
 	}
 	f := &fixture{t: t, inst: inst, dir: t.TempDir()}
-	f.d = New(Config{
+	cfg := Config{
 		Connect: func(ctx context.Context, o host.ConnectOptions) (*host.Conn, error) {
 			p, err := inst.Dial()
 			if err != nil {
@@ -70,7 +72,11 @@ func newFixture(t *testing.T, tweak func(*sim.Instrument)) *fixture {
 		RetryMin:       100 * time.Millisecond,
 		RetryMax:       300 * time.Millisecond,
 		Log:            t.Logf,
-	})
+	}
+	for _, c := range configure {
+		c(&cfg)
+	}
+	f.d = New(cfg)
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	ev, unsub := f.d.Subscribe()
@@ -199,8 +205,8 @@ func TestPlayPauseResumeLevelStop(t *testing.T) {
 }
 
 func TestLevelAppliedAtStartAndFloor(t *testing.T) {
-	f := newFixture(t, func(i *sim.Instrument) { i.MinLevel = -3 })
-	if err := f.d.SetLevel(f.ctx(), -6); err != nil { // idle: remembered
+	f := newFixture(t, func(i *sim.Instrument) { i.MinLevel = -3 }, func(c *Config) { c.PlayerLevel = true }) // the player's own level
+	if err := f.d.SetLevel(f.ctx(), -6); err != nil {                                                         // idle: remembered
 		t.Fatal(err)
 	}
 	if st := f.d.Status(); st.TargetLevel != -6 || st.Level != -6 {
@@ -599,4 +605,114 @@ func TestNoDropWhileLoading(t *testing.T) {
 	}
 	f.d.Stop(f.ctx())
 	f.wait(Idle, 10*time.Second)
+}
+
+// TestLevelOnThePi: by default the level is applied by the Pi to each note
+// it sends; the player's own level is never touched (owners report it
+// overheating the piano).
+func TestLevelOnThePi(t *testing.T) {
+	f := newFixture(t, nil)
+	if st := f.d.Status(); !st.LevelOnPi || st.MinLevel == nil || *st.MinLevel != MinAppLevel {
+		t.Fatalf("status %+v", st)
+	}
+	if err := f.d.SetLevel(f.ctx(), -6); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.Play(f.ctx(), f.piece(60)); err != nil {
+		t.Fatal(err)
+	}
+	f.wait(Playing, 5*time.Second)
+	if err := f.d.ChangeLevel(f.ctx(), -1); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.d.Status(); st.Level != -7 || st.TargetLevel != -7 {
+		t.Fatalf("level %d target %d: not at once", st.Level, st.TargetLevel)
+	}
+	if err := f.d.SetLevel(f.ctx(), -40); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.d.Status(); st.Level != MinAppLevel {
+		t.Fatalf("level %d below the lowest step", st.Level)
+	}
+	time.Sleep(300 * time.Millisecond)
+	for _, line := range f.d.Info().Console {
+		if strings.Contains(line, "LEVEL=-") {
+			t.Fatalf("the player's own level was changed: %q", line)
+		}
+	}
+	f.d.Stop(f.ctx())
+	f.wait(Idle, 5*time.Second)
+}
+
+func TestSubdue(t *testing.T) {
+	cases := []struct {
+		v     uint16
+		level int
+		want  uint16
+	}{
+		{200, 0, 200},
+		{200, -1, 212},
+		{100, -16, 254},
+		{200, -16, 400}, // no softer than the calibration covers
+		{450, -4, 450},  // already softer than that: left as it is
+		{0, -8, 0},      // a silent press stays silent
+		{700, -8, 700},
+		{100, -99, 254}, // the lowest step
+	}
+	for _, c := range cases {
+		if got := Subdue(c.v, c.level); got != c.want {
+			t.Errorf("Subdue(%d, %d) = %d, want %d", c.v, c.level, got, c.want)
+		}
+	}
+}
+
+// TestOpenPerfApplyLevel: the key stream the player reads carries the level
+// of the moment it is read; the pedal files are sent as they are.
+func TestOpenPerfApplyLevel(t *testing.T) {
+	f := newFixture(t, nil)
+	j := f.piece(10)
+	base := filepath.Join(j.Dir, j.Name)
+	orig, err := se.Load(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.d.vol.Store(-8)
+	r, err := f.d.openPerf(0, base+".kb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(r)
+	kb, err := se.ParseKB(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var a, b []uint16
+	for _, e := range orig.KB.Events {
+		if e.On && !e.Filler() {
+			a = append(a, e.Vel)
+		}
+	}
+	for _, e := range kb.Events {
+		if e.On && !e.Filler() {
+			b = append(b, e.Vel)
+		}
+	}
+	if len(a) == 0 || len(a) != len(b) {
+		t.Fatalf("%d notes became %d", len(a), len(b))
+	}
+	for i := range a {
+		if b[i] != Subdue(a[i], -8) {
+			t.Fatalf("note %d: %d became %d, want %d", i, a[i], b[i], Subdue(a[i], -8))
+		}
+	}
+	lp, err := f.d.openPerf(1, base+".lp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := io.ReadAll(lp)
+	lp.Close()
+	want, _ := os.ReadFile(base + ".lp")
+	if !bytes.Equal(got, want) {
+		t.Fatal("the damper file was changed")
+	}
 }

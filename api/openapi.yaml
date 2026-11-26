@@ -1005,7 +1005,8 @@ components:
         duration_ms: { type: integer, description: Length of the whole performance }
         level: { type: integer, description: The level the player last reported (0 = as recorded) }
         target_level: { type: integer, description: The level the service applies at the start of each piece }
-        min_level: { type: [integer, "null"], description: Lowest level the player accepts, once discovered }
+        min_level: { type: [integer, "null"], description: "The lowest level: −16 when the level is on the Pi; with the player's own level, the lowest it accepts, once discovered" }
+        level_on_pi: { type: boolean, description: "The level is applied by the Pi to each note it sends (a change is heard after the few seconds the piano reads ahead); the piano's own level stays at 0" }
         message: { type: string, description: Fault or warning text, empty when all is well }
         recording_title: { type: string, description: Title for the recording in progress }
         program: { type: string, description: Banner of the program running on the piano }

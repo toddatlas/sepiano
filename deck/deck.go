@@ -65,24 +65,27 @@ type PieceRef struct {
 
 // Status is the deck's state as clients see it.
 type Status struct {
-	State          State       `json:"state"`
-	Online         bool        `json:"online"`
-	Piece          *PieceRef   `json:"piece"` // the track playing now
-	Collection     *Collection `json:"collection"`
-	Tracks         []TrackRef  `json:"tracks"`
-	TrackIndex     int         `json:"track_index"`
-	PositionMs     int64       `json:"position_ms"`
-	DurationMs     int64       `json:"duration_ms"`
-	Level          int         `json:"level"`
-	TargetLevel    int         `json:"target_level"`
-	MinLevel       *int        `json:"min_level"`
-	Message        string      `json:"message"`
-	RecordingTitle string      `json:"recording_title,omitempty"`
-	Program        string      `json:"program,omitempty"`
-	Voiced         bool        `json:"voiced"`    // playing with software voicing
-	Corrected      bool        `json:"corrected"` // a recording playing with the per-key corrections
-	Simulated      bool        `json:"simulated"`
-	Since          time.Time   `json:"since"`
+	State       State       `json:"state"`
+	Online      bool        `json:"online"`
+	Piece       *PieceRef   `json:"piece"` // the track playing now
+	Collection  *Collection `json:"collection"`
+	Tracks      []TrackRef  `json:"tracks"`
+	TrackIndex  int         `json:"track_index"`
+	PositionMs  int64       `json:"position_ms"`
+	DurationMs  int64       `json:"duration_ms"`
+	Level       int         `json:"level"`
+	TargetLevel int         `json:"target_level"`
+	MinLevel    *int        `json:"min_level"`
+	// LevelOnPi: the level is applied by the Pi to each note it sends, and
+	// the piano's own level stays at 0 (Config.PlayerLevel false).
+	LevelOnPi      bool      `json:"level_on_pi"`
+	Message        string    `json:"message"`
+	RecordingTitle string    `json:"recording_title,omitempty"`
+	Program        string    `json:"program,omitempty"`
+	Voiced         bool      `json:"voiced"`    // playing with software voicing
+	Corrected      bool      `json:"corrected"` // a recording playing with the per-key corrections
+	Simulated      bool      `json:"simulated"`
+	Since          time.Time `json:"since"`
 }
 
 // Job is a performance to play: the files Dir/Name.kb, .lp and .sp.
@@ -167,6 +170,12 @@ type Config struct {
 	// Level is the remembered level; OnLevel is told when it changes.
 	Level   int
 	OnLevel func(level int)
+	// PlayerLevel makes the level press the player's own Down and Up keys
+	// (the old suite's way, "LEVEL=-1" …). Left false, the Pi applies the
+	// level to each note as it sends the key stream (Subdue), and the
+	// piano's level stays at 0: owners report the piano's level command
+	// overheating the instrument.
+	PlayerLevel bool
 
 	Log func(format string, args ...any)
 
@@ -191,6 +200,7 @@ type Deck struct {
 	cur     atomic.Pointer[host.Conn]
 	rx, tx  atomic.Int64
 	lastTS  atomic.Uint32 // the piano's latest clock reading; bit 16 marks it valid
+	vol     atomic.Int32  // the level on the Pi, read as the key stream is sent (volume.go)
 
 	// Owned by the run goroutine.
 	ctx        context.Context
@@ -295,7 +305,16 @@ func New(cfg Config) *Deck {
 	d := &Deck{cfg: cfg, cmds: make(chan command), inbox: make(chan any, 256), subs: map[chan Event]struct{}{},
 		released: make(chan struct{})}
 	close(d.released)
+	if !cfg.PlayerLevel {
+		cfg.Level = min(max(cfg.Level, MinAppLevel), 0)
+		d.cfg.Level = cfg.Level
+		d.vol.Store(int32(cfg.Level))
+	}
 	d.st = Status{State: Connecting, Level: cfg.Level, TargetLevel: cfg.Level, Simulated: cfg.Simulated, Since: time.Now()}
+	if !cfg.PlayerLevel {
+		m := MinAppLevel
+		d.st.MinLevel, d.st.LevelOnPi = &m, true
+	}
 	d.snap = d.st
 	return d
 }
@@ -713,6 +732,9 @@ func (d *Deck) connDone(m connDone) {
 		path = filepath.Join(s.dir(d), s.base()+".kb")
 	}
 	fs := host.NewFileService(path)
+	if s.kind == "play" && !d.cfg.PlayerLevel {
+		fs.OpenPerf = d.openPerf
+	}
 	if s.kind == "record" {
 		fs.Arg = recordingHeader(s.title, time.Now())
 	}
@@ -1052,6 +1074,12 @@ func (d *Deck) playerRunning() bool {
 
 // applyLevel steps the player toward the target level, one key at a time.
 func (d *Deck) applyLevel() {
+	if !d.cfg.PlayerLevel { // the Pi applies it; the player's level stays at 0
+		if !d.stepping {
+			d.resolve("level", nil)
+		}
+		return
+	}
 	if !d.playerRunning() || d.stepping || d.st.Level == d.st.TargetLevel {
 		if !d.stepping {
 			d.resolve("level", nil)
@@ -1069,6 +1097,9 @@ func (d *Deck) applyLevel() {
 }
 
 func (d *Deck) levelReport(n int) {
+	if !d.cfg.PlayerLevel {
+		return // the player's own level, always 0 here
+	}
 	prev := d.st.Level
 	d.st.Level = n
 	if d.stepping {
@@ -1103,6 +1134,11 @@ func (d *Deck) setTarget(t int) {
 		if d.cfg.OnLevel != nil {
 			d.cfg.OnLevel(t)
 		}
+	}
+	if !d.cfg.PlayerLevel { // on the Pi: at once, for every note not yet sent
+		d.st.Level = t
+		d.vol.Store(int32(t))
+		return
 	}
 	if !d.playerRunning() {
 		d.st.Level = t
@@ -1190,6 +1226,11 @@ func (d *Deck) command(c command) {
 			return
 		}
 		d.setTarget(t)
+		if !d.cfg.PlayerLevel {
+			d.publish()
+			reply(nil)
+			return
+		}
 		if d.playerRunning() && d.st.Level != d.st.TargetLevel {
 			if busy && d.pend.what != "level" {
 				d.publish()

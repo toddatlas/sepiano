@@ -47,7 +47,12 @@ type FileService struct {
 	// Log, if set, receives one line per request.
 	Log func(format string, args ...any)
 
-	in  [4]*os.File // 0-2 performance files, 3 generic file
+	// OpenPerf, if set, opens a performance file for reading in place of
+	// os.Open: i is 0, 1 or 2 for .kb, .lp, .sp. The deck uses it to send
+	// the key stream with the volume applied as it goes (se.KB.Reader).
+	OpenPerf func(i int, path string) (io.ReadCloser, error)
+
+	in  [4]io.ReadCloser // 0-2 performance files, 3 generic file
 	out [4]*os.File
 }
 
@@ -62,6 +67,14 @@ func (s *FileService) path(ext string) string { return filepath.Join(s.Dir, s.Na
 func (s *FileService) logf(format string, args ...any) {
 	if s.Log != nil {
 		s.Log(format, args...)
+	}
+}
+
+// closeIn closes input file i, if open.
+func (s *FileService) closeIn(i int) {
+	if s.in[i] != nil {
+		s.in[i].Close()
+		s.in[i] = nil
 	}
 }
 
@@ -175,7 +188,11 @@ func (s *FileService) handle(rw io.ReadWriter) error {
 			}
 		}
 		for i, ext := range perfExt {
-			f, err := os.Open(s.path(ext))
+			open := func(i int, path string) (io.ReadCloser, error) { return os.Open(path) }
+			if s.OpenPerf != nil {
+				open = s.OpenPerf
+			}
+			f, err := open(i, s.path(ext))
 			if err != nil {
 				return fatalf("Missing file: %s", s.path(ext))
 			}
@@ -264,11 +281,10 @@ func (s *FileService) handle(rw io.ReadWriter) error {
 		return put(req)
 	case ReqCommitPerf:
 		for i, ext := range perfExt {
-			for _, f := range []**os.File{&s.in[i], &s.out[i]} {
-				if *f != nil {
-					(*f).Close()
-					*f = nil
-				}
+			s.closeIn(i)
+			if s.out[i] != nil {
+				s.out[i].Close()
+				s.out[i] = nil
 			}
 			if err := os.Rename(s.path(ext+"$"), s.path(ext)); err != nil {
 				return fatalf("File cannot be renamed: %s", s.path(ext+"$"))
@@ -307,11 +323,10 @@ func (s *FileService) handle(rw io.ReadWriter) error {
 		}
 		return put(req)
 	case ReqCommitFile:
-		for _, f := range []**os.File{&s.in[3], &s.out[3]} {
-			if *f != nil {
-				(*f).Close()
-				*f = nil
-			}
+		s.closeIn(3)
+		if s.out[3] != nil {
+			s.out[3].Close()
+			s.out[3] = nil
 		}
 		os.Remove(s.path(s.Ext))
 		if err := os.Rename(s.path(".$$$"), s.path(s.Ext)); err != nil {
