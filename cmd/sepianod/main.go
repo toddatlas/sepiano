@@ -127,6 +127,8 @@ func run(args []string) int {
 		}
 	}
 
+	// s is made just below; the deck calls it only once a recording is saved.
+	var s *api.Server
 	d := deck.New(deck.Config{
 		Connect:    connect,
 		Port:       portName,
@@ -134,10 +136,8 @@ func run(args []string) int {
 		Player:     func() (*host.Program, error) { return progs.Load("play") },
 		Recorder:   func() (*host.Program, error) { return progs.Load("record") },
 		StagingDir: staging,
-		OnRecorded: func(dir, name, title string) (string, error) {
-			p, err := lib.AddRecording(dir, name, title)
-			return p.ID, err
-		},
+		// A recording made here, with the details given for it (api/recording.go).
+		OnRecorded:  func(dir, name, title string) (string, error) { return s.SaveRecording(dir, name, title) },
 		Level:       lib.Settings().Level,
 		PlayerLevel: lib.Settings().LevelMethod == "piano", // the player's own level command, if the owner chose it
 		OnLevel: func(level int) {
@@ -155,7 +155,7 @@ func run(args []string) int {
 	deckDone := make(chan struct{})
 	go func() { d.Run(ctx); close(deckDone) }()
 
-	s := &api.Server{Deck: d, Lib: lib, Programs: progs, Sim: inst, UI: web.Files, Version: version, Log: logf,
+	s = &api.Server{Deck: d, Lib: lib, Programs: progs, Sim: inst, UI: web.Files, Version: version, Log: logf,
 		PlayDir: filepath.Join(*data, "play"), DataDir: *data, Piano: &piano.Store{Dir: filepath.Join(*data, "eeprom")},
 		Voicing:     &piano.VoicingStore{Path: filepath.Join(*data, "voicing.json")},
 		Corrections: &piano.CorrectionsStore{Path: filepath.Join(*data, "corrections.json")},

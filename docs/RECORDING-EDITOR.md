@@ -278,6 +278,38 @@ The editor's operations live in `web/edittools.js`.
 - **Shortcuts:** Ctrl+C, X, V (Shift+V inserts), D duplicates, and Esc
   clears. Undo covers ranges too.
 
+## Recording details (2026-11-26)
+
+The owner asked for recordings to carry what the library's catalogue
+needs, with the pianist defaulting to the owner. The Record screen asks,
+all optional:
+- **Title**: what is played. Without one, it is "Recording" and the time.
+- **Composer**: suggestions from the library's composers.
+- **Pianist**: starts as Status → Settings → "Pianist for recordings" (set
+  to the owner's name on the Pi). Another name is allowed for a guest, and
+  "Make this the usual pianist" changes the setting.
+- **Album or series** (for example "Practice, November 2026"). Takes with
+  the same album are numbered in order, and the album is kept for the next
+  take on that device.
+- **Notes**: occasion, edition, tempo.
+- **Add to favorites**.
+
+How it works:
+- The details are sent when the recorder is armed (`POST /record/arm`).
+  While it waits or records they stay on screen, and changes go to the Pi
+  as they are typed (`PUT /record/details`).
+- When the recording is saved, `api.SaveRecording` puts them on the new
+  piece, along with:
+  - collection "Recorded on this piano";
+  - captured on "This piano (1909 Steinway D, Stahnke SE)";
+  - this piano's instrument (`Steinway_SED133291`, so it sorts with the
+    Steinway files);
+  - the date.
+- The next take starts with no title, composer or notes; the pianist and
+  album stay.
+- The recorder's own file header (title and time) is unchanged.
+- Everything can be changed later on the piece's page (Edit).
+
 ## Next steps, for the owner to choose
 
 The editing tools and the decode of `edit.exe` listed here before are

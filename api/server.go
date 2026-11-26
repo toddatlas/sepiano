@@ -62,6 +62,10 @@ type Server struct {
 	qmu   sync.Mutex
 	queue queue
 
+	// rec: the details for the recording being made (recording.go).
+	recMu sync.Mutex
+	rec   recordingDetails
+
 	// upNext: what plays when the current performance ends (queue.go).
 	unMu   sync.Mutex
 	upNext []upNextItem
@@ -104,6 +108,8 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/deck/restart", s.deckCmd(s.Deck.Restart))
 	m.HandleFunc("POST /api/v1/deck/level", s.level)
 	m.HandleFunc("POST /api/v1/record/arm", s.arm)
+	m.HandleFunc("GET /api/v1/record/details", s.getRecordingDetails)
+	m.HandleFunc("PUT /api/v1/record/details", s.putRecordingDetails)
 	m.HandleFunc("POST /api/v1/record/start", s.deckCmd(s.Deck.StartRecording))
 	m.HandleFunc("POST /api/v1/record/stop", s.deckCmd(s.Deck.StopRecording))
 	m.HandleFunc("POST /api/v1/record/discard", s.deckCmd(s.Deck.Discard))
@@ -261,13 +267,13 @@ func (s *Server) level(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) arm(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Title string `json:"title"`
-	}
+	// The title, and the other details for the catalogue (recording.go).
+	var req recordingDetails
 	if err := readJSON(r, &req); err != nil {
 		fail(w, 400, err.Error())
 		return
 	}
+	s.setRecDetails(req)
 	ctx, cancel := cmdContext(r)
 	defer cancel()
 	if err := s.Deck.Arm(ctx, strings.TrimSpace(req.Title)); err != nil {
@@ -521,6 +527,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 		PreferredInstrument *string `json:"preferred_instrument"`
 		Level               *int    `json:"level"`
 		LevelMethod         *string `json:"level_method"`
+		RecordingPerformer  *string `json:"recording_performer"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		fail(w, 400, err.Error())
@@ -539,6 +546,9 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		set.LevelMethod = *req.LevelMethod
+	}
+	if req.RecordingPerformer != nil {
+		set.RecordingPerformer = strings.TrimSpace(*req.RecordingPerformer)
 	}
 	if err := s.Lib.SaveSettings(set); err != nil {
 		fail(w, 400, err.Error())

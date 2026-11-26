@@ -38,6 +38,7 @@ type env struct {
 
 func newEnv(t *testing.T) *env {
 	data := t.TempDir()
+	var s *Server // made below; the deck calls it once a recording is saved
 	lib, err := library.Open(data)
 	if err != nil {
 		t.Fatal(err)
@@ -61,17 +62,14 @@ func newEnv(t *testing.T) *env {
 		Player:     func() (*host.Program, error) { return progs.Load("play") },
 		Recorder:   func() (*host.Program, error) { return progs.Load("record") },
 		StagingDir: t.TempDir(),
-		OnRecorded: func(dir, name, title string) (string, error) {
-			p, err := lib.AddRecording(dir, name, title)
-			return p.ID, err
-		},
-		RetryMin: 100 * time.Millisecond, RetryMax: 200 * time.Millisecond,
+		OnRecorded: func(dir, name, title string) (string, error) { return s.SaveRecording(dir, name, title) },
+		RetryMin:   100 * time.Millisecond, RetryMax: 200 * time.Millisecond,
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
 	// The folders as sepianod lays them out (cmd/sepianod), so a backup holds them.
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: filepath.Join(data, "play"), DataDir: data, Piano: &piano.Store{Dir: filepath.Join(data, "eeprom")}, Voicing: &piano.VoicingStore{Path: filepath.Join(data, "voicing.json")}, Corrections: &piano.CorrectionsStore{Path: filepath.Join(data, "corrections.json")}, Fits: &piano.FitStore{Path: filepath.Join(data, "fits.json")},
+	s = &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: filepath.Join(data, "play"), DataDir: data, Piano: &piano.Store{Dir: filepath.Join(data, "eeprom")}, Voicing: &piano.VoicingStore{Path: filepath.Join(data, "voicing.json")}, Corrections: &piano.CorrectionsStore{Path: filepath.Join(data, "corrections.json")}, Fits: &piano.FitStore{Path: filepath.Join(data, "fits.json")},
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -236,6 +234,65 @@ func TestRecordingThroughAPI(t *testing.T) {
 	ps := e.lib.List(library.Filter{})
 	if len(ps) != 1 || ps[0].Title != "Take one" || ps[0].Origin != library.OriginRecorded || ps[0].RecordedOn == "" {
 		t.Fatalf("library after recording: %+v", ps)
+	}
+	if p := ps[0]; p.Collection != RecordedCollection || p.Instrument != library.DefaultInstrument || p.Performer != "" {
+		t.Fatalf("catalogue details: %+v", p)
+	}
+}
+
+// Recording details: the pianist defaults to the Settings' pianist; the
+// rest are given at arm time or while recording; an album gets the next
+// track number; the next take starts with no details.
+func TestRecordingDetails(t *testing.T) {
+	e := newEnv(t)
+	if code, b := e.do("PUT", "/api/v1/settings", map[string]any{"recording_performer": "  The Owner "}); code != 200 || !strings.Contains(string(b), `"recording_performer":"The Owner"`) {
+		t.Fatalf("settings: %d %s", code, b)
+	}
+	take := func(arm map[string]any, during map[string]any) library.Piece {
+		t.Helper()
+		before := map[string]bool{}
+		for _, p := range e.lib.List(library.Filter{Hidden: "all"}) {
+			before[p.ID] = true
+		}
+		if code, b := e.do("POST", "/api/v1/record/arm", arm); code != 202 {
+			t.Fatalf("arm: %d %s", code, b)
+		}
+		e.waitState("armed")
+		e.do("POST", "/api/v1/record/start", nil)
+		if during != nil {
+			if code, b := e.do("PUT", "/api/v1/record/details", during); code != 200 {
+				t.Fatalf("details: %d %s", code, b)
+			}
+		}
+		time.Sleep(300 * time.Millisecond)
+		e.do("POST", "/api/v1/record/stop", nil)
+		e.waitState("idle")
+		for _, p := range e.lib.List(library.Filter{Hidden: "all"}) {
+			if !before[p.ID] {
+				return p
+			}
+		}
+		t.Fatal("no recording saved")
+		return library.Piece{}
+	}
+	p := take(map[string]any{"title": "Nocturne", "composer": "Chopin", "album": "Evening practice", "notes": "Op. 9 No. 2, slower tempo", "favorite": true}, nil)
+	if p.Title != "Nocturne" || p.Composer != "Chopin" || p.Performer != "The Owner" || p.Album != "Evening practice" || p.Track != 1 ||
+		p.Notes != "Op. 9 No. 2, slower tempo" || !p.Favorite || p.Collection != RecordedCollection || p.CapturedOn != RecordedCapturedOn {
+		t.Fatalf("first take: %+v", p)
+	}
+	// Changed while recording: another pianist, a better title.
+	p = take(map[string]any{"title": "Etude", "album": "Evening practice"},
+		map[string]any{"title": "Étude Op. 10 No. 3", "performer": "A Guest", "album": "Evening practice"})
+	if p.Title != "Étude Op. 10 No. 3" || p.Performer != "A Guest" || p.Track != 2 || p.Favorite || p.Composer != "" {
+		t.Fatalf("second take: %+v", p)
+	}
+	// Nothing given: the default pianist, no album, the deck's own title.
+	p = take(map[string]any{}, nil)
+	if p.Performer != "The Owner" || p.Album != "" || p.Title == "" {
+		t.Fatalf("third take: %+v", p)
+	}
+	if _, b := e.do("GET", "/api/v1/record/details", nil); !strings.Contains(string(b), `"title":""`) {
+		t.Fatalf("details after saving: %s", b)
 	}
 }
 

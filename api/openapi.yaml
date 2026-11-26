@@ -328,13 +328,29 @@ paths:
       summary: Prepare to record
       description: |
         Uploads the recorder program. The deck goes `loading`, then `armed`
-        when the piano is ready. Recording starts with `/record/start`.
+        when the piano is ready. Recording starts with `/record/start`. The
+        body's details go onto the recording when it is saved (all optional;
+        the pianist defaults to the setting `recording_performer`); the
+        piece is also marked "Recorded on this piano", with this piano's
+        instrument and the date.
       requestBody:
-        content: { application/json: { schema: { type: object, properties: { title: { type: string } } } } }
+        content: { application/json: { schema: { $ref: "#/components/schemas/RecordingDetails" } } }
       responses:
         "202": { $ref: "#/components/responses/Status" }
         "409": { $ref: "#/components/responses/Error" }
         "503": { $ref: "#/components/responses/Error" }
+  /record/details:
+    get:
+      summary: The details for the recording being made (empty after it is saved)
+      responses:
+        "200": { description: The details, content: { application/json: { schema: { $ref: "#/components/schemas/RecordingDetails" } } } }
+    put:
+      summary: Change them while the recorder waits or records; they apply when it saves
+      requestBody:
+        required: true
+        content: { application/json: { schema: { $ref: "#/components/schemas/RecordingDetails" } } }
+      responses:
+        "200": { description: The details, content: { application/json: { schema: { $ref: "#/components/schemas/RecordingDetails" } } } }
   /record/start:
     post:
       summary: Start recording (Space)
@@ -1317,6 +1333,16 @@ components:
                   piece: { $ref: "#/components/schemas/Piece" }
                   renderings: { type: integer, description: "Versions of this track in the library (1 = just this one)" }
 
+    RecordingDetails:
+      type: object
+      properties:
+        title: { type: string }
+        composer: { type: string }
+        performer: { type: string, description: "The pianist; empty: the setting recording_performer" }
+        album: { type: string, description: "Takes with the same album get the next track number" }
+        notes: { type: string }
+        favorite: { type: boolean, description: Star the recording }
+
     UpNextItem:
       type: object
       properties:
@@ -1349,6 +1375,8 @@ components:
       properties:
         preferred_instrument: { type: string, description: "Rendering to prefer when a performance has several" }
         level: { type: integer, maximum: 0, description: "Default level (same as target_level)" }
+        level_method: { type: string, enum: [pi, piano], description: "How the level is applied: by the Pi to each note (default), or the player's own level command" }
+        recording_performer: { type: string, description: "The pianist a recording made here gets when none is given" }
 
     Program:
       type: object

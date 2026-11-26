@@ -734,3 +734,18 @@ needs no further decision:
 - Imported into the Pi the same night: all 1,279 added, none failed. The
   library is 8,310 pieces (795 hours); 581 starred, 569 with a prize.
   ASAP's names were refreshed with the spelling fixes (`-details`).
+
+## Status (2026-11-26, night: recording details)
+
+- The owner asked for recordings to be catalogued, the pianist defaulting
+  to the owner. The Record screen asks title, composer, pianist, album or
+  series, notes and a star (docs/RECORDING-EDITOR.md, "Recording
+  details"); `api/recording.go` keeps them from arm (and `PUT
+  /record/details` while recording) to the save. `SaveRecording` (now the
+  deck's `OnRecorded`) adds collection, captured on, this piano's
+  instrument and the next album track. The default pianist is the setting
+  `recording_performer` (Status → Settings). It lives on the Pi, not in the
+  code: the repository is public.
+- Tried in the simulator: a take armed with details, its title changed
+  while waiting, saved with all of them; the form kept pianist and album.
+- Flaky under load too: `link.TestFlowControl` (passed 2 of 3 alone).

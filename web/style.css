@@ -1574,3 +1574,17 @@ body.editor-focus .ed-bar .ed-size { min-height: 30px; font-size: 13px; }
 
 /* A prize the performance won (Piano-e-Competition winners). */
 .award-pill { background: #f6e7b4; color: #6b4e00; }
+
+/* Record: the recording's details. */
+.rec-details { text-align: left; }
+.rec-details textarea.input.rec-notes { min-height: 72px; }
+.rec-details-card { margin-top: 24px; text-align: left; }
+.linkish {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent-ink);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}

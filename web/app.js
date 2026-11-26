@@ -3031,24 +3031,78 @@ function recordScreen(root) {
   let shownError = null;
   let savedKey = null;
 
+  // The recording's details for the catalogue (api/recording.go), all
+  // optional. The pianist starts as Settings' "Pianist for recordings"; the
+  // album is kept for the next take on this device. They can be changed
+  // while the recorder waits or records, and on the piece's page later.
   const titleInput = h('input', {
     class: 'input',
     id: 'rec-title',
     type: 'text',
-    placeholder: 'For example: Sunday practice',
+    placeholder: 'e.g. Nocturne, Op. 9 No. 2',
     autocomplete: 'off',
     autocapitalize: 'sentences',
-    enterkeyhint: 'go',
     maxlength: '120',
   });
+  const composerInput = h('input', { class: 'input', id: 'rec-composer', type: 'text', list: 'rec-composers', autocomplete: 'off', maxlength: '120', placeholder: 'e.g. Chopin' });
+  const pianistInput = h('input', { class: 'input', id: 'rec-pianist', type: 'text', autocomplete: 'name', maxlength: '120' });
+  const albumInput = h('input', { class: 'input', id: 'rec-album', type: 'text', list: 'rec-albums', autocomplete: 'off', maxlength: '120', placeholder: 'e.g. Practice, November 2026' });
+  const notesInput = h('textarea', { class: 'input rec-notes', id: 'rec-notes', rows: '3', maxlength: '2000', placeholder: 'Occasion, edition, tempo, anything worth remembering' });
+  const favInput = h('input', { type: 'checkbox', id: 'rec-fav' });
+  const composersList = h('datalist', { id: 'rec-composers' });
+  const albumsList = h('datalist', { id: 'rec-albums' });
+  const recField = (id, label, input, hint) => h('div', { class: 'field' }, h('label', { for: id }, label), input, hint && h('p', { class: 'hint' }, hint));
+  const pianistHint = h('p', { class: 'hint' });
+  const detailFields = h('div', { class: 'rec-details' },
+    recField('rec-title', 'Title', titleInput),
+    recField('rec-composer', 'Composer', composerInput),
+    h('div', { class: 'field' }, h('label', { for: 'rec-pianist' }, 'Pianist'), pianistInput, pianistHint),
+    recField('rec-album', 'Album or series', albumInput, 'Takes with the same album are numbered in order.'),
+    recField('rec-notes', 'Notes', notesInput),
+    h('label', { class: 'corr-check', for: 'rec-fav' }, favInput, h('span', null, 'Add to favorites')),
+    h('p', { class: 'hint' }, 'All optional, and all can be changed later on the piece’s page. The date and “Recorded on this piano” are added by themselves.'),
+    composersList, albumsList);
+  try { albumInput.value = localStorage.getItem('sepiano.recAlbum') || ''; } catch { /* private browsing */ }
+  const defaultPianist = () => (app.settings && app.settings.recording_performer) || '';
+  let pianistShown = defaultPianist();
+  pianistInput.value = pianistShown;
+  function showPianistHint() {
+    const d = defaultPianist();
+    fill(pianistHint, d
+      ? (pianistInput.value.trim() === d || !pianistInput.value.trim() ? `Usually ${d} (Settings).` : [`Usually ${d}. `, h('button', { class: 'linkish', type: 'button', onclick: makeDefault }, 'Make this the usual pianist')])
+      : ['Set the usual pianist in ', h('a', { href: '#/status' }, 'Status → Settings'), pianistInput.value.trim() ? [', or ', h('button', { class: 'linkish', type: 'button', onclick: makeDefault }, 'make this the usual pianist')] : '', '.']);
+  }
+  async function makeDefault() {
+    if (await saveSettings({ recording_performer: pianistInput.value.trim() }, true)) {
+      toast(`${pianistInput.value.trim()} is now the usual pianist.`);
+      showPianistHint();
+    }
+  }
+  function details() {
+    return {
+      title: titleInput.value.trim(), composer: composerInput.value.trim(), performer: pianistInput.value.trim(),
+      album: albumInput.value.trim(), notes: notesInput.value.trim(), favorite: favInput.checked,
+    };
+  }
+  // While the recorder waits or records, changes go to the Pi at once.
+  const sendDetails = debounce(() => {
+    if (mode === 'armed' || mode === 'recording' || mode === 'loading') api('PUT', '/record/details', details()).catch((err) => toast(err.message, 'error'));
+  }, 500);
+  for (const el of [titleInput, composerInput, pianistInput, albumInput, notesInput]) el.addEventListener('input', () => { sendDetails(); if (el === pianistInput) showPianistHint(); });
+  favInput.addEventListener('change', sendDetails);
+  showPianistHint();
+  // Suggestions: the composers and albums already in the library.
+  getAllPieces().then((ps) => {
+    if (!alive) return;
+    fill(composersList, uniqSorted(ps.map((p) => p.composer)).map((c) => h('option', { value: c })));
+    fill(albumsList, uniqSorted(ps.map((p) => p.album)).map((a) => h('option', { value: a })));
+  }, () => {});
+
   const armBtn = h('button', { class: 'btn btn-primary btn-large btn-block', type: 'submit' }, 'Get ready');
-  const armForm = h('form', { onsubmit: (e) => { e.preventDefault(); arm(); } },
-    h('div', { class: 'field' },
-      h('label', { for: 'rec-title' }, 'Title'),
-      titleInput,
-      h('p', { class: 'hint' }, 'Optional. You can rename it later.')),
-    armBtn,
-    h('p', { class: 'hint rec-check-hint' }, 'To check the key sensors, record each key a few times at the same loudness, one after another, and chords pressed and let go together, several times each. Then open the recording’s Key check: the keys that stand out are listed, with corrections to use.'));
+  const armForm = h('form', { onsubmit: (e) => { e.preventDefault(); arm(); } });
+  const detailsCard = h('section', { class: 'card rec-details-card' },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'This recording')));
+  const checkHint = h('p', { class: 'hint rec-check-hint' }, 'To check the key sensors, record each key a few times at the same loudness, one after another, and chords pressed and let go together, several times each. Then open the recording’s Key check: the keys that stand out are listed, with corrections to use.');
 
   // The per-key corrections recordings play with.
   const corrText = h('span', { class: 'muted small' });
@@ -3093,6 +3147,7 @@ function recordScreen(root) {
     let nodes;
     switch (mode) {
       case 'idle':
+        fill(armForm, detailFields, armBtn, checkHint);
         nodes = [h('p', { class: 'lead' }, 'Record what you play on this piano. It is saved to the library as a new piece.'), armForm, corrLink];
         break;
       case 'loading':
@@ -3144,6 +3199,11 @@ function recordScreen(root) {
       default:
         nodes = [spinner('Connecting'), h('p', { class: 'muted' }, 'Connecting…')];
     }
+    // Waiting or recording: the details stay at hand, below the controls.
+    if (mode === 'armed' || mode === 'recording') {
+      fill(detailsCard, detailsCard.firstChild, detailFields);
+      nodes.push(detailsCard);
+    }
     stage.className = 'rec-stage rec-' + mode;
     fill(stage, ...nodes);
   }
@@ -3180,6 +3240,11 @@ function recordScreen(root) {
     savedKey = key;
     savedBox.hidden = !visible;
     if (!visible) return;
+    // A take was saved: ready for the next one (same pianist and album).
+    titleInput.value = '';
+    composerInput.value = '';
+    notesInput.value = '';
+    favInput.checked = false;
     fill(savedBox,
       h('p', { class: 'saved-label' }, icon('check'), 'Recording saved'),
       h('a', { class: 'saved-title', href: pieceHref(sv.id) }, sv.title),
@@ -3211,14 +3276,14 @@ function recordScreen(root) {
     armError = null;
     busy.add('arm');
     refresh(app.status);
-    const title = titleInput.value.trim();
+    const d = details();
     try {
       app.rec.thenKeys = false; // an ordinary recording: no Key check afterwards
-      const reply = await api('POST', '/record/arm', title ? { title } : {});
+      const reply = await api('POST', '/record/arm', d);
       if (isStatus(reply)) applyReplyStatus(reply);
       app.rec.saved = null;
-      if (title) app.rec.title = title;
-      titleInput.value = '';
+      if (d.title) app.rec.title = d.title;
+      try { localStorage.setItem('sepiano.recAlbum', d.album); } catch { /* private browsing */ }
     } catch (err) {
       armError = err;
       if (err.status !== 503) toast(err.message, 'error');
@@ -3245,6 +3310,12 @@ function recordScreen(root) {
     update,
     tick,
     onLibrary() { refresh(app.status); },
+    // Settings arrived or changed: an untouched pianist follows the default.
+    onSettings() {
+      if (pianistInput.value.trim() === pianistShown || !pianistInput.value.trim()) pianistInput.value = defaultPianist();
+      pianistShown = defaultPianist();
+      showPianistHint();
+    },
     unmount() { alive = false; offCorr(); },
   };
 }
@@ -4790,6 +4861,9 @@ function statusScreen(root) {
     consoleEl);
 
   const prefSel = h('select', { class: 'input', id: 'set-pref', onchange: () => saveSettings({ preferred_instrument: prefSel.value }) });
+  const pianistInput = h('input', { class: 'input', id: 'set-pianist', type: 'text', autocomplete: 'name', maxlength: '120',
+    value: (app.settings && app.settings.recording_performer) || '',
+    onchange: () => saveSettings({ recording_performer: pianistInput.value.trim() }) });
   const defLevel = levelStepper(stepDefault, 'Default level');
   const defMethod = levelMethodToggle();
   const settingsCard = h('section', { class: 'card' },
@@ -4798,6 +4872,10 @@ function statusScreen(root) {
       h('label', { for: 'set-pref' }, 'Preferred instrument'),
       h('div', { class: 'select-wrap' }, prefSel),
       h('p', { class: 'hint' }, 'When a performance has several renderings, the library shows this one.')),
+    h('div', { class: 'field' },
+      h('label', { for: 'set-pianist' }, 'Pianist for recordings'),
+      pianistInput,
+      h('p', { class: 'hint' }, 'Who plays, unless the Record screen says otherwise. Recordings made here are catalogued under this name.')),
     defLevel.el,
     h('p', { class: 'level-hint' }, 'The level each piece starts at.'),
     defMethod.el,
@@ -5015,6 +5093,7 @@ function statusScreen(root) {
     onSettings() {
       fillPref();
       renderDefLevel();
+      if (document.activeElement !== pianistInput) pianistInput.value = (app.settings && app.settings.recording_performer) || '';
     },
     onVisible: refresh,
     unmount() {

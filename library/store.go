@@ -202,6 +202,9 @@ type Settings struct {
 	// LevelMethod: "piano" uses the player's own level command; anything
 	// else (the default, "pi") has the Pi soften the notes it sends.
 	LevelMethod string `json:"level_method,omitempty"`
+	// RecordingPerformer is the pianist a recording made here gets when none
+	// is given (the owner, usually).
+	RecordingPerformer string `json:"recording_performer,omitempty"`
 }
 
 // Filter selects pieces. Empty fields match everything.
