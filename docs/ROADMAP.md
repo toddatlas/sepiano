@@ -168,6 +168,27 @@ licences, and nothing from them goes into the public repository.
 | Transcribed from audio | GiantMIDI-Piano (ByteDance), ATEPP | Thousands of pieces transcribed from recordings | Lower accuracy; good for breadth |
 | From the score | piano-midi.de, Kunst der Fuge, Mutopia | Typed in from scores | Mechanical; little expression |
 
+**Downloaded (2026-11-26, by the owner's other session, handed over to
+this project):** in `C:\Users\todd\sepiano\datasets` on the owner's PC.
+That folder is outside the repository, and nothing in it may be
+committed. Its `README.md` has the details:
+- MAESTRO v3 MIDI: 1,276 performances, with the composer/title/year
+  catalogue;
+- Vienna 4x22: 113 native SE290 `.KB/.LP/.SP` sets and their MIDI
+  versions;
+- Batik: 36 movements as MIDI.
+
+Findings there, to verify in the Go code:
+- **Bösendorfer's SE→MIDI velocity curve**, fitted from 66 Vienna pairs:
+  SE ≈ 524.5·e^(−0.02696·MIDI), within 1.6 SE units over MIDI 15–96;
+- its pedals map 0–255 ↔ CC 0–127 linearly;
+- converting Vienna's MIDI back with that curve: onsets exact, releases
+  95% exact, velocity within 1.4% on average, and 1.9% of the native
+  notes missing from the MIDI;
+- MAESTRO: 384 or 480 ppq, one tempo each, all three pedals, and two
+  files with repeats so fast that releases must be clamped to the next
+  strike.
+
 To do:
 - [ ] **Import Vienna 4x22's SE files** (native, so a straight import).
 - [x] **Grade every piece in the app** (built 2026-11-26: Native SE,
