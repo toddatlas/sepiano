@@ -28,18 +28,38 @@ const SOFTER = 1.05;
 // Canvas layout, in CSS pixels.
 const GUTTER = 64;
 const RULER = 24;
-const VEL_H = 76;
-const PED_H = 46;
 const GAP = 8;
-const OVERVIEW = 30;
-const SOST_H = 20; // the sostenuto pedal lane
-const FIXED_H = RULER + GAP + VEL_H + GAP + PED_H + GAP + PED_H + GAP + SOST_H + GAP + OVERVIEW;
+// The lanes below the roll, in drawing units at the Comfortable size. At a
+// bigger size they keep about their size on screen (laneSizes), so the extra
+// room goes to the notes; the text in them still grows.
+let VEL_H = 76;
+let PED_H = 46;
+let OVERVIEW = 30;
+let SOST_H = 20; // the sostenuto pedal lane
+let FIXED_H = 0;
+function laneSizes(scale) {
+  VEL_H = Math.round(76 / scale);
+  PED_H = Math.round(46 / scale);
+  SOST_H = Math.max(14, Math.round(20 / scale));
+  OVERVIEW = Math.max(20, Math.round(30 / scale));
+  FIXED_H = RULER + GAP + VEL_H + GAP + PED_H + GAP + PED_H + GAP + SOST_H + GAP + OVERVIEW;
+}
+laneSizes(1);
 
 // Loudness for drawing: log hammer speed (128000 / velocity), 0 to 1.
 const L_MIN = Math.log(128000 / MAX_VEL);
 const L_MAX = Math.log(128000 / 24);
 
 const STEPS = [0.01, 0.02, 0.05, 0.1, 0.2, 0.5, 1, 2, 5, 10, 15, 30, 60, 120, 300, 600];
+
+// Sizes: everything in the editor (rows, lanes, text, the panel and the
+// toolbar) is drawn this much bigger. Remembered in this browser.
+const SIZES = [['Comfortable', 1], ['Large', 1.25], ['Extra large', 1.5]];
+const SIZE_KEY = 'editor.size';
+function savedScale() {
+  const v = parseFloat(localStorage.getItem(SIZE_KEY));
+  return SIZES.some(([, s]) => s === v) ? v : 1;
+}
 
 import * as T from './edittools.js';
 
@@ -118,6 +138,8 @@ export function editorScreen(root, [id], ui) {
   let cssW = 0;
   let cssH = 0;
   let dpr = 1;
+  let scale = savedScale(); // CSS pixels per drawing unit (SIZES)
+  laneSizes(scale);
   let rollH = 200;
   let colors = {};
   let drag = null;
@@ -139,10 +161,11 @@ export function editorScreen(root, [id], ui) {
     ['Range', 'Drag along the time ruler to mark a stretch of time (a click there moves the cursor): play it, copy it, delete it, keep only it, stretch its tempo, or set the pedals over it.'],
     ['Copy', 'Ctrl+C copies the selected notes (or the range, with its pedals); Ctrl+V mixes them in at the cursor, Ctrl+Shift+V opens a gap for them; Ctrl+D duplicates. The copy stays while the app is open, so it can go into another piece.'],
     ['Keys', 'Space plays from the cursor or stops · Delete removes · ←/→ move 10 ms (Shift: 100 ms) · Alt+←/→ move releases · ↑/↓ change key · Ctrl+Z, Ctrl+Y undo and redo · Ctrl+S saves · Esc clears the selection and the range.'],
-    ['View', 'wheel scrolls, Shift+wheel goes along; Ctrl+wheel (or pinch) zooms; Alt+wheel makes rows taller; right-drag pans; click the strip at the bottom to jump.'],
+    ['View', 'wheel scrolls, Shift+wheel goes along; Ctrl+wheel (or pinch) zooms; Alt+wheel makes rows taller; right-drag pans; click the strip at the bottom to jump. K fits the rows to the keys used, 0 shows the whole piece, F is full screen. The Size menu makes everything bigger.'],
   ];
 
   document.body.classList.add('wide-screen');
+  root.style.setProperty('--ed-scale', String(scale)); // the panel and toolbar follow the size
   root.append(h('p', { class: 'muted center' }, 'Loading the piece…'));
 
   api('GET', path + '/performance').then((r) => {
@@ -222,7 +245,7 @@ export function editorScreen(root, [id], ui) {
     if (lo > hi) { lo = 48; hi = 84; }
     lo = Math.max(LOW, lo - 3);
     hi = Math.min(HIGH, hi + 3);
-    view.rowH = Math.max(5, Math.min(16, Math.floor(rollH / (hi - lo + 1))));
+    view.rowH = Math.max(7, Math.min(22, Math.floor(rollH / (hi - lo + 1)))); // at least 7: if more keys are used than fit, the roll scrolls
     view.y = (HIGH - hi) * view.rowH;
   }
 
@@ -289,10 +312,57 @@ export function editorScreen(root, [id], ui) {
       h('div', { class: 'ed-group' },
         button('−', () => zoomAt(1 / 1.6, GUTTER + (cssW - GUTTER) / 2), { title: 'Zoom out (−)', aria: 'Zoom out' }),
         button('+', () => zoomAt(1.6, GUTTER + (cssW - GUTTER) / 2), { title: 'Zoom in (+)', aria: 'Zoom in' }),
-        button('Whole piece', fitAll, { title: 'Show the whole piece (0)' })),
+        button('Whole piece', fitAll, { title: 'Show the whole piece (0)' }),
+        button('Fit keys', () => { fitRows(); clampView(); schedule(); }, { title: 'Rows just for the keys this piece uses, as tall as fits (K)' })),
+      h('div', { class: 'ed-group' }, sizeSelect(),
+        tb.full = button('Full screen', toggleFull, { title: 'Use the whole screen for the editor (F); Esc leaves' })),
       h('div', { class: 'ed-group' }, tb.play, tb.stop),
       h('div', { class: 'ed-group' }, tb.apply, tb.ghost),
       h('div', { class: 'ed-group ed-save' }, tb.save, tb.copy));
+  }
+
+  // The size menu: rows, lanes, text, the panel and the toolbar together.
+  function sizeSelect() {
+    const sel = h('select', { class: 'input ed-size', 'aria-label': 'Size', title: 'How big everything is drawn (remembered in this browser)',
+      onchange: () => setScale(parseFloat(sel.value)) },
+    SIZES.map(([label, s]) => h('option', { value: String(s) }, label)));
+    sel.value = String(scale);
+    return sel;
+  }
+
+  function setScale(s) {
+    if (!SIZES.some(([, v]) => v === s)) return;
+    const keyAtTop = keyOf(RULER);
+    scale = s;
+    localStorage.setItem(SIZE_KEY, String(s));
+    laneSizes(s);
+    root.style.setProperty('--ed-scale', String(s));
+    sizeCanvas();
+    view.y = (HIGH - keyAtTop) * view.rowH; // keep the same keys in view
+    clampView();
+    schedule();
+  }
+
+  // Full screen hides the app's bars, and asks the browser for the whole
+  // screen where it can.
+  function toggleFull() {
+    const on = !document.body.classList.contains('editor-focus');
+    document.body.classList.toggle('editor-focus', on);
+    if (on && document.documentElement.requestFullscreen && !document.fullscreenElement) {
+      document.documentElement.requestFullscreen().catch(() => {});
+    } else if (!on && document.fullscreenElement && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+    if (tb.full) setText(tb.full.lastChild || tb.full, on ? 'Leave full screen' : 'Full screen');
+    requestAnimationFrame(() => { sizeCanvas(); schedule(); });
+  }
+
+  function onFullscreenChange() {
+    if (!document.fullscreenElement && document.body.classList.contains('editor-focus')) {
+      document.body.classList.remove('editor-focus');
+      if (tb.full) setText(tb.full.lastChild || tb.full, 'Full screen');
+      requestAnimationFrame(() => { sizeCanvas(); schedule(); });
+    }
   }
 
   let headKey = '';
@@ -882,17 +952,20 @@ export function editorScreen(root, [id], ui) {
     // panel when it sits below rather than beside the roll.
     const below = insp.isConnected && insp.getBoundingClientRect().left < rect.left + 20;
     const avail = window.innerHeight - rect.top - pad - 36 - (below ? 190 : 0);
-    cssW = Math.max(320, Math.floor(wrap.clientWidth));
-    rollH = Math.max(140, Math.floor(avail - FIXED_H));
+    // cssW, cssH and rollH are in drawing units: CSS pixels divided by the
+    // size (scale), so a bigger size shows less, bigger.
+    const boxW = Math.max(320, Math.floor(wrap.clientWidth));
+    cssW = Math.floor(boxW / scale);
+    rollH = Math.max(140, Math.floor(avail / scale - FIXED_H));
     cssH = FIXED_H + rollH;
     dpr = window.devicePixelRatio || 1;
-    const w = Math.round(cssW * dpr);
-    const hh = Math.round(cssH * dpr);
+    const w = Math.round(boxW * dpr);
+    const hh = Math.round(cssH * scale * dpr);
     if (canvas.width !== w || canvas.height !== hh) {
       canvas.width = w;
       canvas.height = hh;
-      canvas.style.width = cssW + 'px';
-      canvas.style.height = cssH + 'px';
+      canvas.style.width = boxW + 'px';
+      canvas.style.height = Math.round(cssH * scale) + 'px';
     }
     if (doc) clampView();
   }
@@ -945,7 +1018,7 @@ export function editorScreen(root, [id], ui) {
 
   function pos(e) {
     const r = canvas.getBoundingClientRect();
-    return { x: e.clientX - r.left, y: e.clientY - r.top };
+    return { x: (e.clientX - r.left) / scale, y: (e.clientY - r.top) / scale };
   }
 
   function onDown(e) {
@@ -1299,6 +1372,7 @@ export function editorScreen(root, [id], ui) {
     else if (mod) handled = false;
     else if (k === ' ' && !onButton) { if (ourPreview(app.status)) stopPlay(); else playFrom(); }
     else if ((k === 'Delete' || k === 'Backspace') && !onButton) removeSelected();
+    else if (k === 'Escape' && document.body.classList.contains('editor-focus') && !range && !sel.size) toggleFull();
     else if (k === 'Escape') { range = null; select([], false); }
     else if (k === 'ArrowLeft' || k === 'ArrowRight') {
       const d = (k === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? NUDGE * 10 : NUDGE);
@@ -1309,6 +1383,8 @@ export function editorScreen(root, [id], ui) {
     else if (k === '+' || k === '=') zoomAt(1.6, xOf(cursor) >= GUTTER && xOf(cursor) <= cssW ? xOf(cursor) : GUTTER + (cssW - GUTTER) / 2);
     else if (k === '-' || k === '_') zoomAt(1 / 1.6, GUTTER + (cssW - GUTTER) / 2);
     else if (k === '0') fitAll();
+    else if (k === 'k' || k === 'K') { fitRows(); clampView(); schedule(); }
+    else if (k === 'f' || k === 'F') toggleFull();
     else if (k === 'Home') { cursor = 0; view.t0 = 0; clampView(); renderInspector(); schedule(); }
     else if (k === 'End') { cursor = doc.end; view.t0 = doc.end; clampView(); renderInspector(); schedule(); }
     else handled = false;
@@ -1343,6 +1419,8 @@ export function editorScreen(root, [id], ui) {
     canvas.addEventListener('dblclick', onDouble);
     canvas.addEventListener('contextmenu', noMenu);
     document.addEventListener('keydown', onKey);
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    root.style.setProperty('--ed-scale', String(scale));
     window.addEventListener('beforeunload', beforeUnload);
     window.addEventListener('resize', onResize);
     scheme.addEventListener('change', onScheme);
@@ -1383,7 +1461,7 @@ export function editorScreen(root, [id], ui) {
     const step = gridStep();
     const ta = tOf(GUTTER) - 2 / view.ppt;
     const tb = tOf(cssW);
-    c.setTransform(dpr, 0, 0, dpr, 0, 0);
+    c.setTransform(dpr * scale, 0, 0, dpr * scale, 0, 0);
     c.fillStyle = colors.bg;
     c.fillRect(0, 0, cssW, cssH);
     const tw = cssW - GUTTER;
@@ -1714,6 +1792,12 @@ export function editorScreen(root, [id], ui) {
       if (raf) cancelAnimationFrame(raf);
       document.body.classList.remove('wide-screen');
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('fullscreenchange', onFullscreenChange);
+      if (document.body.classList.contains('editor-focus')) {
+        document.body.classList.remove('editor-focus');
+        if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => {});
+      }
+      root.style.removeProperty('--ed-scale');
       window.removeEventListener('beforeunload', beforeUnload);
       window.removeEventListener('resize', onResize);
       scheme.removeEventListener('change', onScheme);

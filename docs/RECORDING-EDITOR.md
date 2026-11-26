@@ -261,6 +261,12 @@ The editor's operations live in `web/edittools.js`.
 - **Range previews keep the sostenuto paired**: down at the start if it
   was down there, and up at the end if it is still down
   (`edit.Doc.From`, `Until`).
+- **Size** (2026-11-26): the toolbar's menu, Comfortable, Large or Extra
+  large, scales the rows, the text, the toolbar and the panel together
+  (remembered in each browser). The lanes below keep about their size on
+  screen, so the extra room goes to the notes. **Fit keys** (K) gives rows
+  just for the keys the piece uses; **Full screen** (F, Esc to leave)
+  hides the app's bars.
 - **Note names** are drawn in notes when rows are tall enough (Alt+wheel).
 - **Shortcuts:** Ctrl+C, X, V (Shift+V inserts), D duplicates, and Esc
   clears. Undo covers ranges too.

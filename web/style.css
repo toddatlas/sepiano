@@ -1428,3 +1428,25 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
 
 /* Typing a word to confirm (Delete for good). */
 .confirm-phrase-row { display: grid; gap: 6px; margin: 0 0 16px; font-size: 14px; color: var(--ink-2); }
+
+/* The editor's size (Comfortable, Large, Extra large: --ed-scale, set by
+   the editor). The canvas scales its own drawing; the toolbar, title,
+   status line and panel grow with it. Values inside a zoomed element are
+   zoomed too, hence the divisions. */
+.ed-bar, .ed-head, .ed-status, .ed-insp { zoom: var(--ed-scale, 1); }
+.ed-size { width: auto; min-height: 34px; padding: 4px 30px 4px 10px; font-size: 14px; }
+@media (min-width: 1280px) {
+  .ed-main { grid-template-columns: minmax(0, 1fr) calc(290px * var(--ed-scale, 1)); }
+  .ed-insp {
+    top: calc((var(--topbar-h) + var(--sat) + 8px) / var(--ed-scale, 1));
+    max-height: calc((100vh - var(--topbar-h) - var(--sat) - 24px) / var(--ed-scale, 1));
+  }
+}
+
+/* Full screen: the editor alone, without the app's bars. */
+body.editor-focus { --topbar-h: 0px; --tabbar-h: 0px; --side-w: 0px; padding-left: 0; }
+body.editor-focus .topbar,
+body.editor-focus .tabbar,
+body.editor-focus .mini,
+body.editor-focus .banner { display: none !important; }
+body.editor-focus main { padding-top: calc(var(--sat) + 8px); }
