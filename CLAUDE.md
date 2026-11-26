@@ -686,3 +686,32 @@ The owner approved building three roadmap items in one go:
   both SUPRA pedals) come out at 32 per step, ASAP's at 60.
 - Batch 3 (ATEPP, Aria-MIDI, about 44,000 transcriptions) is downloaded
   by the other session and waits for the owner (docs/ROADMAP.md).
+- Batch 2 imported into the Pi (2026-11-26): 3,746 pieces added (ASAP
+  lists one Beethoven recording twice), none failed. The library is 6,916
+  pieces.
+
+## Status (2026-11-26, evening: favorites, seeking, Up next, names)
+
+The owner asked for several improvements at once and said to build what
+needs no further decision:
+- **Favorites** (`library/favorites.go`, `api/favorites.go`): stars on
+  pieces, albums and play lists; "Favorites first" and "Best first"
+  (`qualityTier`) in the app; a Favorites section. Zenph's Steinway
+  files start starred (`zenphSteinway`, `metaVersion` 10). The owner's
+  files came in by upload, which version 9 missed.
+- **Seeking** (`api/seek.go`): the Now Playing bar is a slider;
+  `startQueue` takes a start point and trims the first piece with
+  `edit.Doc.From` (as "Play from cursor"); tracks carry `from_ms`.
+- **Up next** (`api/queue.go`): `deck.OnPerformanceEnd` fires only when
+  the player reports "END OF PERFORMANCE" and nothing else was chosen;
+  the queue lives in memory.
+- **Editor**: on a computer the side bar shrinks to icons. Full screen
+  (`editor-focus`) puts the title and a one-row toolbar together.
+- **Competitors' names and prizes**: `cmd/sepianod/ecomp.go` and
+  `-details`; tables in `datasets/downloads/ecomp/`. Applied on the Pi:
+  every MAESTRO piece named, 426 awards, 88 1st-prize pieces starred.
+- **Holiday collection**: `sepianod holiday`; tried in the simulator
+  (141 pieces, 4 play lists; a second run adds nothing).
+- Lesson: in perl `s|…|…|` an escaped `\|` in the pattern becomes
+  "or". It matched the empty string and wrote text at the top of files
+  three times this session. Use the Edit tool for code edits.

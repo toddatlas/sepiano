@@ -135,7 +135,9 @@ func (l *Library) MergeFavorites(f Favorites) (int, error) {
 
 // zenphSteinway says whether p is SE files rendered for a Steinway (the
 // owner's Zenph collection): these start as favorites (the owner, 2026-11-26).
+// The owner's came in by upload (sepianod import); recordings, edited
+// copies and converted MIDI never count.
 func zenphSteinway(p *Piece) bool {
-	return p.Origin == OriginImport && (p.Grade == "" || p.Grade == GradeNative) &&
+	return (p.Origin == OriginImport || p.Origin == OriginUpload) && (p.Grade == "" || p.Grade == GradeNative) &&
 		strings.HasPrefix(strings.ToLower(p.Instrument), "steinway")
 }

@@ -114,13 +114,14 @@ type Piece struct {
 // Zenph names and full performer names; 3 to 6 spell out known titles; 7 adds
 // albums and tracks implied by names (the Goldberg Variations, "NN-" prefixes). 8
 // titles converted MIDI files from their names, not "Converted from …". 9
-// stars Zenph's Steinway renderings once (zenphSteinway).
-const metaVersion = 9
+// stars Zenph's Steinway renderings once (zenphSteinway); 10 again, now
+// counting SE files added by upload (sepianod import), as the owner's were.
+const metaVersion = 10
 
 // favoritesSince is the metaVersion that first starred the Steinway
 // renderings: pieces described before it are starred once when the library
 // opens; the owner's own stars are never changed after that.
-const favoritesSince = 9
+const favoritesSince = 10
 
 func (p *Piece) locked(field string) bool {
 	for _, f := range p.Locked {

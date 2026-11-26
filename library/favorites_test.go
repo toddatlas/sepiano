@@ -22,6 +22,11 @@ func TestFavorites(t *testing.T) {
 	if !zenph.Favorite || yamaha.Favorite || take.Favorite {
 		t.Fatalf("new pieces: only the Steinway rendering starts as a favorite: %v %v %v", zenph.Favorite, yamaha.Favorite, take.Favorite)
 	}
+	// The owner's files came in by upload (sepianod import).
+	kb4, lp4, sp4 := set(t, 8)
+	if up, _, _ := l.AddSet("Wild19700101-Liszt_Etude-Steinway_SED133291-SE", kb4, lp4, sp4, OriginUpload, ""); !up.Favorite {
+		t.Fatal("an uploaded Steinway rendering did not start as a favorite")
+	}
 
 	// Pieces: star, un-star; the owner's choice survives reopening.
 	if err := l.SetFavorite(FavoritePiece, zenph.ID, false); err != nil {
@@ -84,7 +89,7 @@ func TestFavorites(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	var p Piece
 	json.Unmarshal(raw, &p)
-	p.MetaVersion, p.Instrument = 8, "Steinway_SED519960"
+	p.MetaVersion, p.Instrument = favoritesSince-1, "Steinway_SED519960"
 	out, _ := json.Marshal(p)
 	os.WriteFile(path, out, 0o644)
 	l3, _ := Open(data)

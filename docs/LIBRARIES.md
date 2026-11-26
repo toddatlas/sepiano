@@ -143,6 +143,80 @@ are saved in `fits.json` and kept in backups.
 Later, if needed: a pedal *threshold* (the depth at which this piano's
 dampers start to lift), and fits per performer or per piece.
 
+## Favorites and "Best first" (2026-11-26)
+
+The owner asked for a favorites star, and for search to favor native SE
+files, Steinway ones above all.
+- **A star** on every piece, album and play list (in lists and on their
+  pages). A piece keeps it in its `.json`; albums and play lists keep
+  theirs in `favorites.json`. Both are kept in backups.
+- **Zenph's Steinway renderings start starred**: SE files whose instrument
+  is a Steinway. It happens once, when the library first opens with
+  `metaVersion` 9, and again for new ones as they are imported. Un-starring
+  one is never undone.
+- **Favorites first** (a chip, on by default, remembered on each device)
+  lists the starred ones first in Pieces, Albums and Play lists.
+- **Best first**, the default order, goes by how good the data is for this
+  piano:
+  1. SE files for a Steinway;
+  2. other SE files;
+  3. SE via MIDI;
+  4. performances;
+  5. rolls;
+  6. transcriptions;
+  7. sequenced files.
+
+  "A to Z" and "Newest first" remain.
+- **Favorites**, a section of the Library, lists the starred pieces,
+  albums and play lists, with its own search.
+- Among a piece's renderings, a starred one is the one shown and the one
+  an album plays.
+
+## Who is playing: the Piano-e-Competition's pianists (2026-11-26)
+
+MAESTRO names no pianists, and ASAP only short codes. The owner asked for
+the competitors' names, and for the winners to be marked.
+- The competition's own pages (piano-e-competition.com/midi_YYYY.asp,
+  archived by the Wayback Machine) list every competitor's repertoire with
+  the competition's MIDI file names.
+- A helper matched MAESTRO's 1,276 files to them, by year, competitor
+  number and title. Four were checked by comparing the MIDI itself.
+  - 1,197 are confirmed by the repertoire lists, ASAP or a content check.
+  - 79 are very likely (same competitor number; the title is missing from
+    the list). Their notes say so.
+  - Labels published by another project (PID-CNN) turned out wrong on 137 files,
+    mostly 2008, and were not used.
+- ASAP's codes are the competition's file names: 465 of its 514 extra
+  performances got full names.
+- **Prizes** come from the competition's winners history. A piece's
+  `award` reads, for example, "1st prize, Piano-e-Competition 2009". It
+  shows as a gold label in lists and on the piece's page, and search finds
+  it. **Each year's 1st-prize performances are starred** (106 pieces), so
+  with "Favorites first" they come right after the Zenph Steinway files.
+- The tables are in `DOWNLOADS/ecomp/` with a README (names and prizes are
+  public facts, but the folder stays with the downloads).
+  `sepianod datasets -details -only maestro,asap DOWNLOADS` puts them on
+  pieces already in the library, without uploading anything.
+
+## The holiday collection (2026-11-26)
+
+The owner asked (through the other session) for holiday music first, in a
+collection or play list, starred. `sepianod holiday -server
+http://raspberrypi.local "C:\Users\todd\sepiano\datasets"` imports the
+other session's catalogue (`holiday/holiday_catalog.csv`):
+- 141 distinct pieces, about 12 hours:
+  - Christmas 102, Nutcracker 25, Winter 14;
+  - sources: Terry Smythe's Ampico, Duo-Art and Welte rolls and 88-note
+    rolls; ATEPP, Aria-MIDI and GiantMIDI transcriptions; PiJAMA jazz;
+    MAESTRO's Pletnev Nutcracker suites.
+- Pieces already in the library keep their details and are only starred.
+- Every piece is starred, and the starred play lists "Holiday: Christmas",
+  "Holiday: Nutcracker", "Holiday: Winter" and "Holiday: everything" hold
+  them, best sources first.
+- **The 11 organ rolls (176-note) are left out** until the owner decides.
+  Written for a pipe organ, they hold many keys down for a long time.
+- Running it again adds nothing twice and refreshes the play lists.
+
 ## Importing
 
 On the PC, with the service running:

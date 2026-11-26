@@ -396,3 +396,42 @@ To do:
 - [ ] **Practice tools:** record, then compare with the original (already
       possible in the editor with "Show the original"); loop a passage.
 - [ ] The iPhone app (later, as planned).
+
+## The owner's requests of 2026-11-26, evening
+
+- [x] **Favorites**: a star on pieces, albums and play lists; "Favorites
+      first" (on by default); a Favorites section. Zenph's Steinway files
+      start starred (docs/LIBRARIES.md, "Favorites and Best first").
+- [x] **Search favors native SE, Steinway above all**: the "Best first"
+      order, the default.
+- [x] **Editor full screen**: the side bar shrinks to icons in the editor.
+      Full screen puts the title beside a one-row toolbar, so the roll
+      starts at 48 px instead of 207 on a laptop.
+- [x] **Start playback from a point on the bar** (Now Playing): tap or
+      drag; the piano takes the player again (a few seconds).
+- [x] **Up next**: queue pieces, albums and play lists while one plays.
+      Each starts when the one before it ends by itself.
+- [x] **The Piano-e-Competition's pianists and winners**: names on all
+      1,276 MAESTRO pieces and 465 ASAP pieces; prizes shown, 1st prizes
+      starred (docs/LIBRARIES.md, "Who is playing").
+- [x] **Holiday collection** (asked through the other session): 141
+      pieces, starred, in four starred play lists. Organ rolls held back
+      for the owner's decision.
+
+Waiting for the owner's choice (downloaded by the other session, kept in
+`C:\Users\todd\sepiano\datasets`, personal use only):
+- [ ] **The original Piano-e-Competition files** (`downloads/ecompetition/`):
+      2,730 Disklavier PRO files, 2002–2018, of which MAESTRO is a stripped
+      subset. About 1,668 are not in MAESTRO (at least 200 hours, including
+      all of 2002), and they are named by competitor. They also carry
+      release velocities and key-position data that MAESTRO dropped. Not
+      yet understood well enough to use beyond notes and pedals.
+- [ ] **ATEPP** (12,011 transcriptions of 49 famous pianists),
+      **Aria-MIDI** (32,522, the roughest) and **GiantMIDI-Piano** (10,855
+      from YouTube). Together about 55,000 pieces: decide first how big the
+      library and its backups should grow (now 6,916 pieces; a backup of
+      about 230 MB).
+- [ ] **Terry Smythe's other rolls**: 6,230 roll files, Ampico, Duo-Art
+      and Welte among them.
+- [ ] **The 11 holiday organ rolls**: they hold many keys down for a long
+      time. Play one at the piano with someone watching first?
