@@ -52,12 +52,12 @@ type namedFile struct {
 func datasetsCmd(args []string) int {
 	fl := flag.NewFlagSet("sepianod datasets", flag.ExitOnError)
 	server := fl.String("server", "http://127.0.0.1", "running sepianod to import into")
-	only := fl.String("only", "vienna,batik,maestro,supra,asap,pijama", "which collections, comma-separated")
+	only := fl.String("only", "vienna,batik,maestro,supra,asap,pijama", "which collections, comma-separated (also: ecomp, the competition's original files)")
 	dry := fl.Bool("n", false, "list what would be imported, and import nothing")
 	details := fl.Bool("details", false, "only set the details of pieces already in the library (found by collection and file name); upload nothing")
 	limit := fl.Int("limit", 0, "import at most this many pieces of each collection (0: all)")
 	fl.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: sepianod datasets [-server URL] [-only vienna,batik,maestro,supra,asap,pijama] [-n] [-details] [-limit N] DOWNLOADS")
+		fmt.Fprintln(os.Stderr, "usage: sepianod datasets [-server URL] [-only vienna,batik,maestro,supra,asap,pijama,ecomp] [-n] [-details] [-limit N] DOWNLOADS")
 		fmt.Fprintln(os.Stderr, "DOWNLOADS holds vienna4x22/x/, batik/midi/, maestro/maestro-v3.0.0-midi.zip, supra/, asap/ and pijama/ (docs/LIBRARIES.md).")
 		fl.PrintDefaults()
 	}
@@ -75,7 +75,7 @@ func datasetsCmd(args []string) int {
 	for _, c := range []struct {
 		name string
 		load func(string) ([]dsItem, error)
-	}{{"vienna", viennaItems}, {"batik", batikItems}, {"maestro", maestroItems}, {"supra", supraItems}, {"asap", asapItems}, {"pijama", pijamaItems}} {
+	}{{"vienna", viennaItems}, {"batik", batikItems}, {"maestro", maestroItems}, {"supra", supraItems}, {"asap", asapItems}, {"pijama", pijamaItems}, {"ecomp", ecompOriginalItems}} {
 		if !want[c.name] {
 			continue
 		}

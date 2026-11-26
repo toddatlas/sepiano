@@ -53,7 +53,7 @@ func loadEcomp(dir string) (*ecompInfo, error) {
 	if rows, col, err = readCatalogue(filepath.Join(base, "ecomp-entries.csv"), "year", "performer", "composer", "code"); err == nil {
 		for _, r := range rows {
 			code := strings.ToLower(r[col["code"]])
-			e.byCode[code] = append(e.byCode[code], ecompPerf{name: oneSpace(r[col["performer"]]), year: r[col["year"]], sure: "the competition's file " + r[col["code"]]})
+			e.byCode[code] = append(e.byCode[code], ecompPerf{name: ecompSpelling.Replace(oneSpace(r[col["performer"]])), year: r[col["year"]], sure: "the competition's file " + r[col["code"]]})
 			e.codeWork[code] = append(e.codeWork[code], r[col["composer"]])
 		}
 	}
@@ -185,3 +185,7 @@ var accentFold = strings.NewReplacer(
 	"ù", "u", "ú", "u", "û", "u", "ü", "u", "ū", "u", "ů", "u", "ű", "u",
 	"ý", "y", "ÿ", "y", "ź", "z", "ż", "z", "ž", "z",
 )
+
+// ecompSpelling corrects the competition pages' spellings that differ from
+// its winners list (as the matching did): Duepree, Johannson, Cheng Guang.
+var ecompSpelling = strings.NewReplacer("Duepree", "Dupree", "Johannson", "Johansson", "Cheng Guang", "Chen Guang")
