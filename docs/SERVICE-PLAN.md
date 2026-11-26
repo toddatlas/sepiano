@@ -180,6 +180,10 @@ The screens:
 - **Piece:** play, download as SE or MIDI, edit, hide (or show again),
   delete for good (only after typing DELETE).
 - **Albums and play lists:** play a whole album or play list, or from any track; previous and next on Now Playing.
+  Play lists you build (2026-11-26): New play list; Select in Pieces (tick
+  search results) or a piece's "Add to play list"; Rename and Edit order
+  (up, down, remove) on a list's page; "Your play list" tells them from
+  folder ones; search finds them with Play all.
 - **Record:** arm → start → stop → name it. The timer counts the Pi's
   time from "START RECORDING"; the piano's clock gave no usable position
   while recording.

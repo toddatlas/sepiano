@@ -735,13 +735,14 @@ function toast(text, level = 'info') {
 // confirmDialog({title, text, ok, danger}) -> Promise<boolean>
 // With `phrase`, the OK button only works once that word is typed (any
 // case), for things that cannot be undone.
-function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '' }) {
+function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '', input = null }) {
   const dlg = els.confirm;
   if (!dlg || typeof dlg.showModal !== 'function') {
     if (phrase) return Promise.resolve((window.prompt(`${title}\n\n${text}\n\nType ${phrase} to confirm.`) || '').trim().toUpperCase() === phrase.toUpperCase());
+    if (input) return Promise.resolve((window.prompt(`${title}\n\n${text}`, input.value || '') || '').trim() || null);
     return Promise.resolve(window.confirm(`${title}\n\n${text}`));
   }
-  if (dlg.open) return Promise.resolve(false);
+  if (dlg.open) return Promise.resolve(input ? null : false);
   setText(els.confirmTitle, title);
   setText(els.confirmText, text);
   setText(els.confirmOk, ok);
@@ -752,10 +753,20 @@ function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '' }) 
   }) : null;
   const phraseRow = phrase ? h('label', { class: 'confirm-phrase-row' }, `Type ${phrase} to confirm:`, phraseInput) : null;
   if (phraseRow) els.confirmText.after(phraseRow);
-  const typed = () => !phrase || phraseInput.value.trim().toUpperCase() === phrase.toUpperCase();
+  // With `input` ({ value, placeholder, label }) it asks for a line of text,
+  // and resolves to it (trimmed), or to null when cancelled.
+  const textInput = input ? h('input', {
+    class: 'input confirm-phrase', type: 'text', autocomplete: 'off', value: input.value || '',
+    placeholder: input.placeholder || '', 'aria-label': input.label || title,
+  }) : null;
+  const textRow = input ? h('label', { class: 'confirm-phrase-row' }, input.label || '', textInput) : null;
+  if (textRow) els.confirmText.after(textRow);
+  const typed = () => (!phrase || phraseInput.value.trim().toUpperCase() === phrase.toUpperCase())
+    && (!input || textInput.value.trim() !== '');
   const check = () => { els.confirmOk.disabled = !typed(); };
   check();
-  if (phraseInput) phraseInput.addEventListener('input', check);
+  for (const el of [phraseInput, textInput]) if (el) el.addEventListener('input', check);
+  if (textInput) textInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); els.confirmOk.click(); } });
   return new Promise((resolve) => {
     // Answer straight from the buttons; `close` (fired later, and also by
     // Escape or a backdrop tap) only counts as a cancel.
@@ -764,9 +775,10 @@ function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '' }) 
       els.confirmCancel.removeEventListener('click', onCancel);
       dlg.removeEventListener('close', onCancel);
       if (phraseRow) phraseRow.remove();
+      if (textRow) textRow.remove();
       els.confirmOk.disabled = false;
       if (dlg.open) dlg.close();
-      resolve(answer);
+      resolve(input ? (answer ? textInput.value.trim() : null) : answer);
     };
     const onOk = () => { if (typed()) finish(true); };
     const onCancel = () => finish(false);
@@ -774,7 +786,69 @@ function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '' }) 
     els.confirmCancel.addEventListener('click', onCancel);
     dlg.addEventListener('close', onCancel);
     dlg.showModal();
-    (phraseInput || els.confirmCancel).focus();
+    (textInput || phraseInput || els.confirmCancel).focus();
+    if (textInput) textInput.select();
+  });
+}
+
+// ================================================================ Play lists
+// Choosing a play list to add pieces to (the Library's Select, a piece's
+// page), or making a new one with them.
+
+async function addToPlaylist(ids, what) {
+  if (!ids.length) return;
+  let lists;
+  try {
+    const r = await api('GET', '/playlists');
+    lists = (r && r.playlists) || [];
+  } catch (err) {
+    toast(err.message, 'error');
+    return;
+  }
+  // Your own lists first, then those imported from folders.
+  lists.sort((a, b) => (!!a.source - !!b.source) || cmpText(a.name, b.name));
+  const choice = await pickDialog({
+    title: 'Add to a play list',
+    text: what,
+    newLabel: 'New play list…',
+    items: lists.map((l) => ({ value: l.id, label: l.name, sub: [tracksText(l.tracks), l.source ? 'from a folder' : 'yours'].join(' · ') })),
+  });
+  if (choice === null) return;
+  try {
+    if (choice === '') {
+      const name = await confirmDialog({ title: 'New play list', text: what, ok: 'Make it', input: { label: 'Name', placeholder: 'For example: Sunday evening' } });
+      if (!name) return;
+      const pl = await api('POST', '/playlists', { name, pieces: ids });
+      toast(`Made “${pl.name}” with ${tracksText(ids.length)}.`);
+    } else {
+      const before = lists.find((l) => l.id === choice);
+      const pl = await api('POST', playlistPath(choice) + '/pieces', { pieces: ids });
+      const added = (pl.pieces || []).length - (before ? before.tracks : 0);
+      toast(added > 0 ? `Added ${tracksText(added)} to “${pl.name}”.` : `Already in “${pl.name}”.`);
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// pickDialog shows a list to choose from; it resolves to the chosen value,
+// '' for the "new" button, or null when cancelled.
+function pickDialog({ title, text, items, newLabel }) {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (v) => { if (done) return; done = true; if (dlg.open) dlg.close(); dlg.remove(); resolve(v); };
+    const list = h('ul', { class: 'pick-list', role: 'list' },
+      items.map((it) => h('li', null, h('button', { type: 'button', class: 'pick-item', onclick: () => finish(it.value) },
+        h('span', { class: 'pick-label' }, it.label), it.sub && h('span', { class: 'pick-sub' }, it.sub)))));
+    const dlg = h('dialog', { class: 'confirm pick', 'aria-label': title },
+      h('h2', null, title),
+      text && h('p', null, text),
+      newLabel && h('button', { type: 'button', class: 'btn btn-primary pick-new', onclick: () => finish('') }, icon('plus'), newLabel),
+      items.length ? list : h('p', { class: 'muted small' }, 'No play lists yet.'),
+      h('div', { class: 'confirm-actions' }, h('button', { type: 'button', class: 'btn', onclick: () => finish(null) }, 'Cancel')));
+    dlg.addEventListener('close', () => finish(null));
+    document.body.append(dlg);
+    if (typeof dlg.showModal === 'function') dlg.showModal(); else dlg.setAttribute('open', '');
   });
 }
 
@@ -1298,12 +1372,36 @@ function libraryScreen(root, _params, ctx) {
   const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
   let allPieces = null; // hidden ones included
 
+  // Select: tick pieces (from a search, say) and add them to a play list.
+  let selecting = false;
+  const picked = new Set();
+  const selectBtn = h('button', { class: 'chip chip-toggle', type: 'button', 'aria-pressed': 'false', title: 'Tick pieces to add them to a play list',
+    onclick: () => { selecting = !selecting; if (!selecting) picked.clear(); render(); } }, 'Select');
+  const selCount = h('span', { class: 'sel-count' });
+  const selAdd = h('button', { class: 'btn btn-primary btn-small', type: 'button', disabled: true,
+    onclick: () => addToPlaylist([...picked], picked.size === 1 ? '1 piece' : `${picked.size} pieces`).then(() => { picked.clear(); render(); }) },
+  icon('plus'), 'Add to play list…');
+  const selBar = h('div', { class: 'sel-bar', hidden: true },
+    selCount,
+    h('button', { class: 'btn btn-small', type: 'button', onclick: () => { for (const r of rows()) picked.add(r.piece.id); render(); } }, 'All shown'),
+    selAdd,
+    h('button', { class: 'btn btn-small', type: 'button', onclick: () => { selecting = false; picked.clear(); render(); } }, 'Done'));
+
   root.append(
     ...libraryHead('library'),
     h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
-    h('div', { class: 'filters' }, filters.map((f) => f.el), sortChip, hiddenBtn, clearBtn),
+    h('div', { class: 'filters' }, selectBtn, filters.map((f) => f.el), sortChip, hiddenBtn, clearBtn),
     countEl,
-    body);
+    body,
+    selBar);
+
+  function renderSelect() {
+    selectBtn.classList.toggle('active', selecting);
+    selectBtn.setAttribute('aria-pressed', String(selecting));
+    selBar.hidden = !selecting;
+    setText(selCount, picked.size === 1 ? '1 selected' : `${picked.size} selected`);
+    selAdd.disabled = !picked.size;
+  }
 
   load();
 
@@ -1409,6 +1507,7 @@ function libraryScreen(root, _params, ctx) {
     clearBtn.hidden = !anyFilter;
 
     const items = rows();
+    renderSelect();
     setText(countEl, items.length === 1 ? '1 performance' : `${items.length} performances`);
     countEl.hidden = !items.length;
 
@@ -1478,7 +1577,7 @@ function libraryScreen(root, _params, ctx) {
       h('a', { class: 'row-main', href: playlistHref(pl.id) },
         h('span', { class: 'row-title' }, pl.name),
         sub && h('span', { class: 'row-sub' }, sub),
-        pl.source && h('span', { class: 'row-file' }, pl.source)),
+        h('span', { class: 'row-file' }, pl.source || 'Your play list')),
       h('button', {
         class: 'row-play', type: 'button', 'aria-label': `Play all of ${pl.name}`,
         onclick: (e) => startPlay({ playlist: pl.id }, e.currentTarget),
@@ -1487,7 +1586,10 @@ function libraryScreen(root, _params, ctx) {
 
   function row({ piece: p, count }) {
     const sub = byline(p);
-    return h('li', { class: 'row', 'data-id': p.id },
+    const box = selecting && h('input', { type: 'checkbox', 'aria-label': `Select ${p.title || 'Untitled'}`, checked: picked.has(p.id),
+      onchange: (e) => { if (e.target.checked) picked.add(p.id); else picked.delete(p.id); renderSelect(); } });
+    return h('li', { class: 'row' + (selecting ? ' rec-row' : ''), 'data-id': p.id },
+      box && h('label', { class: 'rec-check' }, box),
       h('a', { class: 'row-main', href: pieceHref(p.id) },
         h('span', { class: 'row-title' }, p.title || 'Untitled'),
         sub && h('span', { class: 'row-sub' }, sub),
@@ -1680,6 +1782,18 @@ function albumsScreen(root, _params, ctx) {
   });
 }
 
+// newPlaylist asks for a name, makes an empty play list and opens it.
+async function newPlaylist() {
+  const name = await confirmDialog({ title: 'New play list', text: 'Then add pieces from the Library: Select, or a piece’s “Add to play list”.', ok: 'Make it', input: { label: 'Name', placeholder: 'For example: Sunday evening' } });
+  if (!name) return;
+  try {
+    const pl = await api('POST', '/playlists', { name, pieces: [] });
+    location.hash = playlistHref(pl.id);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 function playlistsScreen(root, _params, ctx) {
   return collectionListScreen(root, ctx, {
     section: 'playlists',
@@ -1696,11 +1810,12 @@ function playlistsScreen(root, _params, ctx) {
     title: (p) => p.name,
     words: (p) => [p.name, p.source],
     sub: (p) => [tracksText(p.tracks), p.duration_ms > 0 && fmtTime(p.duration_ms)],
-    note: (p) => p.source,
+    note: (p) => p.source || 'Your play list',
     href: (p) => playlistHref(p.id),
     play: (p) => ({ playlist: p.id }),
     emptyTitle: 'No play lists yet',
-    emptyText: 'Play lists imported with your collection appear here.',
+    emptyText: 'Make one with New play list, or tick pieces in Pieces (Select) and add them.',
+    action: () => h('button', { class: 'btn btn-primary', type: 'button', onclick: newPlaylist }, icon('plus'), 'New play list'),
   });
 }
 
@@ -1740,6 +1855,7 @@ function collectionListScreen(root, ctx, cfg) {
   root.append(
     ...libraryHead(cfg.section),
     h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
+    cfg.action && h('div', { class: 'coll-action' }, cfg.action()),
     countEl,
     body);
 
@@ -1972,6 +2088,7 @@ function albumScreen(root, [name]) {
 function playlistScreen(root, [id]) {
   let alive = true;
   let pl = null;
+  let editing = false;
   let seq = 0;
   let playingIndex = null;
   const list = h('ul', { class: 'list', role: 'list' });
@@ -2006,17 +2123,29 @@ function playlistScreen(root, [id]) {
     const pieces = Array.isArray(pl.pieces) ? pl.pieces : [];
     const plId = playlistId();
     document.title = `${name} · Piano`;
-    fill(list, pieces.map((p, i) => trackRow({
-      index: i,
-      num: String(i + 1),
-      piece: p || {},
-      sub: byline(p || {}),
-      body: { playlist: plId, start: i },
-    })));
+    fill(list, pieces.map((p, i) => {
+      const li = trackRow({
+        index: i,
+        num: String(i + 1),
+        piece: p || {},
+        sub: byline(p || {}),
+        pill: p && p.hidden ? 'hidden' : '',
+        body: { playlist: plId, start: i },
+      });
+      if (editing) {
+        const title = (p && p.title) || 'Untitled';
+        li.classList.add('pl-edit-row');
+        li.append(h('div', { class: 'pl-edit' },
+          h('button', { class: 'ed-lanebtn pl-btn', type: 'button', disabled: i === 0, 'aria-label': `Move ${title} up`, title: 'Move up', onclick: () => move(i, -1) }, '↑'),
+          h('button', { class: 'ed-lanebtn pl-btn', type: 'button', disabled: i === pieces.length - 1, 'aria-label': `Move ${title} down`, title: 'Move down', onclick: () => move(i, 1) }, '↓'),
+          h('button', { class: 'ed-lanebtn pl-btn', type: 'button', 'aria-label': `Remove ${title} from the list`, title: 'Remove from the list (the piece stays in the library)', onclick: () => drop(i) }, icon('close'))));
+      }
+      return li;
+    }));
     fill(root,
       h('header', { class: 'piece-head' },
         h('h1', { class: 'piece-title' }, name),
-        pl.source && h('p', { class: 'collection-source' }, `Imported from ${pl.source}`),
+        pl.source ? h('p', { class: 'collection-source' }, `Imported from ${pl.source}`) : h('p', { class: 'collection-source' }, 'Your play list'),
         h('p', { class: 'collection-meta' }, collectionMeta(pieces.length, pl.duration_ms))),
       h('div', { class: 'piece-actions' },
         h('button', {
@@ -2024,12 +2153,53 @@ function playlistScreen(root, [id]) {
           type: 'button',
           disabled: !pieces.length,
           onclick: (e) => startPlay({ playlist: plId }, e.currentTarget),
-        }, icon('play'), 'Play all')),
-      pieces.length ? list : h('p', { class: 'muted center' }, 'This play list is empty.'),
+        }, icon('play'), 'Play all'),
+        h('button', { class: 'btn btn-large', type: 'button', onclick: rename }, icon('edit'), 'Rename'),
+        h('button', { class: 'btn btn-large' + (editing ? ' btn-primary' : ''), type: 'button', disabled: !pieces.length && !editing,
+          onclick: () => { editing = !editing; render(); } }, editing ? 'Done' : 'Edit order')),
+      editing && h('p', { class: 'muted small' }, 'Move pieces up or down, or take them out of the list (they stay in the library). Add pieces from the Library: Select, or a piece’s “Add to play list”.'),
+      pieces.length ? list : h('p', { class: 'muted center' }, 'This play list is empty. Add pieces from the Library: tap Select, tick some, then “Add to play list”.'),
       h('div', { class: 'danger-zone' },
         h('button', { class: 'btn btn-danger', type: 'button', onclick: remove }, icon('trash'), 'Delete play list')));
     playingIndex = null;
     markPlaying();
+  }
+
+  // save sends the list's new order; the reply is the list as stored.
+  async function save(ids) {
+    try {
+      const p = await api('PUT', playlistPath(playlistId()), { pieces: ids });
+      if (alive) { pl = p || pl; render(); }
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  function ids() { return (pl.pieces || []).map((p) => p.id); }
+
+  function move(i, d) {
+    const a = ids();
+    const j = i + d;
+    if (j < 0 || j >= a.length) return;
+    [a[i], a[j]] = [a[j], a[i]];
+    save(a);
+  }
+
+  function drop(i) {
+    const a = ids();
+    a.splice(i, 1);
+    save(a);
+  }
+
+  async function rename() {
+    const name = await confirmDialog({ title: 'Rename play list', text: '', ok: 'Rename', input: { label: 'Name', value: pl.name || '' } });
+    if (!name || name === pl.name) return;
+    try {
+      const p = await api('PUT', playlistPath(playlistId()), { name });
+      if (alive) { pl = p || pl; render(); }
+    } catch (err) {
+      toast(err.message, 'error');
+    }
   }
 
   function markPlaying() {
@@ -2131,7 +2301,8 @@ function pieceScreen(root, [id]) {
         h('button', { class: 'btn btn-small', type: 'button', onclick: () => setHidden(false) }, 'Show it again')),
       h('div', { class: 'piece-actions' },
         playBtn,
-        h('button', { class: 'btn btn-large', type: 'button', onclick: startEdit }, icon('edit'), 'Edit')),
+        h('button', { class: 'btn btn-large', type: 'button', onclick: startEdit }, icon('edit'), 'Edit'),
+        h('button', { class: 'btn btn-large', type: 'button', onclick: () => addToPlaylist([id], `“${p.title || 'Untitled'}”`) }, icon('plus'), 'Add to play list')),
       metaList([
         ['Album', p.album ? h('a', { href: albumHref(p.album) }, p.track ? `${p.album}, track ${p.track}` : p.album) : ''],
         ['Recorded', fmtRecorded(p.recorded_on)],
@@ -4140,9 +4311,9 @@ function backupCard() {
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backups')),
     lastEl,
     h('div', { class: 'btn-col' },
-      h('a', { class: 'btn btn-primary', href: API + '/backup', download: '', onclick: () => setTimeout(refresh, 4000) }, icon('download'), 'Back up everything'),
+      h('a', { class: 'btn btn-primary', href: API + '/backup', download: '', onclick: () => setTimeout(refresh, 4000) }, icon('download'), 'Back up now'),
       restoreBtn, fileInput),
-    h('p', { class: 'hint' }, 'One .zip file with everything on the Pi: every piece and its details, play lists, settings, voicing, corrections, the piano’s settings backups, and the installed programs. Set your browser to ask where to save, and choose a folder in Google Drive to keep a copy in the cloud too.'),
+    h('p', { class: 'hint' }, 'Back up now saves one .zip file with everything on the Pi (every piece and its details, play lists, settings, voicing, corrections, the piano’s settings backups, and the installed programs) to the device you are using. On a computer, choose a folder in Google Drive to keep it in the cloud too. The nightly backup from the PC goes to Google Drive by itself.'),
     h('p', { class: 'hint' }, 'Restoring adds what a backup has and this Pi lacks. Nothing here is changed or removed.'),
     report);
   refresh();

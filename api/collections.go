@@ -332,3 +332,27 @@ func (s *Server) deletePlaylist(w http.ResponseWriter, r *http.Request) {
 	s.libraryChanged("")
 	w.WriteHeader(204)
 }
+
+// addToPlaylist appends pieces to a play list, skipping those already in it.
+func (s *Server) addToPlaylist(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Pieces []string `json:"pieces"`
+	}
+	if err := readJSON(r, &req); err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	pl, added, err := s.Lib.AddToPlaylist(r.PathValue("id"), req.Pieces)
+	if errors.Is(err, library.ErrNotFound) {
+		fail(w, 404, "no such play list")
+		return
+	} else if err != nil {
+		fail(w, 400, err.Error())
+		return
+	}
+	if added > 0 {
+		s.libraryChanged("")
+	}
+	w.Header().Set("X-Added", strconv.Itoa(added))
+	s.playlistReply(w, 200, pl.ID)
+}

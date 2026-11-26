@@ -1486,3 +1486,25 @@ body.editor-focus main { padding-top: calc(var(--sat) + 8px); }
 .backup-last p { margin: 0; }
 .backup-report { margin-top: 12px; }
 .backup-report ul { margin: 6px 0 0; padding-left: 18px; }
+
+/* Play lists: New, choosing one, editing one, selecting pieces */
+.coll-action { margin: 0 0 12px; }
+dialog.pick { max-width: 420px; width: calc(100% - 32px); }
+.pick-new { width: 100%; margin: 4px 0 10px; }
+.pick-list { list-style: none; margin: 0; padding: 0; max-height: 50vh; overflow: auto; }
+.pick-item {
+  width: 100%; display: grid; gap: 2px; text-align: left; padding: 10px 12px; margin: 0 0 6px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--bg-elev); color: var(--ink); font: inherit; cursor: pointer;
+}
+.pick-item:hover { background: var(--accent-soft); }
+.pick-label { font-weight: 600; }
+.pick-sub { font-size: 13px; color: var(--muted); }
+.pl-edit-row { flex-wrap: wrap; }
+.pl-edit { display: flex; gap: 6px; margin-left: auto; padding-left: 8px; }
+.pl-btn { width: 36px; height: 32px; font-size: 16px; }
+.sel-bar {
+  position: sticky; bottom: calc(var(--tabbar-h, 0px) + var(--sab, 0px) + 8px); z-index: 5;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; padding: 10px 12px;
+  border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg-elev); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
+}
+.sel-count { font-weight: 600; margin-right: auto; }

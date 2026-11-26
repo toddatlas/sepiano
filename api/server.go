@@ -80,6 +80,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/playlists", s.createPlaylist)
 	m.HandleFunc("GET /api/v1/playlists/{id}", s.getPlaylist)
 	m.HandleFunc("PUT /api/v1/playlists/{id}", s.updatePlaylist)
+	m.HandleFunc("POST /api/v1/playlists/{id}/pieces", s.addToPlaylist)
 	m.HandleFunc("DELETE /api/v1/playlists/{id}", s.deletePlaylist)
 	m.HandleFunc("POST /api/v1/deck/pause", s.deckCmd(s.Deck.Pause))
 	m.HandleFunc("POST /api/v1/deck/resume", s.deckCmd(s.Deck.Resume))

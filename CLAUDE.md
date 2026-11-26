@@ -599,3 +599,20 @@ The owner approved building three roadmap items in one go:
   cannot see; the first try failed that way.
 - The API tests now lay out their folders as sepianod does (one data
   folder), so a backup in a test holds everything.
+
+## Status (2026-11-26, later: play lists you build)
+
+- **Play lists you build** (ROADMAP idea 7):
+  - Library → Play lists has "New play list" (`newPlaylist`);
+  - Pieces has a **Select** chip, which ticks rows (search results
+    included) and shows a bar with "Add to play list…";
+  - a piece's page has "Add to play list". `addToPlaylist` opens a chooser
+    (`pickDialog`): your lists first, then "New play list…";
+  - `POST /playlists/{id}/pieces` (`library.AddToPlaylist`) appends,
+    each piece once;
+  - a list's page has Rename and Edit order (up, down, remove; saved with
+    PUT), and "Your play list" or "Imported from …";
+  - search already finds play lists, and now labels yours.
+- `confirmDialog` takes `input` (asks for a line of text, resolving to it
+  or null).
+- The backup button is now "Back up now".

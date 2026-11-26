@@ -136,6 +136,20 @@ paths:
       responses:
         "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Playlist" } } } }
         "400": { $ref: "#/components/responses/Error" }
+  /playlists/{id}/pieces:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    post:
+      summary: Add pieces to the end of a play list (each once; those already in it are skipped)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, required: [pieces], properties: { pieces: { type: array, items: { type: string }, description: piece ids } } }
+      responses:
+        "200": { description: "The play list, as GET /playlists/{id} gives it; the X-Added header says how many were added" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /playlists/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }

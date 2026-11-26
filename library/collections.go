@@ -298,3 +298,42 @@ func (l *Library) DeletePlaylist(id string) error {
 	}
 	return ErrNotFound
 }
+
+// AddToPlaylist appends pieces to play list id, skipping any already in it,
+// and returns the list and how many it added.
+func (l *Library) AddToPlaylist(id string, pieces []string) (Playlist, int, error) {
+	l.plMu.Lock()
+	defer l.plMu.Unlock()
+	ps, err := l.loadPlaylists()
+	if err != nil {
+		return Playlist{}, 0, err
+	}
+	for i := range ps {
+		if ps[i].ID != id {
+			continue
+		}
+		have := map[string]bool{}
+		for _, p := range ps[i].Pieces {
+			have[p] = true
+		}
+		added := 0
+		for _, p := range pieces {
+			if p == "" || have[p] {
+				continue
+			}
+			if _, err := l.Get(p); err != nil {
+				return Playlist{}, 0, fmt.Errorf("no such piece: %s", p)
+			}
+			ps[i].Pieces = append(ps[i].Pieces, p)
+			have[p] = true
+			added++
+		}
+		if added > 0 {
+			if err := l.savePlaylists(ps); err != nil {
+				return Playlist{}, 0, err
+			}
+		}
+		return ps[i], added, nil
+	}
+	return Playlist{}, 0, ErrNotFound
+}

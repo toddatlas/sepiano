@@ -273,17 +273,18 @@ already store new ones (`POST /playlists`, `PUT /playlists/{id}`). The
 app has no way yet to make one, or to add pieces to one.
 
 To do:
-- [ ] **New play list** (Library → Play lists): name it.
-- [ ] **Add to a play list from search:** each search result, and each
+- [x] **New play list** (Library → Play lists): name it. (Built 2026-11-26.)
+- [x] **Add to a play list from search:** each search result, and each
       piece's page, gets "Add to play list…", with a menu of the lists and
       "New play list". Several results can be ticked and added at once
       (like Recordings' tick boxes).
-- [ ] **Edit a play list:** reorder by dragging (and up and down buttons
-      on a phone), remove a piece, rename.
-- [ ] **In search, like albums:** play lists you build show in search
+- [x] **Edit a play list:** up and down buttons, remove a piece, rename.
+      (Dragging to reorder: later, if wanted.)
+- [x] **In search, like albums:** play lists you build show in search
       results with "Play all", as the folder ones do now. They are told
       apart from folder lists by a label.
-- [ ] Play lists keep working when a piece is hidden; the list says so.
+- [x] Play lists keep working when a piece is hidden; the list says so
+      ("hidden" beside it).
 
 ## Idea 8: backups to the desktop and Google Drive (asked 2026-11-26)
 

@@ -1137,3 +1137,49 @@ func TestBackupRestore(t *testing.T) {
 		t.Errorf("a non-backup: %d", resp.StatusCode)
 	}
 }
+
+// TestAddToPlaylist: pieces are appended to a play list once each; an
+// unknown piece or list is refused.
+func TestAddToPlaylist(t *testing.T) {
+	e := newEnv(t)
+	var ids []string
+	for i := range 3 {
+		kb, lp, sp, _ := sim.Phrase(uint32((5 + i) * se.TicksPerSecond)).Encode()
+		p, _, err := e.lib.AddSet(fmt.Sprintf("p%d", i), kb, lp, sp, library.OriginUpload, fmt.Sprintf("P %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	code, b := e.do("POST", "/api/v1/playlists", map[string]any{"name": "Mine", "pieces": []string{ids[0]}})
+	if code != 201 {
+		t.Fatalf("create: %d %s", code, b)
+	}
+	var pl struct {
+		ID     string `json:"id"`
+		Pieces []struct {
+			ID string `json:"id"`
+		} `json:"pieces"`
+	}
+	json.Unmarshal(b, &pl)
+	for range 2 { // the second time adds nothing
+		code, b = e.do("POST", "/api/v1/playlists/"+pl.ID+"/pieces", map[string]any{"pieces": []string{ids[1], ids[0], ids[2]}})
+		if code != 200 {
+			t.Fatalf("add: %d %s", code, b)
+		}
+	}
+	json.Unmarshal(b, &pl)
+	var got []string
+	for _, p := range pl.Pieces {
+		got = append(got, p.ID)
+	}
+	if strings.Join(got, ",") != strings.Join([]string{ids[0], ids[1], ids[2]}, ",") {
+		t.Fatalf("pieces %v", got)
+	}
+	if code, _ := e.do("POST", "/api/v1/playlists/"+pl.ID+"/pieces", map[string]any{"pieces": []string{"nosuch00"}}); code != 400 {
+		t.Errorf("unknown piece: %d", code)
+	}
+	if code, _ := e.do("POST", "/api/v1/playlists/plnone/pieces", map[string]any{"pieces": []string{ids[0]}}); code != 404 {
+		t.Errorf("unknown list: %d", code)
+	}
+}
