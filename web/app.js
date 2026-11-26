@@ -961,6 +961,7 @@ const ROUTES = [
   { name: 'keys-many', re: /^\/keys\/([^/]+)$/, tab: 'record', title: 'Key check', back: { href: '#/record/test', label: 'Sensor test' }, screen: keysManyScreen },
   { name: 'piano', re: /^\/piano$/, tab: 'piano', title: 'Piano', screen: pianoScreen },
   { name: 'piano-key', re: /^\/piano\/key\/(\d+)$/, tab: 'piano', title: 'Key', back: { href: '#/piano', label: 'Piano' }, screen: pianoKeyScreen },
+  { name: 'piano-fits', re: /^\/piano\/fits$/, tab: 'piano', title: 'Fit by collection', back: { href: '#/piano', label: 'Piano' }, screen: fitsScreen },
   { name: 'piano-backups', re: /^\/piano\/backups$/, tab: 'piano', title: 'Backups', back: { href: '#/piano', label: 'Piano' }, screen: pianoBackupsScreen },
   { name: 'piano-tool', re: /^\/piano\/tool\/([a-z0-9]+)(?:\/([^/]+))?$/, tab: 'piano', title: 'Tool', back: { href: '#/piano', label: 'Piano' }, screen: toolScreen },
   { name: 'status', re: /^\/status$/, tab: 'status', title: 'Status', screen: statusScreen },
@@ -1067,6 +1068,7 @@ function nowPlayingScreen(root) {
   const editLinkEl = h('p', { class: 'np-edit small', hidden: true }, editLink);
   const voicedEl = h('p', { class: 'np-voiced', hidden: true }, h('a', { class: 'pill pill-warn', href: '#/piano' }, 'Voicing on: trims tried by ear')); // software voicing applied
   const correctedEl = h('p', { class: 'np-voiced', hidden: true }, h('a', { class: 'pill', href: '#/record/corrections' }, 'Recording corrections on')); // a recording made here, corrected
+  const fittedEl = h('p', { class: 'np-voiced', hidden: true }, h('a', { class: 'pill', href: '#/piano/fits' }, 'Fitted to this piano')); // its collection's fit
   const hintEl = h('p', { class: 'np-hint' });
   const messageEl = h('p', { class: 'message message-warn', role: 'status' });
   const progFill = h('div', { class: 'progress-fill' });
@@ -1095,7 +1097,7 @@ function nowPlayingScreen(root) {
     h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop')));
 
   const playPanel = h('section', { class: 'np' },
-    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, voicedEl, correctedEl, editLinkEl, hintEl, messageEl,
+    stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, voicedEl, correctedEl, fittedEl, editLinkEl, hintEl, messageEl,
     h('div', { class: 'np-progress' }, progress, h('div', { class: 'times' }, elapsedEl, totalEl), allEl),
     transport);
 
@@ -1192,6 +1194,7 @@ function nowPlayingScreen(root) {
     if (cur.id) editLink.href = editHref(cur.id);
     voicedEl.hidden = !s.voiced;
     correctedEl.hidden = !s.corrected;
+    fittedEl.hidden = !s.fitted;
 
     let hint = '';
     if (s.state === 'loading') hint = 'Sending the player to the piano — about 2 seconds.';
@@ -1315,10 +1318,10 @@ function libraryHead(active) {
 }
 
 // Kept across visits so coming back from a piece restores search and scroll.
-const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', grade: '', sort: 'az', hidden: false, scroll: 0 };
+const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', grade: '', collection: '', sort: 'az', hidden: false, scroll: 0 };
 
 // Where a piece's data comes from (library.Grade*), best first.
-const GRADES = { native: 'Native SE', performance: 'Performance (MIDI)', sequenced: 'Sequenced (MIDI)' };
+const GRADES = { native: 'Native SE', 'se-midi': 'SE, via MIDI', performance: 'Performance (MIDI)', sequenced: 'Sequenced (MIDI)' };
 
 // When a piece last changed: saved over (an edited copy), or else added.
 function pieceTime(p) { return Date.parse(p.updated_at || p.added_at) || 0; }
@@ -1356,6 +1359,7 @@ function libraryScreen(root, _params, ctx) {
     filterSelect('instrument', 'All instruments'),
     filterSelect('origin', 'All kinds'),
     filterSelect('grade', 'All sources'),
+    filterSelect('collection', 'All collections'),
   ];
   const clearBtn = h('button', { class: 'chip-clear', type: 'button', hidden: true, onclick: clearAll }, 'Clear');
   const sortSel = h('select', {
@@ -1430,7 +1434,8 @@ function libraryScreen(root, _params, ctx) {
       && (except === 'performer' || !libState.performer || p.performer === libState.performer)
       && (except === 'instrument' || !libState.instrument || p.instrument === libState.instrument)
       && (except === 'origin' || !libState.origin || p.origin === libState.origin)
-      && (except === 'grade' || !libState.grade || p.grade === libState.grade);
+      && (except === 'grade' || !libState.grade || p.grade === libState.grade)
+      && (except === 'collection' || !libState.collection || p.collection === libState.collection);
   }
 
   async function load() {
@@ -1503,7 +1508,7 @@ function libraryScreen(root, _params, ctx) {
   function render() {
     if (!pieces || !alive) return;
     for (const f of filters) fillSelect(f, uniqSorted(pieces.filter((p) => matches(p, f.key)).map((p) => p[f.key])));
-    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin || libState.grade || libState.hidden);
+    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin || libState.grade || libState.collection || libState.hidden);
     clearBtn.hidden = !anyFilter;
 
     const items = rows();
@@ -1621,6 +1626,7 @@ function libraryScreen(root, _params, ctx) {
     libState.instrument = '';
     libState.origin = '';
     libState.grade = '';
+    libState.collection = '';
     libState.hidden = false;
     applyHidden();
     if (libState.q) {
@@ -2310,6 +2316,10 @@ function pieceScreen(root, [id]) {
         ['Length', fmtTime(p.duration_ms)],
         ['Origin', originText(p)],
         ['Source', p.grade ? `${GRADES[p.grade] || p.grade}: ${p.grade_why || ''}` : ''],
+        ['Collection', p.collection || ''],
+        ['Captured on', p.captured_on || ''],
+        ['Converted with', p.curve ? (p.curve === 'bosendorfer' ? 'Bösendorfer’s curve' : 'the Disklavier curve') : ''],
+        ['Licence', p.licence || ''],
         ['Source file', p.source_name, 'mono'],
         ['Header', p.header_text, 'pre'],
         ['Notes', p.notes, 'pre'],
@@ -3162,6 +3172,90 @@ async function auditionKey(note, btn) {
   }
 }
 
+// ====================================================== Fit by collection
+// Each imported collection's fit to this piano (docs/LIBRARIES.md):
+// loudness and pedal depth, set by ear, applied as its pieces play. The
+// files never change.
+
+function fitsCard() {
+  return h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Fit by collection')),
+    h('p', { class: 'muted small' }, 'Pieces from other pianos and sources (MAESTRO, Vienna, Batik …) can play a little loud, soft, or heavy on the pedal here. Set each collection’s loudness and pedal depth by ear; the files never change.'),
+    h('a', { class: 'btn', href: '#/piano/fits' }, 'Open'));
+}
+
+function fitsScreen(root) {
+  let alive = true;
+  let data = null;
+  let saveTimer = 0;
+  const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
+  root.append(h('h1', { class: 'screen-title' }, 'Fit by collection'),
+    h('p', { class: 'muted small' }, 'Loudness is in % hammer speed (+10 is a little louder). Pedal depth is in % of the recorded depth (80 lifts the dampers less, 120 more). They apply to the collection’s pieces as they play, albums included; Now Playing says “Fitted to this piano”.'),
+    body);
+  load();
+
+  async function load() {
+    try {
+      data = await api('GET', '/fits');
+      if (alive) render();
+    } catch (err) {
+      if (alive) fill(body, h('p', { class: 'message message-error' }, err.message));
+    }
+  }
+
+  function render() {
+    const L = data.limits;
+    if (!data.collections.length) {
+      fill(body, h('div', { class: 'empty small' }, h('p', { class: 'empty-text' }, 'No collections yet. Pieces imported from MAESTRO, Vienna 4x22 or Batik appear here by collection.')));
+      return;
+    }
+    const onBox = h('input', { type: 'checkbox', checked: data.on, onchange: () => { data.on = onBox.checked; save(); } });
+    fill(body,
+      h('label', { class: 'fit-on' }, onBox, ' Fits on'),
+      data.collections.map((c) => h('section', { class: 'card fit-card' },
+        h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, c.name)),
+        h('p', { class: 'muted small' }, [`${c.pieces} piece${c.pieces === 1 ? '' : 's'}`, c.captured_on && `captured on a ${c.captured_on}`, c.licence].filter(Boolean).join(' · ')),
+        stepper('Loudness', c.fit, 'speed', 5, L.min_speed, L.max_speed, (v) => (v > 0 ? `+${v}%` : `${v}%`)),
+        stepper('Damper pedal depth', c.fit, 'damper', 5, L.min_pedal, L.max_pedal, (v) => `${v}%`),
+        stepper('Soft pedal depth', c.fit, 'soft', 5, L.min_pedal, L.max_pedal, (v) => `${v}%`),
+        h('div', { class: 'btn-row' },
+          c.sample && h('button', { class: 'btn btn-small', type: 'button', onclick: (e) => playPiece(c.sample, e.currentTarget) }, icon('play'), 'Play a piece from it'),
+          h('button', { class: 'btn btn-small', type: 'button', onclick: () => { c.fit = { speed: 0, damper: 100, soft: 100 }; save(); render(); } }, 'As recorded')))));
+  }
+
+  function stepper(label, fit, key, step, lo, hi, fmt) {
+    const val = h('span', { class: 'fit-val' }, fmt(fit[key]));
+    const set = (d) => {
+      const v = Math.max(lo, Math.min(hi, fit[key] + d));
+      if (v === fit[key]) return;
+      fit[key] = v;
+      setText(val, fmt(v));
+      save();
+    };
+    return h('div', { class: 'fit-row' },
+      h('span', { class: 'fit-label' }, label),
+      h('button', { class: 'round-btn fit-btn', type: 'button', 'aria-label': `${label} lower`, onclick: () => set(-step) }, icon('minus')),
+      val,
+      h('button', { class: 'round-btn fit-btn', type: 'button', 'aria-label': `${label} higher`, onclick: () => set(step) }, icon('plus')));
+  }
+
+  // save sends every collection's fit, a moment after the last change.
+  function save() {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(async () => {
+      const collections = {};
+      for (const c of data.collections) collections[c.name] = c.fit;
+      try {
+        await api('PUT', '/fits', { on: data.on, collections });
+      } catch (err) {
+        toast(err.message, 'error');
+      }
+    }, 400);
+  }
+
+  return { unmount() { alive = false; } };
+}
+
 function pianoScreen(root) {
   let alive = true;
   let view = null;
@@ -3196,6 +3290,7 @@ function pianoScreen(root) {
         h('p', null, 'The piano keeps its calibration and settings in its own memory. Back them up to see them here.'),
         h('div', { class: 'btn-row' }, backupButton(() => load(true))),
         h('p', { class: 'hint' }, BACKUP_HINT, ' Install getlut.exe on the Status page first.')),
+      fitsCard(),
       toolsCard());
   }
 
@@ -3213,6 +3308,7 @@ function pianoScreen(root) {
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Notes')),
         h('div', { class: 'piano-notes' }, v.notes.map(pianoNote))),
       voice.el,
+      fitsCard(),
       keysBox,
       h('section', { class: 'card' },
         h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Switches')),

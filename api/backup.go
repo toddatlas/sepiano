@@ -336,6 +336,18 @@ func (s *Server) restoreFile(a *backup.Archive, p string, rep *restoreReport) {
 			_, err := s.Corrections.Save(c, c.Updated)
 			return err
 		})
+	case "fits.json":
+		if s.Fits == nil {
+			return
+		}
+		put(exists(s.Fits.Path), func(b []byte) error {
+			var fs piano.Fits
+			if err := json.Unmarshal(b, &fs); err != nil {
+				return err
+			}
+			_, err := s.Fits.Save(fs)
+			return err
+		})
 	case "backup-state.json":
 		// The backup's own record of backups: this Pi keeps its own.
 	default:

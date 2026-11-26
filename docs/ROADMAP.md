@@ -190,7 +190,8 @@ Findings there, to verify in the Go code:
   strike.
 
 To do:
-- [ ] **Import Vienna 4x22's SE files** (native, so a straight import).
+- [x] **Import Vienna 4x22's SE files** (native, so a straight import;
+      built 2026-11-26: `sepianod datasets`, docs/LIBRARIES.md).
 - [x] **Grade every piece in the app** (built 2026-11-26: Native SE,
       Performance (MIDI), Sequenced (MIDI); a "Sources" filter in the
       Library). Telling SE-converted MIDI and transcriptions apart needs
@@ -202,7 +203,8 @@ To do:
   - the source, where known.
 
   Then a Library filter: "native SE only", "performances only".
-- [ ] **A better converter**, one velocity curve per source:
+- [x] **A better converter**, one velocity curve per source (built:
+      `se.BosendorferCurve`, checked on the Vienna pairs):
   - Bösendorfer's own SE→MIDI curve, fitted from the Vienna pairs and
     turned back, for Batik and similar files;
   - the Disklavier curve, already fitted from Zenph's paired renderings
@@ -210,8 +212,9 @@ To do:
   - and for every source: continuous sustain-pedal depth (half-pedal),
     the sostenuto and soft pedals, exact timing, re-strikes, and very
     soft notes kept clear of the silent threshold.
-- [ ] **Bulk import with metadata**: a zip or folder of MIDI files, plus
-      MAESTRO's catalogue (composer, title, year), into albums by source.
+- [x] **Bulk import with metadata** (built: MAESTRO from its zip and
+      catalogue, Batik, Vienna; each piece records its collection,
+      instrument, licence and curve, filterable).
 - [ ] Listening tests at the piano once regulated: the same piece as
       native SE and as converted MIDI.
 

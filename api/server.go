@@ -20,6 +20,7 @@ import (
 	"sepiano/deck"
 	"sepiano/library"
 	"sepiano/piano"
+	"sepiano/se"
 	"sepiano/sim"
 )
 
@@ -54,7 +55,9 @@ type Server struct {
 	Voicing *piano.VoicingStore
 	// Corrections keeps the per-key corrections for recordings.
 	Corrections *piano.CorrectionsStore
-	backupMu    sync.Mutex
+	// Fits keeps each collection's fit to this piano (fits.go).
+	Fits     *piano.FitStore
+	backupMu sync.Mutex
 
 	qmu   sync.Mutex
 	queue queue
@@ -120,6 +123,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/corrections/apply", s.applyCorrections)
 	m.HandleFunc("POST /api/v1/pieces/{id}/corrected", s.correctedCopy)
 	s.toolRoutes(m)
+	s.fitRoutes(m)
 	s.backupRoutes(m)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "no such API endpoint") })
 	m.HandleFunc("GET /apple-touch-icon.png", func(w http.ResponseWriter, r *http.Request) {
@@ -285,7 +289,7 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var files []library.File
-	var title string
+	var title, curve string
 	for {
 		part, err := mr.NextPart()
 		if err == io.EOF {
@@ -306,6 +310,9 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		case "title":
 			b, _ := io.ReadAll(io.LimitReader(part, 1000))
 			title = string(b)
+		case "curve":
+			b, _ := io.ReadAll(io.LimitReader(part, 100))
+			curve = strings.TrimSpace(string(b))
 		}
 		part.Close()
 	}
@@ -313,7 +320,11 @@ func (s *Server) upload(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, "no files in the upload")
 		return
 	}
-	res := s.Lib.AddFiles(files, library.OriginUpload, title)
+	if _, ok := se.Curves[curve]; curve != "" && !ok {
+		fail(w, 400, "curve must be disklavier or bosendorfer")
+		return
+	}
+	res := s.Lib.AddFilesWith(files, library.OriginUpload, title, curve)
 	if res.Added == nil {
 		res.Added = []library.Piece{}
 	}

@@ -280,6 +280,10 @@ paths:
         a `.kb` + `.lp` + `.sp` set (same base name), a `.zip` of sets, or a
         `.mid`/`.midi` file (converted; the original is kept). An optional
         `title` field names a single MIDI upload.
+        `curve` chooses how MIDI loudness becomes SE velocity: `disklavier`
+        (the default, for Disklavier and most MIDI) or `bosendorfer` (for SE
+        recordings exported as MIDI by Bösendorfer's converter, such as
+        Batik and Vienna 4x22; docs/LIBRARIES.md).
       requestBody:
         required: true
         content:
@@ -289,6 +293,7 @@ paths:
               properties:
                 file: { type: array, items: { type: string, format: binary } }
                 title: { type: string }
+                curve: { type: string, enum: [disklavier, bosendorfer] }
       responses:
         "200":
           description: Result per item
@@ -329,6 +334,11 @@ paths:
                 album: { type: string }
                 track: { type: integer, minimum: 0 }
                 hidden: { type: boolean, description: "Hide the piece from the library's list and search (true) or show it again (false). Its files stay. Not a metadata field: never locked." }
+                collection: { type: string, description: "The collection it came from (MAESTRO v3, Vienna 4x22 …)" }
+                captured_on: { type: string, description: "The instrument that captured the playing" }
+                licence: { type: string }
+                grade: { type: string, enum: [native, se-midi, performance, sequenced], description: "Overrides the grade found from the data, when the source is known" }
+                grade_why: { type: string }
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Piece" } } } }
         "404": { $ref: "#/components/responses/Error" }
@@ -355,6 +365,50 @@ paths:
       summary: The pieces and settings.json as one .zip (older; /backup holds everything)
       responses:
         "200": { description: Zip, content: { application/zip: {} } }
+
+  /fits:
+    get:
+      summary: Each collection's fit to this piano, with the collections in the library
+      description: |
+        A fit (docs/LIBRARIES.md) adjusts a collection's pieces as they play:
+        `speed` is loudness in % hammer speed (0 as recorded), `damper` and
+        `soft` scale the pedals' depth in % (100 as recorded). The files
+        never change.
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  on: { type: boolean }
+                  collections:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        name: { type: string }
+                        pieces: { type: integer }
+                        captured_on: { type: string }
+                        licence: { type: string }
+                        sample: { type: string, description: a piece to try the fit on }
+                        fit: { type: object, properties: { speed: { type: integer }, damper: { type: integer }, soft: { type: integer } } }
+                  limits: { type: object, additionalProperties: { type: integer } }
+    put:
+      summary: Save the fits
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                on: { type: boolean }
+                collections: { type: object, additionalProperties: { type: object, properties: { speed: { type: integer }, damper: { type: integer }, soft: { type: integer } } } }
+      responses:
+        "200": { description: The fits as stored (those that change nothing are dropped) }
+        "400": { $ref: "#/components/responses/Error" }
 
   /backup:
     get:
@@ -1086,6 +1140,7 @@ components:
         program: { type: string, description: Banner of the program running on the piano }
         voiced: { type: boolean, description: The performance playing carries software voicing }
         corrected: { type: boolean, description: A recording made on this piano playing with the per-key corrections }
+        fitted: { type: boolean, description: "Playing with its collection's fit to this piano (/fits)" }
         simulated: { type: boolean, description: True when talking to the built-in simulator }
         since: { type: string, format: date-time, description: When the state last changed }
 
@@ -1121,7 +1176,11 @@ components:
         from_recording: { type: boolean, description: An edited copy of a recording made on this piano }
         corrected: { type: boolean, description: The recording corrections are in this copy }
         edited_from: { type: string, description: The piece an edited or corrected copy was made from }
-        grade: { type: string, enum: [native, performance, sequenced], description: "Where the performance data comes from: SE files (native), MIDI of a person playing (performance), or MIDI made on a computer (sequenced). Found from the data itself" }
+        grade: { type: string, enum: [native, se-midi, performance, sequenced], description: "Where the performance data comes from: SE files (native), an SE recording via MIDI (se-midi, set by the importer), MIDI of a person playing (performance), or MIDI made on a computer (sequenced)" }
+        collection: { type: string, description: "The collection it came from, set when imported (docs/LIBRARIES.md)" }
+        captured_on: { type: string, description: "The instrument that captured the playing" }
+        licence: { type: string }
+        curve: { type: string, description: "For a converted MIDI file, the velocity curve used: disklavier or bosendorfer" }
         grade_why: { type: string, description: The grade's reasons, in words }
         hidden: { type: boolean, description: Kept out of the library's list and search; its files stay }
         updated_at: { type: string, format: date-time, description: When the performance itself last changed (an edited copy saved over); absent if never }

@@ -1508,3 +1508,10 @@ dialog.pick { max-width: 420px; width: calc(100% - 32px); }
   border: 1px solid var(--line-strong); border-radius: 14px; background: var(--bg-elev); box-shadow: 0 4px 18px rgba(0, 0, 0, 0.12);
 }
 .sel-count { font-weight: 600; margin-right: auto; }
+
+/* Piano → Fit by collection */
+.fit-on { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 12px; font-weight: 500; }
+.fit-card .fit-row { display: grid; grid-template-columns: 1fr auto 64px auto; align-items: center; gap: 10px; margin: 8px 0; }
+.fit-label { font-size: 15px; }
+.fit-val { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
+.fit-btn { width: 40px; height: 40px; }

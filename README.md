@@ -19,6 +19,8 @@ app can drive.
   per-key recording corrections
 * `docs/OVERNIGHT-2026-11-24.md` — what the overnight build added, and what
   to try at the piano
+* `docs/LIBRARIES.md` — importing free collections (MAESTRO, Vienna 4x22,
+  Batik), their sources and curves, and fitting them to this piano
 * `docs/BACKUPS.md` — backing up everything on the Pi, nightly from the PC
   (for example into Google Drive), and restoring
 * `docs/ROADMAP.md` — the next stage: the owner's ideas researched, with

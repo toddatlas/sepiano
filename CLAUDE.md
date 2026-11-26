@@ -616,3 +616,20 @@ The owner approved building three roadmap items in one go:
 - `confirmDialog` takes `input` (asks for a line of text, resolving to it
   or null).
 - The backup button is now "Back up now".
+
+## Status (2026-11-26, later: content libraries)
+
+- The owner's other session downloaded MAESTRO v3, Vienna 4x22 and Batik
+  to `C:\Users\todd\sepiano\datasets` (never commit any of it) and handed
+  the work here. docs/LIBRARIES.md covers it:
+  - `sepianod datasets DOWNLOADS` imports all three: Vienna native,
+    Batik with `se.BosendorferCurve` (grade `se-midi`), MAESTRO with the
+    Disklavier curve. Each piece records collection, captured_on,
+    licence and curve. The Library has an "All collections" filter;
+  - `TestBosendorferCurveOnVienna` (`SE_VIENNA`): 99.6% of notes, median
+    velocity error 1.2%;
+  - per-collection **fits** (`piano.Fit`, `/api/v1/fits`, Piano → Fit by
+    collection): loudness % and pedal depth %, applied at playback with
+    the corrections (`playFix`, `markFixes`; `Status.Fitted`).
+- Not answered yet: the owner told the other session the piano is a 1909
+  Steinway D. The EEPROM table says "Steinway B-SE".

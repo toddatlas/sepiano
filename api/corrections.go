@@ -157,11 +157,12 @@ func (s *Server) correctFix() library.Fix {
 	}
 }
 
-// correct gives a single-piece job the recording corrections when they
-// apply: it then plays a corrected copy from a fresh play folder.
+// correct gives a single-piece job what playback does to it (playFix: the
+// recording corrections, its collection's fit): it then plays the
+// changed copy from a fresh play folder.
 func (s *Server) correct(job *deck.Job, p library.Piece) error {
-	fix := s.correctFix()
-	if fix == nil || !p.NeedsCorrection() {
+	fix := s.playFix()
+	if fix == nil {
 		return nil
 	}
 	perf, err := se.Load(filepath.Join(job.Dir, job.Name))
@@ -179,7 +180,8 @@ func (s *Server) correct(job *deck.Job, p library.Piece) error {
 	if err := out.Save(filepath.Join(dir, "c")); err != nil {
 		return err
 	}
-	job.Dir, job.Name, job.Corrected = dir, "c", true
+	job.Dir, job.Name = dir, "c"
+	s.markFixes(job, []library.Piece{p})
 	return nil
 }
 

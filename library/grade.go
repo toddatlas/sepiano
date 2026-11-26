@@ -25,7 +25,21 @@ const (
 	// loudness levels, a strict grid. (Four "ISI … BMP100" files in the
 	// owner's collection grade so; 33 Disklavier performances do not.)
 	GradeSequenced = "sequenced"
+	// GradeSEMIDI: an SE recording exported as MIDI and converted back with
+	// the converter's own curve (BosendorferCurve): nearly native; only
+	// MIDI's 127 loudness steps are lost. Set by the importer, which knows
+	// the source; the data alone cannot tell.
+	GradeSEMIDI = "se-midi"
 )
+
+// validGrade says whether g is a grade.
+func validGrade(g string) bool {
+	switch g {
+	case GradeNative, GradeSEMIDI, GradePerformance, GradeSequenced:
+		return true
+	}
+	return false
+}
 
 // gradeOf grades a piece from its origin and its data. Only pieces
 // converted from MIDI need the data: everything else came as SE files.

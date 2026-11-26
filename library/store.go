@@ -85,6 +85,16 @@ type Piece struct {
 	Grade    string `json:"grade,omitempty"`
 	GradeWhy string `json:"grade_why,omitempty"`
 
+	// Where the piece comes from, for sorting and filtering, set when it is
+	// imported (docs/LIBRARIES.md): the collection ("MAESTRO v3", "Vienna
+	// 4x22" …), the instrument that captured the playing ("Yamaha
+	// Disklavier", "Bösendorfer SE290" …), its licence, and for a converted
+	// MIDI file the velocity curve used ("disklavier", "bosendorfer"; se.Curves).
+	Collection string `json:"collection,omitempty"`
+	CapturedOn string `json:"captured_on,omitempty"`
+	Licence    string `json:"licence,omitempty"`
+	Curve      string `json:"curve,omitempty"`
+
 	// Locked lists the fields set by hand or from a catalog (by Update);
 	// re-deriving metadata from the files never changes them.
 	Locked []string `json:"locked,omitempty"`
@@ -159,6 +169,13 @@ type Patch struct {
 	// Hidden hides the piece from the library's list and search, or shows
 	// it again.
 	Hidden *bool `json:"hidden"`
+	// Provenance (see Piece), set by an importer. Grade overrides the grade
+	// found from the data, when the source is known (GradeSEMIDI).
+	Collection *string `json:"collection"`
+	CapturedOn *string `json:"captured_on"`
+	Licence    *string `json:"licence"`
+	Grade      *string `json:"grade"`
+	GradeWhy   *string `json:"grade_why"`
 }
 
 // Settings are the service's preferences.
@@ -533,6 +550,19 @@ func (l *Library) Update(id string, patch Patch) (Piece, error) {
 	}
 	if patch.Hidden != nil {
 		q.Hidden = *patch.Hidden
+	}
+	for _, f := range []struct{ src, dst *string }{
+		{patch.Collection, &q.Collection}, {patch.CapturedOn, &q.CapturedOn}, {patch.Licence, &q.Licence}, {patch.GradeWhy, &q.GradeWhy},
+	} {
+		if f.src != nil {
+			*f.dst = strings.TrimSpace(*f.src)
+		}
+	}
+	if patch.Grade != nil {
+		if !validGrade(*patch.Grade) {
+			return Piece{}, fmt.Errorf("no such grade %q", *patch.Grade)
+		}
+		q.Grade = *patch.Grade
 	}
 	if q.Title == "" {
 		return Piece{}, errors.New("the title cannot be empty")

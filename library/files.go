@@ -95,8 +95,22 @@ func (l *Library) AddSet(sourceName string, kb, lp, sp []byte, origin, title str
 
 // AddMIDI converts a Standard MIDI File and adds it, keeping the original.
 func (l *Library) AddMIDI(fileName string, data []byte, title string) (Piece, bool, error) {
+	return l.AddMIDIWith(fileName, data, title, "")
+}
+
+// AddMIDIWith is AddMIDI with a velocity curve named from se.Curves:
+// "bosendorfer" for SE recordings exported as MIDI, "disklavier" (also
+// "") for Disklavier and other MIDI.
+func (l *Library) AddMIDIWith(fileName string, data []byte, title, curve string) (Piece, bool, error) {
+	if curve == "" {
+		curve = "disklavier"
+	}
+	vc, ok := se.Curves[curve]
+	if !ok {
+		return Piece{}, false, fmt.Errorf("no such velocity curve %q", curve)
+	}
 	base := strings.TrimSuffix(path.Base(filepath.ToSlash(fileName)), path.Ext(fileName))
-	perf, err := se.FromMIDI(data, nil, time.Second, "Converted from "+path.Base(filepath.ToSlash(fileName))+"\r\n")
+	perf, err := se.FromMIDI(data, vc, time.Second, "Converted from "+path.Base(filepath.ToSlash(fileName))+"\r\n")
 	if err != nil {
 		return Piece{}, false, err
 	}
@@ -113,6 +127,7 @@ func (l *Library) AddMIDI(fileName string, data []byte, title string) (Piece, bo
 	}
 	l.mu.Lock()
 	l.pieces[p.ID].HasMIDISource = true
+	l.pieces[p.ID].Curve = curve
 	q := *l.pieces[p.ID]
 	err = l.writeMeta(&q)
 	l.mu.Unlock()
@@ -122,6 +137,11 @@ func (l *Library) AddMIDI(fileName string, data []byte, title string) (Piece, bo
 // AddFiles adds a batch: .kb/.lp/.sp sets (grouped by base name), .zip files
 // of sets and MIDI files. title, if set, names a batch holding one piece.
 func (l *Library) AddFiles(files []File, origin, title string) Result {
+	return l.AddFilesWith(files, origin, title, "")
+}
+
+// AddFilesWith is AddFiles converting MIDI files with the named curve.
+func (l *Library) AddFilesWith(files []File, origin, title, curve string) Result {
 	var r Result
 	sets := map[string]map[string][]byte{} // base name -> ext -> data
 	var mids []File
@@ -204,7 +224,7 @@ func (l *Library) AddFiles(files []File, origin, title string) Result {
 		r.record(path.Base(n), p, dup, err)
 	}
 	for _, m := range mids {
-		p, dup, err := l.AddMIDI(m.Name, m.Data, title)
+		p, dup, err := l.AddMIDIWith(m.Name, m.Data, title, curve)
 		r.record(path.Base(m.Name), p, dup, err)
 	}
 	return r

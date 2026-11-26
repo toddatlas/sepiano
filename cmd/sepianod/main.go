@@ -48,6 +48,8 @@ func run(args []string) int {
 			return importCmd(args[1:])
 		case "tag":
 			return tagCmd(args[1:])
+		case "datasets":
+			return datasetsCmd(args[1:])
 		case "version", "-version", "--version":
 			fmt.Println("sepianod", version)
 			return 0
@@ -154,7 +156,8 @@ func run(args []string) int {
 	s := &api.Server{Deck: d, Lib: lib, Programs: progs, Sim: inst, UI: web.Files, Version: version, Log: logf,
 		PlayDir: filepath.Join(*data, "play"), DataDir: *data, Piano: &piano.Store{Dir: filepath.Join(*data, "eeprom")},
 		Voicing:     &piano.VoicingStore{Path: filepath.Join(*data, "voicing.json")},
-		Corrections: &piano.CorrectionsStore{Path: filepath.Join(*data, "corrections.json")}}
+		Corrections: &piano.CorrectionsStore{Path: filepath.Join(*data, "corrections.json")},
+		Fits:        &piano.FitStore{Path: filepath.Join(*data, "fits.json")}}
 	srv := &http.Server{Addr: *addr, Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	srvErr := make(chan error, 1)
 	go func() { srvErr <- srv.ListenAndServe() }()

@@ -254,6 +254,11 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		fail(w, 400, err.Error())
 		return
 	}
+	// The collection's fit, as playback gives it.
+	fitted := false
+	if f, ok := s.fits().For(p.Collection); ok {
+		fitted = f.Apply(perf) > 0
+	}
 	dir, err := s.playDir()
 	if err != nil {
 		fail(w, 500, err.Error())
@@ -264,7 +269,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	job := deck.Job{Piece: deck.PieceRef{ID: p.ID, Title: p.Title, Performer: PreviewPerformer},
-		Dir: dir, Name: "e", Duration: perf.Duration(), Corrected: corrected}
+		Dir: dir, Name: "e", Duration: perf.Duration(), Corrected: corrected, Fitted: fitted}
 	if err := s.voice(&job, true); err != nil {
 		fail(w, 500, err.Error())
 		return

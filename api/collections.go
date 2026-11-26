@@ -117,21 +117,23 @@ func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collec
 		if err != nil {
 			return err
 		}
-		parts, fixed, err := s.Lib.Join(sel, dir, "q", coll.Title, s.correctFix())
+		parts, _, err := s.Lib.Join(sel, dir, "q", coll.Title, s.playFix())
 		if err != nil {
 			return err
 		}
-		job.Corrected = fixed
 		var total int64
+		var played []library.Piece
 		for _, part := range parts {
 			p, _ := s.Lib.Get(part.ID)
+			played = append(played, p)
 			job.Tracks = append(job.Tracks, deck.TrackRef{Piece: ref(p), StartMs: part.StartMs, DurationMs: part.DurationMs})
 			total = part.StartMs + part.DurationMs
 		}
 		job.Piece, job.Dir, job.Name = job.Tracks[0].Piece, dir, "q"
+		s.markFixes(&job, played)
 		job.Duration = time.Duration(total) * time.Millisecond
 	}
-	if err := s.voice(&job, len(sel) > 1 || job.Corrected); err != nil {
+	if err := s.voice(&job, len(sel) > 1 || job.Corrected || job.Fitted); err != nil {
 		return fmt.Errorf("voicing: %w", err)
 	}
 	if coll != nil {

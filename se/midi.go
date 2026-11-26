@@ -22,6 +22,23 @@ var DefaultCurve = VelocityCurve{
 	{296, 25}, {312, 22}, {400, 12}, {600, 4}, {1023, 1},
 }
 
+// BosendorferCurve is the curve Bösendorfer's own converter used for SE
+// files exported as MIDI (the Vienna 4x22 and Batik collections). It was
+// fitted from 66 Vienna pairs (32,074 notes matched by key and onset): SE
+// ≈ 524.5·e^(−0.02696·MIDI), within 1.6 SE units over MIDI 15–96; above 96
+// it is extrapolated (TestBosendorferCurveOnVienna checks it). Use it to
+// turn such MIDI back into SE files; DefaultCurve suits Disklavier MIDI.
+var BosendorferCurve = VelocityCurve{
+	{17.1, 127}, {20.6, 120}, {27, 110}, {35.4, 100}, {39, 96}, {46, 90}, {53, 85},
+	{60, 80}, {69, 75}, {79.5, 70}, {91, 65}, {104, 60}, {120, 55}, {137, 50},
+	{156, 45}, {179, 40}, {204, 35}, {233, 30}, {267, 25}, {305, 20}, {351, 15},
+	{407, 10}, {466, 5}, {521, 1},
+}
+
+// Curves names the curves a MIDI file can be converted with: "disklavier"
+// (DefaultCurve, the default) and "bosendorfer" (BosendorferCurve).
+var Curves = map[string]VelocityCurve{"disklavier": DefaultCurve, "bosendorfer": BosendorferCurve}
+
 // ToMIDI returns the MIDI velocity (1-127) for an SE velocity. SE velocity
 // 0 is a silent press (play.exe 1044H), not the loudest note: MIDI has no
 // silent press, so it becomes the softest, 1.

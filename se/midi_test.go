@@ -92,6 +92,16 @@ func TestMIDIRoundTrip(t *testing.T) {
 }
 
 func TestCurveMonotonic(t *testing.T) {
+	for name, c := range Curves {
+		prev := byte(255)
+		for v := uint16(4); v <= MaxVelocity; v++ {
+			if m := c.ToMIDI(v); m > prev {
+				t.Fatalf("%s: not monotonic at %d", name, v)
+			} else {
+				prev = m
+			}
+		}
+	}
 	prev := byte(255)
 	for v := uint16(4); v <= MaxVelocity; v++ {
 		m := DefaultCurve.ToMIDI(v)

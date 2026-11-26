@@ -70,7 +70,7 @@ func newEnv(t *testing.T) *env {
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
 	// The folders as sepianod lays them out (cmd/sepianod), so a backup holds them.
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: filepath.Join(data, "play"), DataDir: data, Piano: &piano.Store{Dir: filepath.Join(data, "eeprom")}, Voicing: &piano.VoicingStore{Path: filepath.Join(data, "voicing.json")}, Corrections: &piano.CorrectionsStore{Path: filepath.Join(data, "corrections.json")},
+	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: filepath.Join(data, "play"), DataDir: data, Piano: &piano.Store{Dir: filepath.Join(data, "eeprom")}, Voicing: &piano.VoicingStore{Path: filepath.Join(data, "voicing.json")}, Corrections: &piano.CorrectionsStore{Path: filepath.Join(data, "corrections.json")}, Fits: &piano.FitStore{Path: filepath.Join(data, "fits.json")},
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -1182,4 +1182,38 @@ func TestAddToPlaylist(t *testing.T) {
 	if code, _ := e.do("POST", "/api/v1/playlists/plnone/pieces", map[string]any{"pieces": []string{ids[0]}}); code != 404 {
 		t.Errorf("unknown list: %d", code)
 	}
+}
+
+// TestFits: a collection's fit is saved, listed with the collection, and
+// applied when one of its pieces plays.
+func TestFits(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(20 * se.TicksPerSecond).Encode()
+	p, _, err := e.lib.AddSet("fitme", kb, lp, sp, library.OriginUpload, "Fit me")
+	if err != nil {
+		t.Fatal(err)
+	}
+	coll := "Test collection"
+	if _, err := e.lib.Update(p.ID, library.Patch{Collection: &coll}); err != nil {
+		t.Fatal(err)
+	}
+	if code, b := e.do("PUT", "/api/v1/fits", map[string]any{"on": true, "collections": map[string]any{coll: map[string]int{"speed": 20, "damper": 90}}}); code != 200 {
+		t.Fatalf("put: %d %s", code, b)
+	}
+	if code, _ := e.do("PUT", "/api/v1/fits", map[string]any{"on": true, "collections": map[string]any{coll: map[string]int{"speed": 500}}}); code != 400 {
+		t.Errorf("an out-of-range fit: %d", code)
+	}
+	_, b := e.do("GET", "/api/v1/fits", nil)
+	if !strings.Contains(string(b), `"name":"Test collection"`) || !strings.Contains(string(b), `"speed":20`) {
+		t.Fatalf("get: %s", b)
+	}
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"piece": p.ID}); code != 202 {
+		t.Fatalf("play: %d %s", code, b)
+	}
+	st := e.waitState("playing")
+	if !st.Fitted {
+		t.Errorf("not fitted: %+v", st)
+	}
+	e.do("POST", "/api/v1/deck/stop", nil)
+	e.waitState("idle")
 }

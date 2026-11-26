@@ -87,6 +87,7 @@ type Status struct {
 	Program            string    `json:"program,omitempty"`
 	Voiced             bool      `json:"voiced"`    // playing with software voicing
 	Corrected          bool      `json:"corrected"` // a recording playing with the per-key corrections
+	Fitted             bool      `json:"fitted"`    // playing with its collection's fit to this piano
 	Simulated          bool      `json:"simulated"`
 	Since              time.Time `json:"since"`
 }
@@ -102,6 +103,8 @@ type Job struct {
 	Voiced bool
 	// Corrected says the files carry the recording corrections.
 	Corrected bool
+	// Fitted says the files carry a collection's fit to this piano.
+	Fitted bool
 
 	// For an album or play list joined into one performance: what it is,
 	// and the tracks it is made of (Piece is then the first track).
@@ -796,7 +799,7 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 	ctx, cancel := context.WithCancel(d.ctx)
 	s := &session{kind: kind, job: j, title: title, prog: prog, keys: make(chan []byte, 16),
 		ctx: ctx, cancel: cancel, deadline: time.Now().Add(d.cfg.StartTimeout)}
-	d.st.Voiced, d.st.Corrected = false, false
+	d.st.Voiced, d.st.Corrected, d.st.Fitted = false, false, false
 	if kind == "record" {
 		s.name = "r" + strconv.FormatInt(time.Now().Unix()%78364164096, 36) // 7 base-36 digits at most
 		d.st.Piece = nil
@@ -805,7 +808,7 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 		d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 	} else {
 		d.st.DurationMs = j.Duration.Milliseconds()
-		d.st.Voiced, d.st.Corrected = j.Voiced, j.Corrected
+		d.st.Voiced, d.st.Corrected, d.st.Fitted = j.Voiced, j.Corrected, j.Fitted
 		d.st.RecordingTitle = ""
 		d.st.Collection = j.Collection
 		d.st.Tracks = j.Tracks
@@ -910,7 +913,7 @@ func (d *Deck) sessDone(m sessDone) {
 func (d *Deck) afterSession(failed bool) {
 	d.applyMethod()
 	d.st.Piece = nil
-	d.st.Voiced, d.st.Corrected = false, false
+	d.st.Voiced, d.st.Corrected, d.st.Fitted = false, false, false
 	d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
 	d.st.PositionMs = 0
 	d.st.DurationMs = 0
