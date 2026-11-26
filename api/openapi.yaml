@@ -337,7 +337,7 @@ paths:
                 collection: { type: string, description: "The collection it came from (MAESTRO v3, Vienna 4x22 …)" }
                 captured_on: { type: string, description: "The instrument that captured the playing" }
                 licence: { type: string }
-                grade: { type: string, enum: [native, se-midi, performance, sequenced], description: "Overrides the grade found from the data, when the source is known" }
+                grade: { type: string, enum: [native, se-midi, performance, roll, transcribed, sequenced], description: "Overrides the grade found from the data, when the source is known" }
                 grade_why: { type: string }
       responses:
         "200": { description: OK, content: { application/json: { schema: { $ref: "#/components/schemas/Piece" } } } }
@@ -1176,7 +1176,7 @@ components:
         from_recording: { type: boolean, description: An edited copy of a recording made on this piano }
         corrected: { type: boolean, description: The recording corrections are in this copy }
         edited_from: { type: string, description: The piece an edited or corrected copy was made from }
-        grade: { type: string, enum: [native, se-midi, performance, sequenced], description: "Where the performance data comes from: SE files (native), an SE recording via MIDI (se-midi, set by the importer), MIDI of a person playing (performance), or MIDI made on a computer (sequenced)" }
+        grade: { type: string, enum: [native, se-midi, performance, roll, transcribed, sequenced], description: "Where the performance data comes from: SE files (native), an SE recording via MIDI (se-midi, set by the importer), MIDI of a person playing (performance), a reproducing-piano roll (roll, set by the importer), notes transcribed from audio (transcribed, set by the importer), or MIDI made on a computer (sequenced)" }
         collection: { type: string, description: "The collection it came from, set when imported (docs/LIBRARIES.md)" }
         captured_on: { type: string, description: "The instrument that captured the playing" }
         licence: { type: string }

@@ -1321,7 +1321,7 @@ function libraryHead(active) {
 const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', grade: '', collection: '', sort: 'az', hidden: false, scroll: 0 };
 
 // Where a piece's data comes from (library.Grade*), best first.
-const GRADES = { native: 'Native SE', 'se-midi': 'SE, via MIDI', performance: 'Performance (MIDI)', sequenced: 'Sequenced (MIDI)' };
+const GRADES = { native: 'Native SE', 'se-midi': 'SE, via MIDI', performance: 'Performance (MIDI)', roll: 'Piano roll (MIDI)', transcribed: 'Transcribed from audio', sequenced: 'Sequenced (MIDI)' };
 
 // When a piece last changed: saved over (an edited copy), or else added.
 function pieceTime(p) { return Date.parse(p.updated_at || p.added_at) || 0; }

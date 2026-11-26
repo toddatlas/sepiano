@@ -667,3 +667,22 @@ The owner approved building three roadmap items in one go:
   their descriptions say so.
 - **Backups every 3 days, keeping 3** (the owner's choice): the "Piano
   backup" task was reinstalled that way on the owner's PC.
+- The PC backup now downloads to the PC's own temporary folder, then
+  moves the file into Google Drive, with Windows PowerShell's slow
+  progress display off. The 130 MB backup had taken 11 minutes straight
+  into Drive, close to the old 15-minute limit (now an hour; the task's
+  limit is 2 hours).
+
+## Status (2026-11-26, later: content libraries, batch 2)
+
+- `sepianod datasets` (`cmd/sepianod/datasets2.go`) imports SUPRA (456
+  Welte-Mignon rolls, grade `roll`), ASAP (514 Piano-e-Competition
+  performances not in MAESTRO) and PiJAMA (2,777 jazz transcriptions,
+  grade `transcribed`), all with the Disklavier curve; docs/LIBRARIES.md
+  has the table, albums and quirks. New grades are in `library/grade.go`,
+  the app's `GRADES` and `openapi.yaml`.
+- Tried in the simulator (6 of each): grades, titles and lengths right
+  (the rolls' tempo maps are followed); on/off pedals (PiJAMA's damper,
+  both SUPRA pedals) come out at 32 per step, ASAP's at 60.
+- Batch 3 (ATEPP, Aria-MIDI, about 44,000 transcriptions) is downloaded
+  by the other session and waits for the owner (docs/ROADMAP.md).

@@ -30,12 +30,23 @@ const (
 	// MIDI's 127 loudness steps are lost. Set by the importer, which knows
 	// the source; the data alone cannot tell.
 	GradeSEMIDI = "se-midi"
+	// GradeRoll: a reproducing-piano roll (Welte-Mignon), scanned and
+	// turned into MIDI by an emulation of its player. The pianist's own
+	// timing, as punched; loudness rebuilt from the roll's expression
+	// holes, so coarser than a recording; the damper pedal only on or off.
+	// Set by the importer.
+	GradeRoll = "roll"
+	// GradeTranscribed: notes found by software in an audio recording (a
+	// jazz album, say). The player's timing; loudness estimated from the
+	// sound; the damper pedal only on or off; now and then a wrong or
+	// missed note. Set by the importer.
+	GradeTranscribed = "transcribed"
 )
 
 // validGrade says whether g is a grade.
 func validGrade(g string) bool {
 	switch g {
-	case GradeNative, GradeSEMIDI, GradePerformance, GradeSequenced:
+	case GradeNative, GradeSEMIDI, GradePerformance, GradeSequenced, GradeRoll, GradeTranscribed:
 		return true
 	}
 	return false

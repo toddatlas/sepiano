@@ -7,7 +7,8 @@ package main
 //   - Batik plays Mozart: SE290 recordings exported as MIDI, converted back
 //     with Bösendorfer's own curve (se.BosendorferCurve);
 //   - MAESTRO v3: Disklavier performances, converted with the Disklavier
-//     curve (se.DefaultCurve), titled from its catalogue.
+//     curve (se.DefaultCurve), titled from its catalogue;
+//   - SUPRA, ASAP and PiJAMA (datasets2.go).
 // Running it again adds nothing twice (the library knows each file) and
 // sets the details again.
 
@@ -51,12 +52,12 @@ type namedFile struct {
 func datasetsCmd(args []string) int {
 	fl := flag.NewFlagSet("sepianod datasets", flag.ExitOnError)
 	server := fl.String("server", "http://127.0.0.1", "running sepianod to import into")
-	only := fl.String("only", "vienna,batik,maestro", "which collections, comma-separated")
+	only := fl.String("only", "vienna,batik,maestro,supra,asap,pijama", "which collections, comma-separated")
 	dry := fl.Bool("n", false, "list what would be imported, and import nothing")
 	limit := fl.Int("limit", 0, "import at most this many pieces of each collection (0: all)")
 	fl.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: sepianod datasets [-server URL] [-only vienna,batik,maestro] [-n] [-limit N] DOWNLOADS")
-		fmt.Fprintln(os.Stderr, "DOWNLOADS holds vienna4x22/x/, batik/midi/ and maestro/maestro-v3.0.0-midi.zip (docs/LIBRARIES.md).")
+		fmt.Fprintln(os.Stderr, "usage: sepianod datasets [-server URL] [-only vienna,batik,maestro,supra,asap,pijama] [-n] [-limit N] DOWNLOADS")
+		fmt.Fprintln(os.Stderr, "DOWNLOADS holds vienna4x22/x/, batik/midi/, maestro/maestro-v3.0.0-midi.zip, supra/, asap/ and pijama/ (docs/LIBRARIES.md).")
 		fl.PrintDefaults()
 	}
 	fl.Parse(args)
@@ -73,7 +74,7 @@ func datasetsCmd(args []string) int {
 	for _, c := range []struct {
 		name string
 		load func(string) ([]dsItem, error)
-	}{{"vienna", viennaItems}, {"batik", batikItems}, {"maestro", maestroItems}} {
+	}{{"vienna", viennaItems}, {"batik", batikItems}, {"maestro", maestroItems}, {"supra", supraItems}, {"asap", asapItems}, {"pijama", pijamaItems}} {
 		if !want[c.name] {
 			continue
 		}
@@ -90,7 +91,8 @@ func datasetsCmd(args []string) int {
 	}
 	if *dry {
 		for _, it := range items {
-			fmt.Printf("  %-34s %s | %s | %s\n", it.label, it.meta["composer"], it.meta["title"], it.meta["album"])
+			composer, _ := it.meta["composer"].(string)
+			fmt.Printf("  %-34s %s | %v | %v\n", it.label, composer, it.meta["title"], it.meta["album"])
 		}
 		return 0
 	}

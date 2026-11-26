@@ -81,7 +81,8 @@ type Piece struct {
 	// saved over); zero if never since it was added.
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
 	// Grade says where the performance data comes from (grade.go):
-	// GradeNative, GradePerformance or GradeSequenced; GradeWhy, in words.
+	// GradeNative, GradePerformance, GradeSequenced, or one an importer
+	// sets (GradeSEMIDI, GradeRoll, GradeTranscribed); GradeWhy, in words.
 	Grade    string `json:"grade,omitempty"`
 	GradeWhy string `json:"grade_why,omitempty"`
 

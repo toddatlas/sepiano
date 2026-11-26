@@ -189,21 +189,33 @@ Findings there, to verify in the Go code:
   files with repeats so fast that releases must be clamped to the next
   strike.
 
-**Batch 2 (downloaded 2026-11-26, same folder; waiting for the owner to
-choose):**
+**Batch 2 (downloaded 2026-11-26, same folder; the owner chose all three
+the same day; importer built, docs/LIBRARIES.md):**
 - **SUPRA**: 456 Welte-Mignon reproducing rolls (Paderewski, Carreño,
   Hofmann, d'Albert, Busoni …), 49 h, CC BY-NC-SA 4.0. Loudness is
-  *modelled* from the roll's expression system (about 38–85), the
-  sustain pedal is on or off, and the tempo map carries the roll's
-  acceleration. Needs a grade of its own ("reproducing roll") and its
-  own fit.
+  *modelled* from the roll's expression system (about 33–85), both
+  pedals are on or off, and the tempo map carries the roll's
+  acceleration. Grade "Piano roll (MIDI)"; it will want its own fit.
 - **ASAP**: 514 performances not already in MAESTRO, Disklavier-like,
   94 h, with the Disklavier curve.
 - **PiJAMA**: 2,777 solo jazz performances *transcribed from audio*, 221
-  h, CC BY-NC 4.0, sustain on or off. Needs a "transcribed" grade. It is
-  big: about 2,800 pieces.
-- Held for the owner (terms to accept, or a sign-up): ATEPP, Aria-MIDI,
-  CrestMuse PEDB, MAPS. GiantMIDI-Piano needs a browser (Google Drive).
+  h, CC BY-NC 3.0, sustain on or off. Grade "Transcribed from audio".
+  It is big: about 2,800 pieces.
+- On/off pedals (SUPRA, PiJAMA) are slowed for this vintage piano as
+  they play (docs/LIBRARIES.md, "Pedals"; the owner, 2026-11-26).
+- Held for the owner (terms to accept, or a sign-up): CrestMuse PEDB,
+  MAPS. GiantMIDI-Piano needs a browser (Google Drive).
+
+**Batch 3 (downloaded 2026-11-26 by the other session, after the owner
+accepted their terms; not imported, the owner's call):**
+- **ATEPP** v1.2: 12,011 transcriptions of commercial recordings by 49
+  famous pianists (Richter, Ashkenazy, Arrau, Brendel, Horowitz …),
+  1,034 h, with continuous sustain and soft pedal. Personal use only.
+- **Aria-MIDI** (unique subset): 32,522 transcriptions, about 2,400 h,
+  mostly classical. The roughest here: few loudness levels, sustain on or
+  off, no titles or performers.
+- Together they would be about 44,000 pieces, ten times today's library:
+  worth deciding first how big the library and its backups should grow.
 
 To do:
 - [x] **Import Vienna 4x22's SE files** (native, so a straight import;
@@ -231,6 +243,9 @@ To do:
 - [x] **Bulk import with metadata** (built: MAESTRO from its zip and
       catalogue, Batik, Vienna; each piece records its collection,
       instrument, licence and curve, filterable).
+- [x] **Batch 2 importer** (SUPRA, ASAP, PiJAMA; 2026-11-26), with the
+      grades "Piano roll (MIDI)" and "Transcribed from audio".
+- [x] **Safe pedal speeds** for every piece as it plays (2026-11-26).
 - [ ] Listening tests at the piano once regulated: the same piece as
       native SE and as converted MIDI.
 

@@ -34,8 +34,8 @@ $args_ = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Fo
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args_
 $trigger = New-ScheduledTaskTrigger -Daily -DaysInterval $EveryDays -At $At
 # A laptop on battery would hold the task until plugged in (Windows' default);
-# the backup takes seconds, so it runs on battery too.
-$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
+# a backup takes some minutes, so it runs on battery too.
+$settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
 Register-ScheduledTask -TaskName 'Piano backup' -Action $action -Trigger $trigger -Settings $settings `
   -Description 'Saves a full backup of the piano''s Pi (sepiano) into a folder; see docs/BACKUPS.md' -Force | Out-Null
 
