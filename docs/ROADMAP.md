@@ -114,7 +114,7 @@ report. It may lie in the drive hardware, or in a different version.
 Either way, **doing the volume in the app is easy, and removes the
 question**: the piano's level stays at 0 and never changes.
 
-- [ ] **App volume:** scale each note's velocity on the Pi as the piece is
+- [x] **App volume** (built 2026-11-26): scale each note's velocity on the Pi as the piece is
       sent, using the same machinery as software voicing (already built,
       already used for every piece). The player's level stays at 0.
   - The piano reads a few seconds ahead, so a change takes a few seconds
@@ -136,12 +136,12 @@ question**: the piano's level stays at 0 and never changes.
 ## Idea 3: a bigger, easier editor
 
 Everything is drawn small, even on a laptop. To do (no piano needed):
-- [ ] A **size setting** (Comfortable / Large / Extra large) that scales
+- [x] A **size setting** (Comfortable / Large / Extra large; built 2026-11-26) that scales
       the rows, the lanes, the text and the buttons; remembered.
-- [ ] **Fit to the keys used**: rows only for the range the piece uses, so
+- [x] **Fit to the keys used** (K): rows only for the range the piece uses, so
       they fill the height.
-- [ ] **Full screen** (hide the side bar), and keyboard zoom (+ and −).
-      Pinch zoom on a trackpad (Ctrl + wheel).
+- [x] **Full screen** (F; hides the side bar), and keyboard zoom (+ and −).
+      Pinch zoom on a trackpad (Ctrl + wheel) was already there.
 - [ ] Bigger note handles and lane drag areas; larger fonts in the panel.
 - [ ] Then the owner tries it and says what is still awkward.
 
@@ -161,8 +161,10 @@ licences, and nothing from them goes into the public repository.
 
 To do:
 - [ ] **Import Vienna 4x22's SE files** (native, so a straight import).
-- [ ] **Grade every piece in the app**: native SE, SE converted to MIDI,
-      performance capture, transcribed, or from the score. The grade is
+- [x] **Grade every piece in the app** (built 2026-11-26: Native SE,
+      Performance (MIDI), Sequenced (MIDI); a "Sources" filter in the
+      Library). Telling SE-converted MIDI and transcriptions apart needs
+      the source; to do with the importers. The grade is
       found from the file:
   - timing on a grid means typed in;
   - few distinct loudnesses means typed in;

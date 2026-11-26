@@ -534,3 +534,34 @@ usable from the app, then more editing tools.
 - The app's level presses the player's Down/Up keys; the player scales
   each note's velocity by section 11's factors. Moving the volume into the
   app is planned (ROADMAP, idea 2).
+
+## Status (2026-11-26, later: volume on the Pi, a bigger editor, grades)
+
+The owner approved building three roadmap items in one go:
+- **Volume on the Pi** (ROADMAP idea 2). The app's level (0 to −16)
+  never presses the player's Down/Up keys now. `deck.openPerf` sends the
+  `.kb` through `se.KB.Reader`, a lazy encoder (byte-identical to
+  `Encode` on all 350 corpus files), which asks `deck.Subdue` for each
+  note's velocity as the piano reads it:
+  - 6% slower hammers per step;
+  - no softer than 400 (this piano's softest calibrated breakpoint)
+    unless recorded softer;
+  - silent presses untouched.
+
+  A change reaches every note not yet sent: a few seconds, as the player
+  reads ahead. `Config.PlayerLevel` keeps the old way;
+  `Status.LevelOnPi` tells the app. Not yet heard at the piano.
+- **Editor size** (idea 3): Comfortable / Large / Extra large scales the
+  canvas, with pointer positions scaled back. The toolbar and panel
+  follow by CSS zoom. The lanes keep their on-screen size. Fit keys (K)
+  and Full screen (F).
+- **Grades** (idea 4): `library.Grade` is native, performance or
+  sequenced, found from the data (`grade.go`: notes starting together,
+  loudness levels, a grid of gaps, pedal depth). On the owner's 37
+  Disklavier MIDI files: 33 performances, 4 "ISI … BMP100" files
+  sequenced, which is right. A Library "Sources" filter, and a label on
+  converted pieces. `metaVersion` 8: converted MIDI files are titled from
+  their names, not "Converted from …".
+- Flaky under load: `TestTracksFollowThePosition` and `TestNoisyTransfer`
+  fail when every package runs at once alongside the simulator. They
+  pass alone.

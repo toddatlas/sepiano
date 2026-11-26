@@ -70,6 +70,9 @@ func (l *Library) setFlags(id string, fromRecording, corrected bool, editedFrom 
 	}
 	q := *p
 	q.FromRecording, q.Corrected, q.EditedFrom = fromRecording, corrected, editedFrom
+	if from := l.pieces[editedFrom]; from != nil {
+		q.Grade, q.GradeWhy = editedGrade(from) // editing does not change where the data came from
+	}
 	if err := l.writeMeta(&q); err != nil {
 		return Piece{}, err
 	}

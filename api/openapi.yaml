@@ -1047,6 +1047,8 @@ components:
         from_recording: { type: boolean, description: An edited copy of a recording made on this piano }
         corrected: { type: boolean, description: The recording corrections are in this copy }
         edited_from: { type: string, description: The piece an edited or corrected copy was made from }
+        grade: { type: string, enum: [native, performance, sequenced], description: "Where the performance data comes from: SE files (native), MIDI of a person playing (performance), or MIDI made on a computer (sequenced). Found from the data itself" }
+        grade_why: { type: string, description: The grade's reasons, in words }
         hidden: { type: boolean, description: Kept out of the library's list and search; its files stay }
         updated_at: { type: string, format: date-time, description: When the performance itself last changed (an edited copy saved over); absent if never }
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }

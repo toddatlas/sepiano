@@ -1202,7 +1202,10 @@ function libraryHead(active) {
 }
 
 // Kept across visits so coming back from a piece restores search and scroll.
-const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', sort: 'az', hidden: false, scroll: 0 };
+const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', grade: '', sort: 'az', hidden: false, scroll: 0 };
+
+// Where a piece's data comes from (library.Grade*), best first.
+const GRADES = { native: 'Native SE', performance: 'Performance (MIDI)', sequenced: 'Sequenced (MIDI)' };
 
 // When a piece last changed: saved over (an edited copy), or else added.
 function pieceTime(p) { return Date.parse(p.updated_at || p.added_at) || 0; }
@@ -1239,6 +1242,7 @@ function libraryScreen(root, _params, ctx) {
     filterSelect('performer', 'All performers'),
     filterSelect('instrument', 'All instruments'),
     filterSelect('origin', 'All kinds'),
+    filterSelect('grade', 'All sources'),
   ];
   const clearBtn = h('button', { class: 'chip-clear', type: 'button', hidden: true, onclick: clearAll }, 'Clear');
   const sortSel = h('select', {
@@ -1278,7 +1282,7 @@ function libraryScreen(root, _params, ctx) {
     const all = cur && !values.includes(cur) ? [cur, ...values] : values;
     fill(f.sel,
       h('option', { value: '' }, f.allLabel),
-      all.map((v) => h('option', { value: v }, f.key === 'instrument' ? instrumentLabel(v) : f.key === 'origin' ? (ORIGINS[v] || v) : v)));
+      all.map((v) => h('option', { value: v }, f.key === 'instrument' ? instrumentLabel(v) : f.key === 'origin' ? (ORIGINS[v] || v) : f.key === 'grade' ? (GRADES[v] || v) : v)));
     f.sel.value = cur;
     f.el.classList.toggle('active', !!cur);
   }
@@ -1288,7 +1292,8 @@ function libraryScreen(root, _params, ctx) {
     return (except === 'composer' || !libState.composer || p.composer === libState.composer)
       && (except === 'performer' || !libState.performer || p.performer === libState.performer)
       && (except === 'instrument' || !libState.instrument || p.instrument === libState.instrument)
-      && (except === 'origin' || !libState.origin || p.origin === libState.origin);
+      && (except === 'origin' || !libState.origin || p.origin === libState.origin)
+      && (except === 'grade' || !libState.grade || p.grade === libState.grade);
   }
 
   async function load() {
@@ -1361,7 +1366,7 @@ function libraryScreen(root, _params, ctx) {
   function render() {
     if (!pieces || !alive) return;
     for (const f of filters) fillSelect(f, uniqSorted(pieces.filter((p) => matches(p, f.key)).map((p) => p[f.key])));
-    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin || libState.hidden);
+    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin || libState.grade || libState.hidden);
     clearBtn.hidden = !anyFilter;
 
     const items = rows();
@@ -1451,6 +1456,7 @@ function libraryScreen(root, _params, ctx) {
         h('span', { class: 'row-meta' },
           fmtTime(p.duration_ms),
           libState.sort === 'new' && h('span', { class: 'row-date' }, fmtDateTime(p.updated_at || p.added_at)),
+          p.grade && p.grade !== 'native' && h('span', { class: 'hint-pill grade-pill', title: p.grade_why || '' }, GRADES[p.grade] || p.grade),
           count > 1 && h('span', { class: 'hint-pill' }, `${count} renderings`))),
       h('button', {
         class: 'row-play',
@@ -1473,6 +1479,7 @@ function libraryScreen(root, _params, ctx) {
     libState.performer = '';
     libState.instrument = '';
     libState.origin = '';
+    libState.grade = '';
     libState.hidden = false;
     applyHidden();
     if (libState.q) {
@@ -2092,6 +2099,7 @@ function pieceScreen(root, [id]) {
         ['Instrument', instrumentLabel(p.instrument)],
         ['Length', fmtTime(p.duration_ms)],
         ['Origin', originText(p)],
+        ['Source', p.grade ? `${GRADES[p.grade] || p.grade}: ${p.grade_why || ''}` : ''],
         ['Source file', p.source_name, 'mono'],
         ['Header', p.header_text, 'pre'],
         ['Notes', p.notes, 'pre'],

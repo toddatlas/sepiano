@@ -1450,3 +1450,6 @@ body.editor-focus .tabbar,
 body.editor-focus .mini,
 body.editor-focus .banner { display: none !important; }
 body.editor-focus main { padding-top: calc(var(--sat) + 8px); }
+
+/* A piece converted from MIDI says so in the list. */
+.grade-pill { background: var(--bg-sunk); color: var(--ink-2); }

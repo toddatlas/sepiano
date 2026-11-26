@@ -80,6 +80,10 @@ type Piece struct {
 	// UpdatedAt is when the performance itself last changed (an edited copy
 	// saved over); zero if never since it was added.
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
+	// Grade says where the performance data comes from (grade.go):
+	// GradeNative, GradePerformance or GradeSequenced; GradeWhy, in words.
+	Grade    string `json:"grade,omitempty"`
+	GradeWhy string `json:"grade_why,omitempty"`
 
 	// Locked lists the fields set by hand or from a catalog (by Update);
 	// re-deriving metadata from the files never changes them.
@@ -91,8 +95,9 @@ type Piece struct {
 
 // metaVersion is the current parser: 2 reads the .kb header text, the newer
 // Zenph names and full performer names; 3 to 6 spell out known titles; 7 adds
-// albums and tracks implied by names (the Goldberg Variations, "NN-" prefixes).
-const metaVersion = 7
+// albums and tracks implied by names (the Goldberg Variations, "NN-" prefixes). 8
+// titles converted MIDI files from their names, not "Converted from …".
+const metaVersion = 8
 
 func (p *Piece) locked(field string) bool {
 	for _, f := range p.Locked {
@@ -281,6 +286,10 @@ func (l *Library) Rescan() (int, error) {
 		}
 	}
 	for _, p := range fullNames(pieces) {
+		dirty[p] = true
+	}
+	// Grade the pieces from before grades (once; it is kept in the .json).
+	for _, p := range l.gradeAll(pieces) {
 		dirty[p] = true
 	}
 	for p := range dirty {

@@ -55,13 +55,12 @@ func (l *Library) AddSet(sourceName string, kb, lp, sp []byte, origin, title str
 	if err != nil {
 		return Piece{}, false, fmt.Errorf(".kb: %w", err)
 	}
-	for _, f := range []struct {
-		ext string
-		b   []byte
-	}{{".lp", lp}, {".sp", sp}} {
-		if _, err := se.ParsePedal(f.b); err != nil {
-			return Piece{}, false, fmt.Errorf("%s: %w", f.ext, err)
-		}
+	damper, err := se.ParsePedal(lp)
+	if err != nil {
+		return Piece{}, false, fmt.Errorf(".lp: %w", err)
+	}
+	if _, err := se.ParsePedal(sp); err != nil {
+		return Piece{}, false, fmt.Errorf(".sp: %w", err)
 	}
 	sum := sha256.Sum256(kb)
 	l.mu.Lock()
@@ -74,6 +73,7 @@ func (l *Library) AddSet(sourceName string, kb, lp, sp []byte, origin, title str
 		return l.pieces[s] != nil || err == nil
 	})
 	piece := newPiece(id, sourceName, origin, kb, k)
+	piece.Grade, piece.GradeWhy = gradeOf(origin, k, damper)
 	if title = strings.TrimSpace(title); title != "" {
 		piece.Title = title
 	}

@@ -27,6 +27,11 @@ type Meta struct {
 // the name supplies the rendering instrument and anything the header lacks.
 func Describe(name, header string) Meta {
 	n, h := ParseName(name), ParseHeader(header)
+	if strings.HasPrefix(strings.TrimSpace(header), "Converted from ") {
+		// sepiano's own header on a converted MIDI file names the file, not
+		// the piece: the file name says more.
+		h = Meta{}
+	}
 	m := n
 	for _, f := range []struct{ dst, src *string }{
 		{&m.Title, &h.Title}, {&m.Composer, &h.Composer}, {&m.Performer, &h.Performer},
