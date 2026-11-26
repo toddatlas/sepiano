@@ -189,6 +189,22 @@ Findings there, to verify in the Go code:
   files with repeats so fast that releases must be clamped to the next
   strike.
 
+**Batch 2 (downloaded 2026-11-26, same folder; waiting for the owner to
+choose):**
+- **SUPRA**: 456 Welte-Mignon reproducing rolls (Paderewski, Carreño,
+  Hofmann, d'Albert, Busoni …), 49 h, CC BY-NC-SA 4.0. Loudness is
+  *modelled* from the roll's expression system (about 38–85), the
+  sustain pedal is on or off, and the tempo map carries the roll's
+  acceleration. Needs a grade of its own ("reproducing roll") and its
+  own fit.
+- **ASAP**: 514 performances not already in MAESTRO, Disklavier-like,
+  94 h, with the Disklavier curve.
+- **PiJAMA**: 2,777 solo jazz performances *transcribed from audio*, 221
+  h, CC BY-NC 4.0, sustain on or off. Needs a "transcribed" grade. It is
+  big: about 2,800 pieces.
+- Held for the owner (terms to accept, or a sign-up): ATEPP, Aria-MIDI,
+  CrestMuse PEDB, MAPS. GiantMIDI-Piano needs a browser (Google Drive).
+
 To do:
 - [x] **Import Vienna 4x22's SE files** (native, so a straight import;
       built 2026-11-26: `sepianod datasets`, docs/LIBRARIES.md).
