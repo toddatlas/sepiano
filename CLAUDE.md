@@ -731,3 +731,6 @@ needs no further decision:
   prizes, 40 starred. `maestroHas` finds performances MAESTRO holds cut
   or joined differently: 16-note stretches with the same timing within
   15 ms. Tried in the simulator (all convert).
+- Imported into the Pi the same night: all 1,279 added, none failed. The
+  library is 8,310 pieces (795 hours); 581 starred, 569 with a prize.
+  ASAP's names were refreshed with the spelling fixes (`-details`).
