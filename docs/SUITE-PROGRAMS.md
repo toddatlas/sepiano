@@ -423,6 +423,20 @@ not in the repository (they are Stahnke's code).
 | CAH, CBH | FW#129–#132 | a second timer, for delays: FW#130 waits 1 ms, FW#129 waits HL ms (the pedals and `sustain` use them); FW#131 and #132 give clock rates |
 | E0H, F0H | FW#133, #134 | not identified |
 
+  **The sensor scanner (traced 2026-11-26).** FW#3–#15 are short: each
+  only reads ports 28H–2FH. A separate scanning circuit presents finished
+  events: a key number in port 2BH bits 0–6, added to the lowest key
+  (D4D3H, set by FW#6 from the table's key range); the kind of event in
+  port 2AH bits 4–7 (FW#15, #12, #11, #14); for a bit-7 event, a 10-bit
+  timing count in port 29H plus port 2AH bits 0–1, very likely the hammer
+  time that becomes the SE velocity. Port 28H bit 3 is the keyboard
+  interlock (FW#3), bit 0 says an event is waiting and bit 2 is an error
+  (FW#10). Reads of 2CH, 2DH, 2EH and 2FH (FW#6–#9) carry no data:
+  probably acknowledge or reset strobes. **No firmware routine writes to
+  ports 28H–2FH, and no suite program reaches the hardware except through
+  the firmware**, so the sensors' thresholds (where a key counts as up or
+  down) are set in the scanner hardware, not in software or the EEPROM.
+
   Other entries without ports:
   - FW#87–#106 are the link's buffers. FW#97 tests for a key, FW#99 reads
     one and FW#101 prints a character on the console; FW#104 and FW#106

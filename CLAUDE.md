@@ -21,6 +21,9 @@ Stahnke SE reproducing piano. The piano is a Steinway with the SE system
   starting large work.
 - `api/openapi.yaml` is the service's API contract; keep it in step with
   `api/server.go`.
+- `docs/ROADMAP.md` is the next stage (2026-11-26): the owner's six ideas,
+  researched, with a suggested order and a to-do list. Tick items off
+  there as they are done.
 
 ## Working with the owner
 
@@ -518,3 +521,16 @@ usable from the app, then more editing tools.
   the position from the piano's clock, which gave nothing usable while
   recording. The deck now times a recording by the Pi's clock from
   "START RECORDING" (`recordingStarted`, `recordingPosition`).
+
+## Status (2026-11-26: planning the next stage)
+
+- The owner set out six ideas (key sensors, volume, a bigger editor,
+  content libraries, audio to SE, a schematic for the designer). Fine-
+  tuning accuracy waits for a piano technician. Researched and written up
+  in `docs/ROADMAP.md`, with a suggested order.
+- Found from the firmware: the key sensors' thresholds are set in the
+  sensor-scanner hardware. Nothing in software or the EEPROM can change
+  them (docs/SUITE-PROGRAMS.md, "The sensor scanner").
+- The app's level presses the player's Down/Up keys; the player scales
+  each note's velocity by section 11's factors. Moving the volume into the
+  app is planned (ROADMAP, idea 2).
