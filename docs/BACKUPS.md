@@ -14,6 +14,8 @@ data folder (`/var/lib/sepiano`) under `sepiano/`:
 |---------------|------------|
 | `library/` | every piece: `.kb`, `.lp`, `.sp`, its details (`.json`: title, album, hidden, grade …), and the original `.mid` of a converted MIDI file |
 | `playlists.json` | the play lists |
+| `favorites.json` | the starred albums and play lists (a starred piece keeps its star in its own `.json`) |
+| `fits.json` | the fits by collection |
 | `settings.json` | preferred instrument, level, volume method |
 | `voicing.json`, `corrections.json` | software voicing and the recording corrections |
 | `eeprom/` | the piano's settings backups (its calibration) |
@@ -93,12 +95,13 @@ the Pi is changed or removed:**
 - pieces: those not here are put back with their details. A piece already
   here (the same performance) is left as it is. If another piece has
   taken a restored piece's id, it gets a new one;
-- play lists not here are added;
+- play lists not here are added, and starred albums and play lists are
+  starred here too (nothing is un-starred);
 - the piano's settings backups not here are added. Restoring one *to the
   piano* is a separate step (Piano → Tools → Restore a backup);
 - programs not installed are installed, after the usual identity check;
-- `settings.json`, `voicing.json` and `corrections.json` are put back only
-  if this Pi has none (a fresh Pi);
+- `settings.json`, `voicing.json`, `corrections.json` and `fits.json` are
+  put back only if this Pi has none (a fresh Pi);
 - a recording in `staging/` is not restored.
 
 Every file is checked against the manifest before it is used. A report

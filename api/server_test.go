@@ -1262,3 +1262,53 @@ func TestSafePedals(t *testing.T) {
 	e.do("POST", "/api/v1/deck/stop", nil)
 	e.waitState("idle")
 }
+
+func TestFavoritesAPI(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(5 * se.TicksPerSecond).Encode()
+	p, _, err := e.lib.AddSet("p", kb, lp, sp, library.OriginUpload, "P")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, b := e.do("POST", "/api/v1/playlists", map[string]any{"name": "Mine", "pieces": []string{p.ID}})
+	var pl struct {
+		ID       string `json:"id"`
+		Favorite bool   `json:"favorite"`
+	}
+	json.Unmarshal(b, &pl)
+	if code != 201 || pl.Favorite {
+		t.Fatalf("create: %d %s", code, b)
+	}
+	for _, req := range []map[string]any{
+		{"kind": "piece", "id": p.ID, "favorite": true},
+		{"kind": "playlist", "id": pl.ID, "favorite": true},
+	} {
+		if code, b := e.do("POST", "/api/v1/favorites", req); code != 200 {
+			t.Fatalf("%v: %d %s", req, code, b)
+		}
+	}
+	if got, _ := e.lib.Get(p.ID); !got.Favorite {
+		t.Fatal("piece not starred")
+	}
+	_, b = e.do("GET", "/api/v1/playlists/"+pl.ID, nil)
+	json.Unmarshal(b, &pl)
+	if !pl.Favorite {
+		t.Fatalf("play list not starred: %s", b)
+	}
+	_, b = e.do("GET", "/api/v1/favorites", nil)
+	if !strings.Contains(string(b), pl.ID) {
+		t.Fatalf("favorites: %s", b)
+	}
+	for req, want := range map[string]int{
+		`{"kind":"album","id":"nope","favorite":true}`:     404,
+		`{"kind":"tune","id":"x","favorite":true}`:         400,
+		`{"kind":"piece","id":"","favorite":true}`:         400,
+		`{"kind":"piece","id":"nosuch00","favorite":true}`: 404,
+	} {
+		var m map[string]any
+		json.Unmarshal([]byte(req), &m)
+		if code, b := e.do("POST", "/api/v1/favorites", m); code != want {
+			t.Errorf("%s: %d %s, want %d", req, code, b, want)
+		}
+	}
+}

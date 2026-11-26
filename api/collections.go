@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"time"
@@ -272,7 +273,8 @@ func (s *Server) playlistReply(w http.ResponseWriter, code int, id string) {
 	if pieces == nil {
 		pieces = []library.Piece{}
 	}
-	writeJSON(w, code, map[string]any{"id": pl.ID, "name": pl.Name, "source": pl.Source, "duration_ms": total, "pieces": pieces})
+	writeJSON(w, code, map[string]any{"id": pl.ID, "name": pl.Name, "source": pl.Source, "duration_ms": total, "pieces": pieces,
+		"favorite": slices.Contains(s.Lib.Favorites().Playlists, pl.ID)})
 }
 
 func (s *Server) getPlaylist(w http.ResponseWriter, r *http.Request) {

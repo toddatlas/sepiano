@@ -77,6 +77,9 @@ type Piece struct {
 	// Hidden keeps the piece out of the library's list and search. Its
 	// files stay; it can be shown again at any time.
 	Hidden bool `json:"hidden,omitempty"`
+	// Favorite is the owner's star: favorites are listed first and have a
+	// section of their own. Zenph's Steinway renderings start starred.
+	Favorite bool `json:"favorite,omitempty"`
 	// UpdatedAt is when the performance itself last changed (an edited copy
 	// saved over); zero if never since it was added.
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
@@ -107,8 +110,14 @@ type Piece struct {
 // metaVersion is the current parser: 2 reads the .kb header text, the newer
 // Zenph names and full performer names; 3 to 6 spell out known titles; 7 adds
 // albums and tracks implied by names (the Goldberg Variations, "NN-" prefixes). 8
-// titles converted MIDI files from their names, not "Converted from …".
-const metaVersion = 8
+// titles converted MIDI files from their names, not "Converted from …". 9
+// stars Zenph's Steinway renderings once (zenphSteinway).
+const metaVersion = 9
+
+// favoritesSince is the metaVersion that first starred the Steinway
+// renderings: pieces described before it are starred once when the library
+// opens; the owner's own stars are never changed after that.
+const favoritesSince = 9
 
 func (p *Piece) locked(field string) bool {
 	for _, f := range p.Locked {
@@ -170,6 +179,8 @@ type Patch struct {
 	// Hidden hides the piece from the library's list and search, or shows
 	// it again.
 	Hidden *bool `json:"hidden"`
+	// Favorite stars or un-stars the piece.
+	Favorite *bool `json:"favorite"`
 	// Provenance (see Piece), set by an importer. Grade overrides the grade
 	// found from the data, when the source is known (GradeSEMIDI).
 	Collection *string `json:"collection"`
@@ -206,7 +217,8 @@ type Library struct {
 	bySHA  map[string]string
 	set    Settings
 
-	plMu sync.Mutex // play lists file
+	plMu  sync.Mutex // play lists file
+	favMu sync.Mutex // favorites file
 }
 
 // Open opens (creating if needed) a library under dataDir: pieces go in
@@ -302,6 +314,9 @@ func (l *Library) Rescan() (int, error) {
 	// full performer names around.
 	dirty := map[*Piece]bool{}
 	for _, p := range pieces {
+		if p.MetaVersion < favoritesSince && !p.Favorite && zenphSteinway(p) {
+			p.Favorite, dirty[p] = true, true
+		}
 		if p.MetaVersion < metaVersion && p.describe() {
 			dirty[p] = true
 		}
@@ -354,6 +369,7 @@ func newPiece(id, sourceName, origin string, kb []byte, k *se.KB) *Piece {
 		KBSHA256: hex.EncodeToString(sum[:]), AddedAt: time.Now().UTC().Truncate(time.Second),
 	}
 	p.describe()
+	p.Favorite = zenphSteinway(p)
 	return p
 }
 
@@ -551,6 +567,9 @@ func (l *Library) Update(id string, patch Patch) (Piece, error) {
 	}
 	if patch.Hidden != nil {
 		q.Hidden = *patch.Hidden
+	}
+	if patch.Favorite != nil {
+		q.Favorite = *patch.Favorite
 	}
 	for _, f := range []struct{ src, dst *string }{
 		{patch.Collection, &q.Collection}, {patch.CapturedOn, &q.CapturedOn}, {patch.Licence, &q.Licence}, {patch.GradeWhy, &q.GradeWhy},

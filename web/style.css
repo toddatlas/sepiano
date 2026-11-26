@@ -1408,9 +1408,10 @@ body.wide-screen main { max-width: none; padding-left: 20px; padding-right: 20px
 .chip-toggle.active { background: var(--ink); border-color: var(--ink); color: var(--on-ink); }
 .chip-toggle:disabled { opacity: 0.45; cursor: default; }
 
-/* Four library sections fit a phone. */
+/* Five library sections fit a phone: each takes the room its name needs. */
+.segmented.lib-tabs a { flex: 1 1 auto; }
 @media (max-width: 440px) {
-  .segmented.lib-tabs a { padding: 0 4px; font-size: 14px; }
+  .segmented.lib-tabs a { padding: 0 4px; font-size: 13.5px; }
 }
 
 /* Library rows sorted newest first carry their date. */
@@ -1515,3 +1516,23 @@ dialog.pick { max-width: 420px; width: calc(100% - 32px); }
 .fit-label { font-size: 15px; }
 .fit-val { text-align: center; font-variant-numeric: tabular-nums; font-weight: 600; }
 .fit-btn { width: 40px; height: 40px; }
+
+/* Favorites: the star on rows and pages, and the "Favorites first" chip. */
+.row-star {
+  width: 40px;
+  height: 48px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.row-star .icon { width: 20px; height: 20px; }
+.row-star.on, .star-btn.on { color: #c8960c; }
+.row-star:active { transform: scale(0.9); }
+.chip-toggle .chip-icon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; }
+.chip-toggle.active .chip-icon { color: #f2c94c; }
+.fav-empty .icon { width: 18px; height: 18px; vertical-align: -3px; color: #c8960c; }

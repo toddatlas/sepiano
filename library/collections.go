@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -31,6 +32,10 @@ func Rank(instrument, preferred string) int {
 
 // better reports whether a is the rendering to play rather than b.
 func better(a, b *Piece, preferred string) bool {
+	// A starred rendering is the owner's choice.
+	if a.Favorite != b.Favorite {
+		return a.Favorite
+	}
 	if ra, rb := Rank(a.Instrument, preferred), Rank(b.Instrument, preferred); ra != rb {
 		return ra < rb
 	}
@@ -58,6 +63,7 @@ type AlbumTrack struct {
 // Album is the pieces sharing an album name, in track order.
 type Album struct {
 	Name       string       `json:"name"`
+	Favorite   bool         `json:"favorite"`
 	Performer  string       `json:"performer"`
 	Composer   string       `json:"composer"`
 	DurationMs int64        `json:"duration_ms"`
@@ -67,6 +73,7 @@ type Album struct {
 // AlbumSummary is an album without its tracks.
 type AlbumSummary struct {
 	Name       string `json:"name"`
+	Favorite   bool   `json:"favorite"`
 	Performer  string `json:"performer"`
 	Composer   string `json:"composer"`
 	Tracks     int    `json:"tracks"`
@@ -84,10 +91,14 @@ func (l *Library) Albums() []AlbumSummary {
 		}
 	}
 	l.mu.RUnlock()
+	fav := map[string]bool{}
+	for _, n := range l.Favorites().Albums {
+		fav[n] = true
+	}
 	out := make([]AlbumSummary, 0, len(names))
 	for n := range names {
 		a := l.album(n, pref)
-		out = append(out, AlbumSummary{Name: a.Name, Performer: a.Performer, Composer: a.Composer,
+		out = append(out, AlbumSummary{Name: a.Name, Favorite: fav[a.Name], Performer: a.Performer, Composer: a.Composer,
 			Tracks: len(a.Tracks), DurationMs: a.DurationMs})
 	}
 	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
@@ -100,6 +111,7 @@ func (l *Library) Album(name string) (Album, error) {
 	if len(a.Tracks) == 0 {
 		return Album{}, ErrNotFound
 	}
+	a.Favorite = slices.Contains(l.Favorites().Albums, a.Name)
 	return a, nil
 }
 
@@ -170,6 +182,7 @@ type Playlist struct {
 // PlaylistSummary is a play list without its pieces.
 type PlaylistSummary struct {
 	ID         string `json:"id"`
+	Favorite   bool   `json:"favorite"`
 	Name       string `json:"name"`
 	Source     string `json:"source,omitempty"`
 	Tracks     int    `json:"tracks"`
@@ -207,10 +220,14 @@ func (l *Library) Playlists() ([]PlaylistSummary, error) {
 	if err != nil {
 		return nil, err
 	}
+	fav := map[string]bool{}
+	for _, id := range l.Favorites().Playlists {
+		fav[id] = true
+	}
 	out := make([]PlaylistSummary, 0, len(ps))
 	for _, p := range ps {
 		pieces := l.present(p.Pieces)
-		s := PlaylistSummary{ID: p.ID, Name: p.Name, Source: p.Source, Tracks: len(pieces)}
+		s := PlaylistSummary{ID: p.ID, Favorite: fav[p.ID], Name: p.Name, Source: p.Source, Tracks: len(pieces)}
 		for _, x := range pieces {
 			s.DurationMs += x.DurationMs
 		}

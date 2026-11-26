@@ -348,6 +348,26 @@ func (s *Server) restoreFile(a *backup.Archive, p string, rep *restoreReport) {
 			_, err := s.Fits.Save(fs)
 			return err
 		})
+	case "favorites.json":
+		// Starred albums and play lists: added to any starred here.
+		b, err := a.Read(p)
+		var f library.Favorites
+		if err == nil {
+			err = json.Unmarshal(b, &f)
+		}
+		var n int
+		if err == nil {
+			n, err = s.Lib.MergeFavorites(f)
+		}
+		if err != nil {
+			rep.Errors = append(rep.Errors, p+": "+err.Error())
+			return
+		}
+		if n > 0 {
+			rep.Restored = append(rep.Restored, p)
+		} else {
+			rep.Kept++
+		}
 	case "backup-state.json":
 		// The backup's own record of backups: this Pi keeps its own.
 	default:

@@ -102,6 +102,8 @@ const ICONS = {
   close: { stroke: ['M6 6l12 12M18 6 6 18'] },
   check: { stroke: ['M5 12.5l4.5 4.5L19 7'] },
   refresh: { stroke: ['M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4'] },
+  star: { fill: ['M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z'] },
+  'star-outline': { stroke: ['M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z'] },
 };
 
 function icon(name, cls = 'icon') {
@@ -248,15 +250,89 @@ function renderingRank(instrument, pref) {
   return 4;
 }
 
+// A starred rendering is the owner's choice, so it comes first.
 function rankRenderings(pieces) {
   const pref = preferredInstrument();
   return pieces
     .map((p, i) => ({ p, i, rank: renderingRank(p.instrument, pref) }))
-    .sort((a, b) => a.rank - b.rank || a.i - b.i)
+    .sort((a, b) => (b.p.favorite ? 1 : 0) - (a.p.favorite ? 1 : 0) || a.rank - b.rank || a.i - b.i)
     .map((x) => x.p);
 }
 
 function bestRendering(pieces) { return rankRenderings(pieces)[0]; }
+
+// ----------------------------------------------------------------- favorites
+
+// "Favorites first" is on unless switched off on this device.
+function favFirstOn() {
+  try { return localStorage.getItem('sepiano.favFirst') !== '0'; } catch { return true; }
+}
+function setFavFirst(on) {
+  try { localStorage.setItem('sepiano.favFirst', on ? '1' : '0'); } catch { /* private browsing */ }
+}
+
+// How good a piece's data is for this Steinway, best first: SE files
+// rendered for a Steinway (Zenph), other SE files, then MIDI sources by grade.
+const GRADE_ORDER = { native: 1, 'se-midi': 2, performance: 3, roll: 4, transcribed: 5, sequenced: 6 };
+function qualityTier(p) {
+  const g = p.grade || 'native';
+  if (g === 'native') return (p.instrument || '').toLowerCase().startsWith('steinway') ? 0 : 1;
+  return GRADE_ORDER[g] ?? 3;
+}
+function cmpBest(a, b) { return qualityTier(a) - qualityTier(b) || cmpPieces(a, b); }
+
+// withFavFirst puts favorites first (when "Favorites first" is on), then cmp.
+function withFavFirst(cmp, fav = (x) => x.favorite) {
+  const on = favFirstOn();
+  return (a, b) => (on ? (fav(b) ? 1 : 0) - (fav(a) ? 1 : 0) : 0) || cmp(a, b);
+}
+
+// favFirstChip is the "Favorites first" toggle; onchange re-sorts.
+function favFirstChip(onchange) {
+  const b = h('button', { class: 'chip chip-toggle', type: 'button', title: 'List favorites before everything else',
+    onclick: () => { setFavFirst(!favFirstOn()); sync(); onchange(); } }, icon('star', 'icon chip-icon'), 'Favorites first');
+  function sync() {
+    b.classList.toggle('active', favFirstOn());
+    b.setAttribute('aria-pressed', String(favFirstOn()));
+  }
+  sync();
+  return b;
+}
+
+// starButton stars or un-stars a piece, album or play list (`kind`, `id`);
+// item.favorite is kept in step. `large` makes a page button with words.
+function starButton(kind, id, item, label, opts = {}) {
+  const btn = h('button', { class: opts.large ? 'btn btn-large star-btn' : 'row-star', type: 'button', onclick: toggle });
+  function sync() {
+    const on = !!item.favorite;
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', String(on));
+    btn.setAttribute('aria-label', on ? `Remove ${label} from favorites` : `Add ${label} to favorites`);
+    btn.title = on ? 'A favorite (tap to remove)' : 'Add to favorites';
+    fill(btn, icon(on ? 'star' : 'star-outline'), opts.large ? (on ? 'Favorite' : 'Add to favorites') : null);
+  }
+  async function toggle(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const on = !item.favorite;
+    item.favorite = on;
+    sync();
+    try {
+      await api('POST', '/favorites', { kind, id, favorite: on });
+      if (kind === 'piece' && app.pieces) {
+        const p = app.pieces.find((x) => x.id === id);
+        if (p) p.favorite = on;
+      }
+      if (opts.onchange) opts.onchange(on);
+    } catch (err) {
+      item.favorite = !on;
+      sync();
+      toast(err.message, 'error');
+    }
+  }
+  sync();
+  return btn;
+}
 
 function debounce(fn, ms) {
   let timer = 0;
@@ -946,6 +1022,7 @@ const UI = { h, fill, setText, icon, api, command, toast, noteName, isBlackKey, 
 const ROUTES = [
   { name: 'now', re: /^\/$/, tab: 'now', title: 'Now Playing', screen: nowPlayingScreen },
   { name: 'library', re: /^\/library$/, tab: 'library', title: 'Library', screen: libraryScreen },
+  { name: 'favorites', re: /^\/favorites$/, tab: 'library', title: 'Favorites', screen: (root, params, ctx) => libraryScreen(root, params, ctx, { favorites: true }) },
   { name: 'albums', re: /^\/albums$/, tab: 'library', title: 'Albums', screen: albumsScreen },
   { name: 'playlists', re: /^\/playlists$/, tab: 'library', title: 'Play lists', screen: playlistsScreen },
   { name: 'recordings', re: /^\/recordings$/, tab: 'library', title: 'Recordings', screen: recordingsScreen },
@@ -970,6 +1047,7 @@ const ROUTES = [
 // The segmented control at the top of the library: [route name, hash, label].
 const LIB_SECTIONS = [
   ['library', '#/library', 'Pieces'],
+  ['favorites', '#/favorites', 'Favorites'],
   ['albums', '#/albums', 'Albums'],
   ['playlists', '#/playlists', 'Play lists'],
   ['recordings', '#/recordings', 'Recordings'],
@@ -1318,7 +1396,8 @@ function libraryHead(active) {
 }
 
 // Kept across visits so coming back from a piece restores search and scroll.
-const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', grade: '', collection: '', sort: 'az', hidden: false, scroll: 0 };
+const libState = { q: '', composer: '', performer: '', instrument: '', origin: '', grade: '', collection: '', sort: 'best', hidden: false, scroll: 0 };
+const favState = { ...libState };
 
 // Where a piece's data comes from (library.Grade*), best first.
 const GRADES = { native: 'Native SE', 'se-midi': 'SE, via MIDI', performance: 'Performance (MIDI)', roll: 'Piano roll (MIDI)', transcribed: 'Transcribed from audio', sequenced: 'Sequenced (MIDI)' };
@@ -1326,10 +1405,14 @@ const GRADES = { native: 'Native SE', 'se-midi': 'SE, via MIDI', performance: 'P
 // When a piece last changed: saved over (an edited copy), or else added.
 function pieceTime(p) { return Date.parse(p.updated_at || p.added_at) || 0; }
 
-function libraryScreen(root, _params, ctx) {
+// The Pieces section, and with `favorites` the Favorites section: the starred
+// pieces, albums and play lists.
+function libraryScreen(root, _params, ctx, opts = {}) {
+  const favs = !!opts.favorites;
+  const st = favs ? favState : libState;
   let alive = true;
   let pieces = null;
-  let colls = null; // albums and play lists matching the search
+  let colls = null; // albums and play lists matching the search (all starred ones, in Favorites)
   let seq = 0;
   let restoreScroll = ctx.from === 'piece';
   let playingId = null;
@@ -1337,18 +1420,18 @@ function libraryScreen(root, _params, ctx) {
   const search = h('input', {
     class: 'search',
     type: 'search',
-    placeholder: 'Search pieces, albums, folders…',
-    'aria-label': 'Search the library',
+    placeholder: favs ? 'Search the favorites…' : 'Search pieces, albums, folders…',
+    'aria-label': favs ? 'Search the favorites' : 'Search the library',
     autocomplete: 'off',
     autocorrect: 'off',
     autocapitalize: 'off',
     spellcheck: 'false',
     enterkeyhint: 'search',
   });
-  search.value = libState.q;
+  search.value = st.q;
   search.addEventListener('input', debounce(() => {
-    if (!alive || search.value === libState.q) return;
-    libState.q = search.value;
+    if (!alive || search.value === st.q) return;
+    st.q = search.value;
     load();
   }, 300));
   search.addEventListener('keydown', (e) => { if (e.key === 'Enter') search.blur(); });
@@ -1364,13 +1447,15 @@ function libraryScreen(root, _params, ctx) {
   const clearBtn = h('button', { class: 'chip-clear', type: 'button', hidden: true, onclick: clearAll }, 'Clear');
   const sortSel = h('select', {
     class: 'chip-select', 'aria-label': 'Order',
-    onchange: () => { libState.sort = sortSel.value; render(); },
-  }, h('option', { value: 'az' }, 'A to Z'), h('option', { value: 'new' }, 'Newest first'));
-  sortSel.value = libState.sort;
+    onchange: () => { st.sort = sortSel.value; render(); },
+  }, h('option', { value: 'best', title: 'Native SE files for a Steinway first, then other SE files, then MIDI sources' }, 'Best first'),
+  h('option', { value: 'az' }, 'A to Z'), h('option', { value: 'new' }, 'Newest first'));
+  sortSel.value = st.sort;
   const sortChip = h('label', { class: 'chip' }, sortSel);
+  const favChip = !favs && favFirstChip(() => render());
   // Hidden pieces: a chip that shows them instead, when there are any.
   const hiddenBtn = h('button', { class: 'chip chip-toggle', type: 'button', hidden: true, 'aria-pressed': 'false',
-    onclick: () => { libState.hidden = !libState.hidden; applyHidden(); render(); } });
+    onclick: () => { st.hidden = !st.hidden; applyHidden(); render(); } });
   const countEl = h('p', { class: 'lib-count', 'aria-live': 'polite' });
   const list = h('ul', { class: 'list', role: 'list' });
   const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
@@ -1392,9 +1477,9 @@ function libraryScreen(root, _params, ctx) {
     h('button', { class: 'btn btn-small', type: 'button', onclick: () => { selecting = false; picked.clear(); render(); } }, 'Done'));
 
   root.append(
-    ...libraryHead('library'),
+    ...libraryHead(favs ? 'favorites' : 'library'),
     h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
-    h('div', { class: 'filters' }, selectBtn, filters.map((f) => f.el), sortChip, hiddenBtn, clearBtn),
+    h('div', { class: 'filters' }, selectBtn, favChip, filters.map((f) => f.el), sortChip, hiddenBtn, clearBtn),
     countEl,
     body,
     selBar);
@@ -1413,13 +1498,13 @@ function libraryScreen(root, _params, ctx) {
     const sel = h('select', {
       class: 'chip-select',
       'aria-label': allLabel.replace(/^All /, 'Filter by '),
-      onchange: () => { libState[key] = sel.value; render(); },
+      onchange: () => { st[key] = sel.value; render(); },
     });
     return { key, allLabel, sel, el: h('label', { class: 'chip' }, sel) };
   }
 
   function fillSelect(f, values) {
-    const cur = libState[f.key];
+    const cur = st[f.key];
     const all = cur && !values.includes(cur) ? [cur, ...values] : values;
     fill(f.sel,
       h('option', { value: '' }, f.allLabel),
@@ -1430,28 +1515,37 @@ function libraryScreen(root, _params, ctx) {
 
   // Does p pass every active filter except `except`?
   function matches(p, except) {
-    return (except === 'composer' || !libState.composer || p.composer === libState.composer)
-      && (except === 'performer' || !libState.performer || p.performer === libState.performer)
-      && (except === 'instrument' || !libState.instrument || p.instrument === libState.instrument)
-      && (except === 'origin' || !libState.origin || p.origin === libState.origin)
-      && (except === 'grade' || !libState.grade || p.grade === libState.grade)
-      && (except === 'collection' || !libState.collection || p.collection === libState.collection);
+    return (except === 'composer' || !st.composer || p.composer === st.composer)
+      && (except === 'performer' || !st.performer || p.performer === st.performer)
+      && (except === 'instrument' || !st.instrument || p.instrument === st.instrument)
+      && (except === 'origin' || !st.origin || p.origin === st.origin)
+      && (except === 'grade' || !st.grade || p.grade === st.grade)
+      && (except === 'collection' || !st.collection || p.collection === st.collection);
   }
 
   async function load() {
     const my = ++seq;
-    const q = libState.q.trim();
+    const q = st.q.trim();
     try {
-      // A search also looks through the albums and the folders' play lists.
+      // A search also looks through the albums and the folders' play lists;
+      // Favorites always lists the starred ones.
+      const withColls = q || favs;
       const [res, al, pl] = await Promise.all([
         api('GET', '/pieces?hidden=all' + (q ? '&q=' + encodeURIComponent(q) : '')),
-        q ? api('GET', '/albums').catch(() => null) : null,
-        q ? api('GET', '/playlists').catch(() => null) : null,
+        withColls ? api('GET', '/albums').catch(() => null) : null,
+        withColls ? api('GET', '/playlists').catch(() => null) : null,
       ]);
       if (!alive || my !== seq) return;
-      colls = q ? matchCollections(q, (al && al.albums) || [], (pl && pl.playlists) || []) : null;
+      let albums = (al && al.albums) || [];
+      let lists = (pl && pl.playlists) || [];
+      if (favs) {
+        albums = albums.filter((a) => a.favorite);
+        lists = lists.filter((p) => p.favorite);
+      }
+      colls = withColls ? matchCollections(q, albums, lists) : null;
       allPieces = (res && res.pieces) || [];
-      if (!q) {
+      if (favs) allPieces = allPieces.filter((p) => p.favorite);
+      else if (!q) {
         app.pieces = allPieces.filter((p) => !p.hidden);
         app.piecesStale = false;
       }
@@ -1470,12 +1564,12 @@ function libraryScreen(root, _params, ctx) {
   function applyHidden() {
     if (!allPieces) return;
     const nHidden = allPieces.filter((p) => p.hidden).length;
-    if (!nHidden) libState.hidden = false;
-    pieces = allPieces.filter((p) => !!p.hidden === libState.hidden);
+    if (!nHidden) st.hidden = false;
+    pieces = allPieces.filter((p) => !!p.hidden === st.hidden);
     hiddenBtn.hidden = !nHidden;
-    hiddenBtn.classList.toggle('active', libState.hidden);
-    hiddenBtn.setAttribute('aria-pressed', String(libState.hidden));
-    setText(hiddenBtn, libState.hidden ? `Showing hidden (${nHidden}) ✕` : `Hidden (${nHidden})`);
+    hiddenBtn.classList.toggle('active', st.hidden);
+    hiddenBtn.setAttribute('aria-pressed', String(st.hidden));
+    setText(hiddenBtn, st.hidden ? `Showing hidden (${nHidden}) ✕` : `Hidden (${nHidden})`);
   }
 
   // One row per performance (perf_key): the filtered instrument's rendering,
@@ -1491,24 +1585,28 @@ function libraryScreen(root, _params, ctx) {
     const out = [];
     for (const group of groups.values()) {
       let pick;
-      if (libState.instrument) {
-        pick = group.find((p) => p.instrument === libState.instrument);
+      if (st.instrument) {
+        pick = group.find((p) => p.instrument === st.instrument);
         if (!pick) continue;
       } else {
         pick = bestRendering(group);
       }
       out.push({ piece: pick, count: group.length });
     }
-    out.sort(libState.sort === 'new'
-      ? (a, b) => pieceTime(b.piece) - pieceTime(a.piece) || cmpPieces(a.piece, b.piece)
-      : (a, b) => cmpPieces(a.piece, b.piece));
+    // Favorites first (if on), then the chosen order. "Best first" puts
+    // native SE files for a Steinway above everything else (qualityTier).
+    const order = st.sort === 'new'
+      ? (a, b) => pieceTime(b) - pieceTime(a) || cmpPieces(a, b)
+      : st.sort === 'az' ? cmpPieces : cmpBest;
+    const cmp = withFavFirst(order);
+    out.sort((a, b) => cmp(a.piece, b.piece));
     return out;
   }
 
   function render() {
     if (!pieces || !alive) return;
     for (const f of filters) fillSelect(f, uniqSorted(pieces.filter((p) => matches(p, f.key)).map((p) => p[f.key])));
-    const anyFilter = !!(libState.composer || libState.performer || libState.instrument || libState.origin || libState.grade || libState.collection || libState.hidden);
+    const anyFilter = !!(st.composer || st.performer || st.instrument || st.origin || st.grade || st.collection || st.hidden);
     clearBtn.hidden = !anyFilter;
 
     const items = rows();
@@ -1516,8 +1614,9 @@ function libraryScreen(root, _params, ctx) {
     setText(countEl, items.length === 1 ? '1 performance' : `${items.length} performances`);
     countEl.hidden = !items.length;
 
-    const albums = (colls && colls.albums) || [];
-    const lists = (colls && colls.playlists) || [];
+    const collFirst = withFavFirst(() => 0);
+    const albums = ((colls && colls.albums) || []).slice().sort(collFirst);
+    const lists = ((colls && colls.playlists) || []).slice().sort(collFirst);
     const found = albums.length || lists.length
       ? [
         albums.length && h('h2', { class: 'list-head' }, albums.length === 1 ? '1 album' : `${albums.length} albums`),
@@ -1528,7 +1627,7 @@ function libraryScreen(root, _params, ctx) {
       ]
       : [];
     if (!items.length && !found.length) {
-      fill(body, emptyState(anyFilter || !!libState.q.trim()));
+      fill(body, emptyState(anyFilter || !!st.q.trim()));
     } else {
       fill(list, ...items.map(row));
       fill(body, ...found, items.length ? list : null);
@@ -1537,7 +1636,7 @@ function libraryScreen(root, _params, ctx) {
     }
     if (restoreScroll) {
       restoreScroll = false;
-      window.scrollTo(0, libState.scroll);
+      window.scrollTo(0, st.scroll);
     }
   }
 
@@ -1546,6 +1645,11 @@ function libraryScreen(root, _params, ctx) {
       return h('div', { class: 'empty small' },
         h('p', { class: 'empty-text' }, 'Nothing matches.'),
         h('button', { class: 'btn', type: 'button', onclick: clearAll }, 'Show everything'));
+    }
+    if (favs) {
+      return h('div', { class: 'empty small fav-empty' },
+        h('h2', { class: 'empty-title' }, 'No favorites yet'),
+        h('p', { class: 'empty-text' }, 'Tap the star ', icon('star-outline'), ' beside a piece, an album or a play list, or on its page. Favorites gather here and come first everywhere in the library.'));
     }
     return h('div', { class: 'empty small' },
       h('h2', { class: 'empty-title' }, 'The library is empty'),
@@ -1570,6 +1674,7 @@ function libraryScreen(root, _params, ctx) {
       h('a', { class: 'row-main', href: albumHref(a.name) },
         h('span', { class: 'row-title' }, a.name),
         sub && h('span', { class: 'row-sub' }, sub)),
+      starButton('album', a.name, a, `the album ${a.name}`),
       h('button', {
         class: 'row-play', type: 'button', 'aria-label': `Play all of ${a.name}`,
         onclick: (e) => startPlay({ album: a.name }, e.currentTarget),
@@ -1583,6 +1688,7 @@ function libraryScreen(root, _params, ctx) {
         h('span', { class: 'row-title' }, pl.name),
         sub && h('span', { class: 'row-sub' }, sub),
         h('span', { class: 'row-file' }, pl.source || 'Your play list')),
+      starButton('playlist', pl.id, pl, `the play list ${pl.name}`),
       h('button', {
         class: 'row-play', type: 'button', 'aria-label': `Play all of ${pl.name}`,
         onclick: (e) => startPlay({ playlist: pl.id }, e.currentTarget),
@@ -1601,9 +1707,10 @@ function libraryScreen(root, _params, ctx) {
         p.source_name && h('span', { class: 'row-file' }, p.source_name),
         h('span', { class: 'row-meta' },
           fmtTime(p.duration_ms),
-          libState.sort === 'new' && h('span', { class: 'row-date' }, fmtDateTime(p.updated_at || p.added_at)),
+          st.sort === 'new' && h('span', { class: 'row-date' }, fmtDateTime(p.updated_at || p.added_at)),
           p.grade && p.grade !== 'native' && h('span', { class: 'hint-pill grade-pill', title: p.grade_why || '' }, GRADES[p.grade] || p.grade),
           count > 1 && h('span', { class: 'hint-pill' }, `${count} renderings`))),
+      starButton('piece', p.id, p, `“${p.title || 'Untitled'}”`),
       h('button', {
         class: 'row-play',
         type: 'button',
@@ -1621,16 +1728,16 @@ function libraryScreen(root, _params, ctx) {
   }
 
   function clearAll() {
-    libState.composer = '';
-    libState.performer = '';
-    libState.instrument = '';
-    libState.origin = '';
-    libState.grade = '';
-    libState.collection = '';
-    libState.hidden = false;
+    st.composer = '';
+    st.performer = '';
+    st.instrument = '';
+    st.origin = '';
+    st.grade = '';
+    st.collection = '';
+    st.hidden = false;
     applyHidden();
-    if (libState.q) {
-      libState.q = '';
+    if (st.q) {
+      st.q = '';
       search.value = '';
       load();
     } else {
@@ -1644,7 +1751,7 @@ function libraryScreen(root, _params, ctx) {
     onSettings: render,
     unmount() {
       alive = false;
-      libState.scroll = window.scrollY;
+      st.scroll = window.scrollY;
     },
   };
 }
@@ -1861,6 +1968,7 @@ function collectionListScreen(root, ctx, cfg) {
   root.append(
     ...libraryHead(cfg.section),
     h('div', { class: 'search-wrap' }, icon('search', 'icon search-icon'), search),
+    h('div', { class: 'filters' }, favFirstChip(() => render())),
     cfg.action && h('div', { class: 'coll-action' }, cfg.action()),
     countEl,
     body);
@@ -1887,12 +1995,12 @@ function collectionListScreen(root, ctx, cfg) {
   function render() {
     if (!items || !alive) return;
     const words = fold(st.q).split(/\s+/).filter(Boolean);
-    const shown = words.length
+    const shown = (words.length
       ? items.filter((it) => {
         const text = fold(cfg.words(it).filter(Boolean).join(' '));
         return words.every((w) => text.includes(w));
       })
-      : items;
+      : items.slice()).sort(withFavFirst(() => 0));
     setText(countEl, cfg.count(shown.length));
     countEl.hidden = !shown.length;
 
@@ -1930,6 +2038,7 @@ function collectionListScreen(root, ctx, cfg) {
         h('span', { class: 'row-title' }, title),
         sub && h('span', { class: 'row-sub' }, sub),
         note && h('span', { class: 'row-note' }, note)),
+      starButton(cfg.kind, cfg.key(it), it, `${cfg.kind === 'album' ? 'the album' : 'the play list'} ${title}`),
       h('button', {
         class: 'row-play',
         type: 'button',
@@ -2069,7 +2178,8 @@ function albumScreen(root, [name]) {
           type: 'button',
           disabled: !tracks.length,
           onclick: (e) => startPlay({ album: title }, e.currentTarget),
-        }, icon('play'), 'Play all')),
+        }, icon('play'), 'Play all'),
+        starButton('album', title, a, `the album ${title}`, { large: true })),
       list);
     playingIndex = null;
     markPlaying();
@@ -2160,6 +2270,7 @@ function playlistScreen(root, [id]) {
           disabled: !pieces.length,
           onclick: (e) => startPlay({ playlist: plId }, e.currentTarget),
         }, icon('play'), 'Play all'),
+        starButton('playlist', plId, pl, `the play list ${name}`, { large: true }),
         h('button', { class: 'btn btn-large', type: 'button', onclick: rename }, icon('edit'), 'Rename'),
         h('button', { class: 'btn btn-large' + (editing ? ' btn-primary' : ''), type: 'button', disabled: !pieces.length && !editing,
           onclick: () => { editing = !editing; render(); } }, editing ? 'Done' : 'Edit order')),
@@ -2307,6 +2418,7 @@ function pieceScreen(root, [id]) {
         h('button', { class: 'btn btn-small', type: 'button', onclick: () => setHidden(false) }, 'Show it again')),
       h('div', { class: 'piece-actions' },
         playBtn,
+        starButton('piece', id, p, `“${p.title || 'Untitled'}”`, { large: true }),
         h('button', { class: 'btn btn-large', type: 'button', onclick: startEdit }, icon('edit'), 'Edit'),
         h('button', { class: 'btn btn-large', type: 'button', onclick: () => addToPlaylist([id], `“${p.title || 'Untitled'}”`) }, icon('plus'), 'Add to play list')),
       metaList([

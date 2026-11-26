@@ -136,6 +136,32 @@ paths:
       responses:
         "201": { description: Created, content: { application/json: { schema: { $ref: "#/components/schemas/Playlist" } } } }
         "400": { $ref: "#/components/responses/Error" }
+  /favorites:
+    get:
+      summary: The starred albums (by name) and play lists (by id); starred pieces carry favorite in the piece list
+      responses:
+        "200":
+          description: Favorites
+          content:
+            application/json:
+              schema: { type: object, properties: { albums: { type: array, items: { type: string } }, playlists: { type: array, items: { type: string } } } }
+    post:
+      summary: Star or un-star a piece, an album or a play list. Zenph's Steinway renderings start starred.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [kind, id, favorite]
+              properties:
+                kind: { type: string, enum: [piece, album, playlist] }
+                id: { type: string, description: "The piece or play list id, or the album name" }
+                favorite: { type: boolean }
+      responses:
+        "200": { description: The request, as applied }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
   /playlists/{id}/pieces:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
@@ -334,6 +360,7 @@ paths:
                 album: { type: string }
                 track: { type: integer, minimum: 0 }
                 hidden: { type: boolean, description: "Hide the piece from the library's list and search (true) or show it again (false). Its files stay. Not a metadata field: never locked." }
+                favorite: { type: boolean, description: "Star (true) or un-star the piece. Never locked." }
                 collection: { type: string, description: "The collection it came from (MAESTRO v3, Vienna 4x22 …)" }
                 captured_on: { type: string, description: "The instrument that captured the playing" }
                 licence: { type: string }
@@ -1183,6 +1210,7 @@ components:
         curve: { type: string, description: "For a converted MIDI file, the velocity curve used: disklavier or bosendorfer" }
         grade_why: { type: string, description: The grade's reasons, in words }
         hidden: { type: boolean, description: Kept out of the library's list and search; its files stay }
+        favorite: { type: boolean, description: "Starred: listed first and in Favorites. Zenph's Steinway renderings start starred." }
         updated_at: { type: string, format: date-time, description: When the performance itself last changed (an edited copy saved over); absent if never }
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
         meta_version: { type: integer, description: Version of the parser that described the piece }
@@ -1192,6 +1220,7 @@ components:
       type: object
       properties:
         name: { type: string, description: "e.g. \"Earl Wild: The Art of the Transcription (FP-1002)\"; also its id" }
+        favorite: { type: boolean, description: Starred }
         performer: { type: string, description: The performer of most tracks }
         composer: { type: string, description: The composer of most tracks }
         tracks: { type: integer }
@@ -1215,6 +1244,7 @@ components:
       type: object
       properties:
         id: { type: string }
+        favorite: { type: boolean, description: Starred }
         name: { type: string }
         source: { type: string, description: "Where it was imported from, e.g. \"SE/Hamb/playGould55.bat\"" }
         tracks: { type: integer }
