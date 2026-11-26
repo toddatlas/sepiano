@@ -1486,3 +1486,21 @@ func TestUpNext(t *testing.T) {
 		t.Fatalf("several pieces at once: %d", code)
 	}
 }
+
+func TestPieceWork(t *testing.T) {
+	e := newEnv(t)
+	kb, lp, sp, _ := sim.Phrase(10 * se.TicksPerSecond).Encode()
+	p, _, err := e.lib.AddSet("w", kb, lp, sp, library.OriginUpload, "W")
+	if err != nil {
+		t.Fatal(err)
+	}
+	code, b := e.do("GET", "/api/v1/pieces/"+p.ID+"/work", nil)
+	var w piano.Work
+	json.Unmarshal(b, &w)
+	if code != 200 || w.Notes == 0 || w.HoldS <= 0 || w.Level == "" {
+		t.Fatalf("work: %d %s", code, b)
+	}
+	if code, _ := e.do("GET", "/api/v1/pieces/nosuch00/work", nil); code != 404 {
+		t.Fatalf("unknown piece: %d", code)
+	}
+}

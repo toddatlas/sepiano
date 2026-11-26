@@ -2558,6 +2558,9 @@ function pieceScreen(root, [id]) {
   let seq = 0;
 
   const renderingsSection = h('section', { class: 'card', hidden: true });
+  // How hard the piece works the piano's key solenoids (GET …/work).
+  const workEl = h('span', { class: 'work' }, '…');
+  let work = null;
   root.append(h('p', { class: 'muted center' }, 'Loading…'));
   load();
 
@@ -2569,6 +2572,7 @@ function pieceScreen(root, [id]) {
       piece = p;
       if (!editing) render();
       loadRenderings();
+      api('GET', piecePath(id) + '/work').then((w) => { if (alive) { work = w; showWork(); } }, () => setText(workEl, ''));
     } catch (err) {
       if (!alive || my !== seq) return;
       if (err.status === 404) renderGone();
@@ -2602,6 +2606,7 @@ function pieceScreen(root, [id]) {
         ['Origin', originText(p)],
         ['Source', p.grade ? `${GRADES[p.grade] || p.grade}: ${p.grade_why || ''}` : ''],
         ['Award', p.award || ''],
+        ['Workload', workEl],
         ['Collection', p.collection || ''],
         ['Captured on', p.captured_on || ''],
         ['Converted with', p.curve ? (p.curve === 'bosendorfer' ? 'Bösendorfer’s curve' : 'the Disklavier curve') : ''],
@@ -2670,6 +2675,25 @@ function pieceScreen(root, [id]) {
     fill(root, h('div', { class: 'empty' },
       h('p', { class: 'empty-text' }, `Could not load this piece. ${err.message}`),
       h('button', { class: 'btn', type: 'button', onclick: load }, icon('refresh'), 'Try again')));
+  }
+
+  // "Light: 1.9 keys held at once on average, at most 3 together for a
+  // second; longest hold 2.6 s (E4)." The level compares with this piano's
+  // Zenph recordings (piano.WorkLevel).
+  function showWork() {
+    const w = work;
+    if (!w) return;
+    const n = (x) => (Math.round(x * 10) / 10).toLocaleString();
+    const parts = [
+      `${n(w.avg_held)} keys held at once on average`,
+      w.held_1s > 1 && `${w.held_1s} together for a second`,
+      w.held_10s > 1 && `${w.held_10s} together for ten seconds`,
+      w.longest_hold_s >= 1 && `longest hold ${n(w.longest_hold_s)} s (${noteName(w.longest_key)})`,
+    ].filter(Boolean);
+    fill(workEl,
+      h('span', { class: 'work-level work-' + w.level.replace(' ', '-') }, w.level[0].toUpperCase() + w.level.slice(1)),
+      `: ${parts.join('; ')}.`,
+      h('span', { class: 'hint work-hint' }, ' How hard it works the keys’ solenoids (heat and wear), against this piano’s own Zenph recordings.'));
   }
 
   async function loadRenderings() {

@@ -198,6 +198,58 @@ the competitors' names, and for the winners to be marked.
   `sepianod datasets -details -only maestro,asap DOWNLOADS` puts them on
   pieces already in the library, without uploading anything.
 
+## How hard a piece works the piano (2026-11-26)
+
+Each key the player holds down is a solenoid kept powered, which makes
+heat and wear. Every piece's page now has a **Workload** line
+(`piano.MeasureWork`, `GET /pieces/{id}/work`), measured from its files:
+- keys held at once on average;
+- the most held together for a second, and for ten seconds;
+- the longest single hold;
+- a level.
+
+Silent presses count, since they hold a key too.
+
+The level compares with what this piano usually plays: the owner's 350
+Zenph SE files.
+- **light**: within their usual range (average under 2.8 keys, at most one
+  key held 10 s, no hold past 10 s);
+- **moderate**: up to the most they ever do (average 4.1, five keys for
+  10 s, a 19 s hold);
+- **heavy**: up to about twice that;
+- **very heavy**: beyond.
+
+Measured on samples of each source (average keys held at once: middle
+and top tenth; longest hold: middle):
+
+| Source | Average held (p50 / p90) | Longest hold (p50) | Levels |
+|---|---|---|---|
+| The owner's Zenph SE files (350) | 1.9 / 2.7 | 2.6 s | almost all light |
+| Vienna SE (69) | 2.2 / 3.4 | 3.5 s | light to moderate |
+| Competition (Disklavier, 150) | 2.0 / 2.6 | 5.6 s | mostly light |
+| SUPRA Welte rolls (150) | 2.6 / 3.1 | 4.1 s | light and moderate |
+| PiJAMA transcriptions (150) | 4.4 / 6.3 | 6.0 s | mostly moderate and heavy |
+| Ampico rolls (150) | 4.5 / 7.0 | 5.4 s | moderate to very heavy |
+| 88-note rolls (150) | 4.1 / 5.1 | 1.8 s | mostly moderate |
+| Organ rolls, 176-note (60) | 4.3 / 7.0 | 12 s | up to very heavy (a 65 s hold) |
+
+**The 11 holiday organ rolls** (`sepianod work FILES` measures files
+outside the library):
+- light: Nutcracker "Dance of the Automatons";
+- moderate: Noel and Variations, Waltz of the Flowers, Christmas Bells;
+- heavy: For Unto Us a Child Is Born, Hallelujah Chorus, Silent Night, He
+  Shall Feed His Flock;
+- very heavy: O Holy Night, O Little Town of Bethlehem, The First Noel.
+  These hold about 9–10 keys down on average, and 10–11 together for over
+  10 s.
+
+The figure also measures how much holding a full damper pedal makes
+unnecessary (`pedal_free_s`). Under a pedal at 90% or more, a held key
+changes nothing in the sound. That is the room the "cool-running
+playback" idea could use (docs/ROADMAP.md, idea 2): about 5% of holding
+in the Zenph files, but 25–40% in rolls and transcriptions. It needs a
+listening test before it is used.
+
 ## The competition's original files (2026-11-26)
 
 The owner chose these next. They are the Piano-e-Competition's own

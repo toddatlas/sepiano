@@ -1588,3 +1588,9 @@ body.editor-focus .ed-bar .ed-size { min-height: 30px; font-size: 13px; }
   text-decoration: underline;
   cursor: pointer;
 }
+
+/* A piece's workload (how hard it works the keys' solenoids). */
+.work-level { font-weight: 600; }
+.work-heavy { color: var(--warn-ink); }
+.work-very-heavy { color: var(--danger, #b3261e); }
+.work-hint { display: block; margin-top: 2px; }

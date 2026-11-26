@@ -768,6 +768,19 @@ paths:
         "202": { $ref: "#/components/responses/Status" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /pieces/{id}/work:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    get:
+      summary: How hard the piece works the piano's key solenoids (a stand-in for heat and wear)
+      description: |
+        From the files as stored: keys held at once (average, peak, held together for 1 s and 10 s),
+        the longest hold, the sustained part of holds (beyond 4 s each), the holding a full damper
+        pedal makes unnecessary, and a level ("light", "moderate", "heavy", "very heavy") against
+        this piano's own Zenph recordings.
+      responses:
+        "200": { description: The figures (piano.Work) }
+        "404": { $ref: "#/components/responses/Error" }
   /pieces/{id}/keys:
     get:
       summary: How each key plays in a piece (for a recording, what its sensors measured)

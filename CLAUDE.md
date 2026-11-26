@@ -753,3 +753,16 @@ needs no further decision:
   owner's name. The 10 earlier recordings (test takes, the two sensor-test
   takes and one edited copy) were given the owner as pianist and "Recorded
   on this piano" too.
+
+## Status (2026-11-26, night: how hard a piece works the piano)
+
+- `piano.MeasureWork` (`piano/work.go`): keys held at once (average, peak,
+  held together 1 s and 10 s), longest hold, sustained holding, and the
+  holding a full pedal makes unnecessary. `WorkLevel` rates it against the
+  owner's 350 Zenph files (light, moderate, heavy, very heavy). Shown as
+  "Workload" on each piece's page (`GET /pieces/{id}/work`); `sepianod work
+  FILES` measures SE or MIDI files outside the library.
+- Measured across sources (docs/LIBRARIES.md, "How hard a piece works the
+  piano"). Rolls and transcriptions hold about twice as much as the Zenph
+  files. Of the 11 holiday organ rolls, 3 are very heavy (O Holy Night, O
+  Little Town of Bethlehem, The First Noel).

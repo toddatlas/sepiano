@@ -52,6 +52,8 @@ func run(args []string) int {
 			return datasetsCmd(args[1:])
 		case "holiday":
 			return holidayCmd(args[1:])
+		case "work":
+			return workCmd(args[1:])
 		case "version", "-version", "--version":
 			fmt.Println("sepianod", version)
 			return 0

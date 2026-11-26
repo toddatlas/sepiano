@@ -120,6 +120,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("DELETE /api/v1/pieces/{id}", s.deletePiece)
 	m.HandleFunc("GET /api/v1/pieces/{id}/download", s.download)
 	m.HandleFunc("GET /api/v1/pieces/{id}/keys", s.pieceKeys)
+	m.HandleFunc("GET /api/v1/pieces/{id}/work", s.pieceWork)
 	m.HandleFunc("GET /api/v1/keycheck", s.keyCheckMany)
 	m.HandleFunc("GET /api/v1/pieces/{id}/performance", s.getPerformance)
 	m.HandleFunc("POST /api/v1/pieces/{id}/edits", s.saveEdit)

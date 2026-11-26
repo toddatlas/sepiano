@@ -128,8 +128,10 @@ question**: the piano's level stays at 0 and never changes.
     639, as voicing does).
   - The curve can be gentler than the player's: for example, quiet
     passages quieter without the loud ones losing their shape.
-- [ ] **A "solenoid work" figure per piece:** how long keys are held down
-      in total. It is a stand-in for heat, to compare pieces and settings.
+- [x] **A "solenoid work" figure per piece** (built 2026-11-26): the
+      Workload line on each piece's page, rated against the owner's Zenph
+      files (docs/LIBRARIES.md, "How hard a piece works the piano").
+      `sepianod work` measures files outside the library.
 - [ ] **Idea: cool-running playback.** While the damper pedal is fully
       down, a key held down does nothing for the sound: the pedal is
       already holding its damper up. If a note ends before the pedal next
@@ -431,5 +433,7 @@ Waiting for the owner's choice (downloaded by the other session, kept in
       about 230 MB).
 - [ ] **Terry Smythe's other rolls**: 6,230 roll files, Ampico, Duo-Art
       and Welte among them.
-- [ ] **The 11 holiday organ rolls**: they hold many keys down for a long
-      time. Play one at the piano with someone watching first?
+- [ ] **The 11 holiday organ rolls**: measured (docs/LIBRARIES.md, "How
+      hard a piece works the piano"). 4 are light or moderate and could be
+      imported; 4 are heavy; 3 are very heavy (O Holy Night, O Little Town
+      of Bethlehem, The First Noel) and are best left out.
