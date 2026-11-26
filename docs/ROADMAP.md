@@ -301,7 +301,7 @@ Drive for desktop keeps a folder such as `G:\My Drive` in step with the
 cloud), the backup goes to the cloud too.
 
 To do:
-- [ ] **"Back up everything"**: one zip with all of it:
+- [x] **"Back up everything"** (built 2026-11-26, docs/BACKUPS.md): one zip with all of it:
   - every piece and its metadata;
   - play lists, settings, voicing, corrections;
   - the EEPROM backups;
@@ -311,9 +311,10 @@ To do:
 
   The browser asks where to save (set the browser to ask), for example
   the Google Drive folder.
-- [ ] **Restore from a backup** onto a fresh Pi or SD card: upload the zip,
-      check it, put everything back.
-- [ ] **Automatic backups**, by one of these (the owner chooses):
+- [x] **Restore from a backup** (built): adds what is missing, never
+      changes or removes anything; every file checked first.
+- [ ] **Automatic backups**, by one of these (the owner chooses). The PC
+      script is built (`deploy/windows`); not yet set up on the PC:
   - **From the PC:** a small scheduled task on the Windows PC fetches
     the backup each night into the chosen folder (for example in Google
     Drive). Simple, and nothing to sign in to. It runs only when the PC
@@ -324,7 +325,7 @@ To do:
 - [ ] Only what changed: after the first full backup, a nightly run adds
       only new or changed files, so it stays quick (the pieces are small,
       about 48 MB in all on 2026-11-26).
-- [ ] The Status page shows when the last backup was made, and warns if
+- [x] The Status page shows when the last backup was made, and warns if
       it is more than a week old.
 
 ## More ideas

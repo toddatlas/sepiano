@@ -338,9 +338,69 @@ paths:
 
   /export:
     get:
-      summary: Back up the whole library as one .zip
+      summary: The pieces and settings.json as one .zip (older; /backup holds everything)
       responses:
         "200": { description: Zip, content: { application/zip: {} } }
+
+  /backup:
+    get:
+      summary: Download everything on the Pi as one .zip (docs/BACKUPS.md)
+      description: |
+        The whole data folder under `sepiano/` (pieces and their details,
+        play lists, settings, voicing, corrections, the piano's settings
+        backups, the installed programs), with `sepiano/manifest.json`
+        listing every file's size and SHA-256. Joined albums, scratch
+        folders and temporary files are left out. A complete download is
+        recorded for `/backup/status`.
+      parameters:
+        - { name: by, in: query, schema: { type: string, enum: [pc] }, description: "`pc`: taken by the PC's scheduled backup (shown in the status)" }
+      responses:
+        "200": { description: Zip, content: { application/zip: {} } }
+  /backup/status:
+    get:
+      summary: When the last full backup was taken
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  last: { type: [string, "null"], format: date-time }
+                  by: { type: string, description: "app or pc" }
+                  pieces: { type: integer }
+                  bytes: { type: integer, description: the backed-up files' total size }
+                  age_days: { type: integer }
+                  data_bytes: { type: integer, description: what a backup would hold now }
+  /backup/restore:
+    post:
+      summary: Add back from a backup what this Pi lacks
+      description: |
+        The body is a backup .zip (`application/zip`, or multipart with a
+        `file` part). Every file is checked against the manifest. Nothing
+        here is changed or removed: pieces already here (the same .kb),
+        play lists, settings backups and programs already here are kept;
+        settings.json, voicing.json and corrections.json are restored only
+        if this Pi has none.
+      responses:
+        "200":
+          description: What was done
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  created: { type: string, format: date-time, description: when the backup was made }
+                  pieces: { type: integer }
+                  playlists: { type: integer }
+                  backups: { type: integer, description: the piano's settings backups added }
+                  programs: { type: integer }
+                  restored: { type: array, items: { type: string }, description: settings files put back }
+                  kept: { type: integer, description: already here, left as they were }
+                  skipped: { type: array, items: { type: string } }
+                  errors: { type: array, items: { type: string } }
+        "400": { $ref: "#/components/responses/Error" }
 
   /library/rescan:
     post:

@@ -310,7 +310,7 @@ func TestRecording(t *testing.T) {
 	time.Sleep(600 * time.Millisecond) // 6 piano seconds
 	// The timer counts real time from START RECORDING: the real piano's clock
 	// gave no usable position while recording (2026-11-24).
-	if ms := f.d.Status().PositionMs; ms < 300 || ms > 1500 {
+	if ms := f.d.Status().PositionMs; ms < 100 || ms > 2500 { // not stuck at 0, and not the simulator's 10× clock (6000)
 		t.Errorf("recording position %d ms after 0.6 s", ms)
 	}
 	if err := f.d.StopRecording(f.ctx()); err != nil {

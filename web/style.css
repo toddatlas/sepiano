@@ -1480,3 +1480,9 @@ body.editor-focus main { padding-top: calc(var(--sat) + 8px); }
 .ed-lanebtn:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-ink); }
 .ed-bar .ed-label { font-size: 13px; color: var(--muted); }
 .ed-bar .btn:has(> .icon:only-child) { padding: 5px 8px; }
+
+/* Status → Backups */
+.backup-last { margin: 0 0 12px; }
+.backup-last p { margin: 0; }
+.backup-report { margin-top: 12px; }
+.backup-report ul { margin: 6px 0 0; padding-left: 18px; }

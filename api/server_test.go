@@ -5,11 +5,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -41,7 +43,7 @@ func newEnv(t *testing.T) *env {
 	}
 	in := sim.New()
 	in.Baud, in.Speed = 1_000_000, 10
-	progs := &Programs{Dir: t.TempDir(), Fallback: map[string]*host.Program{
+	progs := &Programs{Dir: filepath.Join(data, "programs"), Fallback: map[string]*host.Program{
 		"play": sim.PlayerProgram(), "record": sim.RecorderProgram(), "getlut": sim.RetrieverProgram()}}
 	for name, prog := range SimulatedTools() {
 		progs.Fallback[name] = prog
@@ -67,7 +69,8 @@ func newEnv(t *testing.T) *env {
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
 	go func() { d.Run(ctx); close(done) }()
-	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: t.TempDir(), Piano: &piano.Store{Dir: t.TempDir()}, Voicing: &piano.VoicingStore{Path: t.TempDir() + "/voicing.json"}, Corrections: &piano.CorrectionsStore{Path: t.TempDir() + "/corrections.json"},
+	// The folders as sepianod lays them out (cmd/sepianod), so a backup holds them.
+	s := &Server{Deck: d, Lib: lib, Programs: progs, Sim: in, Version: "test", PlayDir: filepath.Join(data, "play"), DataDir: data, Piano: &piano.Store{Dir: filepath.Join(data, "eeprom")}, Voicing: &piano.VoicingStore{Path: filepath.Join(data, "voicing.json")}, Corrections: &piano.CorrectionsStore{Path: filepath.Join(data, "corrections.json")},
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
@@ -1030,4 +1033,107 @@ func TestToolNeedsWholeBackup(t *testing.T) {
 		t.Fatalf("setup after a short backup: %d %s", code, b)
 	}
 	e.waitState("idle")
+}
+
+// TestBackupRestore: a backup holds everything (pieces with their details,
+// play lists, voicing, the piano's settings backups); restoring it on a
+// fresh Pi puts it all back; restoring again, or on the Pi it came from,
+// adds nothing and changes nothing.
+func TestBackupRestore(t *testing.T) {
+	e := newEnv(t)
+	var ids []string
+	for i := range 3 {
+		kb, lp, sp, _ := sim.Phrase(uint32((10 + i) * se.TicksPerSecond)).Encode()
+		p, _, err := e.lib.AddSet(fmt.Sprintf("piece%d", i), kb, lp, sp, library.OriginUpload, fmt.Sprintf("Piece %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	hidden := true
+	if _, err := e.lib.Update(ids[2], library.Patch{Hidden: &hidden}); err != nil {
+		t.Fatal(err)
+	}
+	if code, b := e.do("POST", "/api/v1/playlists", map[string]any{"name": "Evening", "pieces": []string{ids[1], ids[0]}}); code != 201 && code != 200 {
+		t.Fatalf("play list: %d %s", code, b)
+	}
+	if code, b := e.do("PUT", "/api/v1/piano/voicing", map[string]any{"on": true, "offset": 0, "trims": map[string]int{"60": 10}}); code != 200 {
+		t.Fatalf("voicing: %d %s", code, b)
+	}
+	if code, b := e.do("POST", "/api/v1/piano/backups", nil); code != 201 {
+		t.Fatalf("settings backup: %d %s", code, b)
+	}
+	e.waitBackups(1)
+
+	resp, err := http.Get(e.srv.URL + "/api/v1/backup")
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipData, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != 200 || !strings.Contains(resp.Header.Get("Content-Disposition"), "sepiano-backup-") {
+		t.Fatalf("backup: %d %s", resp.StatusCode, resp.Header.Get("Content-Disposition"))
+	}
+	_, b := e.do("GET", "/api/v1/backup/status", nil)
+	var st struct {
+		Last   *time.Time `json:"last"`
+		Pieces int        `json:"pieces"`
+		By     string     `json:"by"`
+	}
+	json.Unmarshal(b, &st)
+	if st.Last == nil || st.Pieces != 3 || st.By != "app" {
+		t.Fatalf("status: %s", b)
+	}
+
+	restore := func(e *env) restoreReport {
+		t.Helper()
+		resp, err := http.Post(e.srv.URL+"/api/v1/backup/restore", "application/zip", bytes.NewReader(zipData))
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var rep restoreReport
+		body, _ := io.ReadAll(resp.Body)
+		if resp.StatusCode != 200 || json.Unmarshal(body, &rep) != nil {
+			t.Fatalf("restore: %d %s", resp.StatusCode, body)
+		}
+		if len(rep.Errors) > 0 {
+			t.Fatalf("restore errors: %v", rep.Errors)
+		}
+		return rep
+	}
+
+	// A fresh Pi gets everything back.
+	f := newEnv(t)
+	rep := restore(f)
+	if rep.Pieces != 3 || rep.Playlists != 1 || rep.Backups != 1 || !strings.Contains(strings.Join(rep.Restored, " "), "voicing.json") {
+		t.Fatalf("fresh restore: %+v", rep)
+	}
+	for _, id := range ids {
+		p, err := f.lib.Get(id)
+		if err != nil {
+			t.Fatalf("piece %s not restored: %v", id, err)
+		}
+		if p.Title == "" || (id == ids[2]) != p.Hidden {
+			t.Errorf("piece %s restored as %+v", id, p)
+		}
+	}
+	if _, b := f.do("GET", "/api/v1/piano/voicing", nil); !strings.Contains(string(b), `"60":10`) {
+		t.Errorf("voicing not restored: %s", b)
+	}
+
+	// Again, and on the original: nothing added, nothing changed.
+	for name, env := range map[string]*env{"again": f, "original": e} {
+		rep := restore(env)
+		if rep.Pieces != 0 || rep.Playlists != 0 || rep.Backups != 0 || len(rep.Restored) != 0 || rep.Kept == 0 {
+			t.Errorf("%s: %+v", name, rep)
+		}
+	}
+
+	// Not a backup: refused.
+	resp, _ = http.Post(e.srv.URL+"/api/v1/backup/restore", "application/zip", strings.NewReader("not a zip"))
+	resp.Body.Close()
+	if resp.StatusCode != 400 {
+		t.Errorf("a non-backup: %d", resp.StatusCode)
+	}
 }

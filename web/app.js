@@ -4126,6 +4126,82 @@ function toolScreen(root, [name, arg]) {
 
 // ====================================================================== Status
 
+// ====================================================================== Backups
+
+// The Status page's Backups card (docs/BACKUPS.md): one file with
+// everything on the Pi, when the last one was made, and restoring from one.
+function backupCard() {
+  const lastEl = h('div', { class: 'backup-last' }, 'Checking…');
+  const report = h('div', { class: 'backup-report' });
+  const fileInput = h('input', { type: 'file', accept: '.zip,application/zip', hidden: true, 'aria-label': 'Backup file to restore from' });
+  const restoreBtn = h('button', { class: 'btn', type: 'button', onclick: () => fileInput.click() }, icon('upload'), 'Restore from a backup…');
+  fileInput.addEventListener('change', () => { const f = fileInput.files && fileInput.files[0]; fileInput.value = ''; if (f) restore(f); });
+  const card = h('section', { class: 'card' },
+    h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Backups')),
+    lastEl,
+    h('div', { class: 'btn-col' },
+      h('a', { class: 'btn btn-primary', href: API + '/backup', download: '', onclick: () => setTimeout(refresh, 4000) }, icon('download'), 'Back up everything'),
+      restoreBtn, fileInput),
+    h('p', { class: 'hint' }, 'One .zip file with everything on the Pi: every piece and its details, play lists, settings, voicing, corrections, the piano’s settings backups, and the installed programs. Set your browser to ask where to save, and choose a folder in Google Drive to keep a copy in the cloud too.'),
+    h('p', { class: 'hint' }, 'Restoring adds what a backup has and this Pi lacks. Nothing here is changed or removed.'),
+    report);
+  refresh();
+  return card;
+
+  async function refresh() {
+    try {
+      const s = await api('GET', '/backup/status');
+      const size = s.data_bytes ? ` Everything is about ${fmtBytes(s.data_bytes)}.` : '';
+      if (!s.last) {
+        lastEl.className = 'backup-last message message-warn';
+        fill(lastEl, h('p', null, 'No full backup yet.' + size + ' The only copies of recordings made here are on the Pi’s memory card.'));
+        return;
+      }
+      const old = s.age_days >= 7;
+      lastEl.className = 'backup-last ' + (old ? 'message message-warn' : 'muted small');
+      const by = s.by === 'pc' ? ' by the PC’s nightly backup' : ' from the app';
+      fill(lastEl, h('p', null, `Last full backup: ${fmtDateTime(s.last)}${by}, ${s.pieces} pieces.` + (old ? ` That is ${s.age_days} days ago: time for another.` : '') + size));
+    } catch (err) {
+      fill(lastEl, err.message);
+    }
+  }
+
+  async function restore(file) {
+    const ok = await confirmDialog({
+      title: 'Restore from this backup?',
+      text: `“${file.name}”: what it has and this Pi lacks is added. Nothing here is changed or removed.`,
+      ok: 'Restore',
+    });
+    if (!ok) return;
+    restoreBtn.disabled = true;
+    fill(report, h('p', { class: 'muted' }, 'Restoring…'));
+    try {
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch(API + '/backup/restore', { method: 'POST', body: form });
+      const r = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(r.error || `HTTP ${res.status}`);
+      const added = [
+        r.pieces && `${r.pieces} piece${r.pieces === 1 ? '' : 's'}`,
+        r.playlists && `${r.playlists} play list${r.playlists === 1 ? '' : 's'}`,
+        r.backups && `${r.backups} piano settings backup${r.backups === 1 ? '' : 's'}`,
+        r.programs && `${r.programs} program${r.programs === 1 ? '' : 's'}`,
+        ...(r.restored || []),
+      ].filter(Boolean);
+      fill(report,
+        h('div', { class: r.errors && r.errors.length ? 'message message-warn' : 'message message-info' },
+          h('p', null, `From the backup of ${fmtDateTime(r.created)}: ` + (added.length ? `added ${added.join(', ')}.` : 'nothing was missing here.') +
+            (r.kept ? ` ${r.kept} already here, left as they were.` : '')),
+          r.errors && r.errors.length > 0 && h('ul', { class: 'small' }, r.errors.map((e) => h('li', null, e)))));
+      if (r.pieces || r.playlists) app.piecesStale = true;
+    } catch (err) {
+      fill(report, h('p', { class: 'message message-error' }, err.message));
+    } finally {
+      restoreBtn.disabled = false;
+    }
+  }
+}
+
 function statusScreen(root) {
   let alive = true;
   let inst = null;
@@ -4177,12 +4253,10 @@ function statusScreen(root) {
   const rescanBtn = h('button', { class: 'btn', type: 'button', onclick: rescan }, icon('refresh'), 'Rescan library folder');
   const libCard = h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Library')),
-    h('div', { class: 'btn-col' },
-      h('a', { class: 'btn', href: API + '/export', download: '' }, icon('download'), 'Back up library'),
-      rescanBtn),
-    h('p', { class: 'hint' }, 'The backup is one .zip of every piece. Rescan after copying files into the library folder by hand.'));
+    h('div', { class: 'btn-col' }, rescanBtn),
+    h('p', { class: 'hint' }, 'Rescan after copying files into the library folder by hand.'));
 
-  root.append(h('h1', { class: 'screen-title' }, 'Status'), connCard, simCard, progCard, consoleCard, settingsCard, libCard);
+  root.append(h('h1', { class: 'screen-title' }, 'Status'), connCard, simCard, progCard, consoleCard, settingsCard, backupCard(), libCard);
 
   renderConn();
   renderSim();

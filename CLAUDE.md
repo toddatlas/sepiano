@@ -576,3 +576,22 @@ The owner approved building three roadmap items in one go:
   (`laneZoom`, 1 to 4 times).
 - Added to the roadmap: play lists you build from search (idea 7), and
   full backups to the desktop or Google Drive (idea 8).
+
+## Status (2026-11-26, later: backups)
+
+- **Backups** (ROADMAP idea 8; docs/BACKUPS.md):
+  - `backup.Write` zips the whole data folder with a manifest of
+    SHA-256s. It leaves out `play/`, `work/` and temporary files.
+  - `GET /api/v1/backup` downloads it; `/backup/status` says when the
+    last one was taken and by what (`backup-state.json`).
+  - `POST /backup/restore` adds back only what is missing. Pieces go
+    through `library.RestorePiece`, keeping their `.json` details, and
+    play lists through `MergePlaylists`. Settings backups and programs
+    are added only when absent. `settings.json`, `voicing.json` and
+    `corrections.json` are restored only if absent.
+  - Status → Backups has the buttons and a warning after 7 days.
+- `deploy/windows/piano-backup.ps1` (tried against the simulator) and
+  `Install-PianoBackupTask.ps1` (a nightly "Piano backup" task). Not
+  installed on the owner's PC yet. Their Google Drive is `G:\My Drive`.
+- The API tests now lay out their folders as sepianod does (one data
+  folder), so a backup in a test holds everything.

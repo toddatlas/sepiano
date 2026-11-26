@@ -46,6 +46,8 @@ type Server struct {
 
 	// PlayDir holds the joined performances of albums and play lists.
 	PlayDir string
+	// DataDir is the whole data folder: what a backup holds (backup.go).
+	DataDir string
 
 	// Piano keeps the backups of the piano's stored settings.
 	Piano   *piano.Store
@@ -117,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("POST /api/v1/corrections/apply", s.applyCorrections)
 	m.HandleFunc("POST /api/v1/pieces/{id}/corrected", s.correctedCopy)
 	s.toolRoutes(m)
+	s.backupRoutes(m)
 	m.HandleFunc("/api/", func(w http.ResponseWriter, r *http.Request) { fail(w, 404, "no such API endpoint") })
 	m.HandleFunc("GET /apple-touch-icon.png", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "image/png")
