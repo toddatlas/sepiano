@@ -281,6 +281,15 @@ function qualityTier(p) {
 }
 function cmpBest(a, b) { return qualityTier(a) - qualityTier(b) || cmpPieces(a, b); }
 
+// "1st prize (shared; junior competition), Piano-e-Competition 2008; …" →
+// "1st prize 2008" for a list row; the whole text is on the piece's page.
+function shortAward(a) {
+  const m = /^(\S+ prize)[^,;]*, .*?(\d{4})/i.exec(a || '');
+  if (m) return `${m[1]} ${m[2]}`;
+  const first = String(a || '').split(';')[0];
+  return first.length > 28 ? first.slice(0, 27) + '…' : first;
+}
+
 // withFavFirst puts favorites first (when "Favorites first" is on), then cmp.
 function withFavFirst(cmp, fav = (x) => x.favorite) {
   const on = favFirstOn();
@@ -1871,6 +1880,7 @@ function libraryScreen(root, _params, ctx, opts = {}) {
         h('span', { class: 'row-meta' },
           fmtTime(p.duration_ms),
           st.sort === 'new' && h('span', { class: 'row-date' }, fmtDateTime(p.updated_at || p.added_at)),
+          p.award && h('span', { class: 'hint-pill award-pill', title: p.award }, shortAward(p.award)),
           p.grade && p.grade !== 'native' && h('span', { class: 'hint-pill grade-pill', title: p.grade_why || '' }, GRADES[p.grade] || p.grade),
           count > 1 && h('span', { class: 'hint-pill' }, `${count} renderings`))),
       starButton('piece', p.id, p, `“${p.title || 'Untitled'}”`),
@@ -2591,6 +2601,7 @@ function pieceScreen(root, [id]) {
         ['Length', fmtTime(p.duration_ms)],
         ['Origin', originText(p)],
         ['Source', p.grade ? `${GRADES[p.grade] || p.grade}: ${p.grade_why || ''}` : ''],
+        ['Award', p.award || ''],
         ['Collection', p.collection || ''],
         ['Captured on', p.captured_on || ''],
         ['Converted with', p.curve ? (p.curve === 'bosendorfer' ? 'Bösendorfer’s curve' : 'the Disklavier curve') : ''],

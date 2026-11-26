@@ -42,3 +42,34 @@ func TestBatch2Names(t *testing.T) {
 		t.Errorf("pijamaTitle: %q, %q", title, venue)
 	}
 }
+
+func TestEcompNames(t *testing.T) {
+	if got := prizeText("1st (shared; junior competition)"); got != "1st prize (shared; junior competition)" {
+		t.Errorf("prizeText: %q", got)
+	}
+	if got := prizeText("Schubert Prize (named in winner bio)"); got != "Schubert Prize" {
+		t.Errorf("prizeText: %q", got)
+	}
+	has := func(vs []string, want string) bool {
+		for _, v := range vs {
+			if nameKey(v) == nameKey(want) {
+				return true
+			}
+		}
+		return false
+	}
+	for name, want := range map[string]string{
+		"Frank Dupree (Düpree)":                 "Frank Düpree",
+		"Denis Evstuhin (Evstioukhine)":         "Denis Evstioukhine",
+		"Chen Guang (Cheng Guang on MIDI page)": "Cheng Guang",
+		"KaJeng Wong (Ka Jeng Wong)":            "Ka Jeng Wong",
+		"YanZhuo Li (MIDI page says fifth)":     "YanZhuo Li",
+	} {
+		if vs := nameVariants(name); !has(vs, want) {
+			t.Errorf("nameVariants(%q) = %q, want %q among them", name, vs, want)
+		}
+	}
+	if nameKey("Jean-Selim Abdelmoula") != nameKey("jean selim ABDELMOULA") || nameKey("Düpree") != "dupree" {
+		t.Error("nameKey")
+	}
+}

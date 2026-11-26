@@ -80,6 +80,9 @@ type Piece struct {
 	// Favorite is the owner's star: favorites are listed first and have a
 	// section of their own. Zenph's Steinway renderings start starred.
 	Favorite bool `json:"favorite,omitempty"`
+	// Award is a prize the performance won, e.g. "1st prize, Piano-e-Competition
+	// 2008 (shared)". Set by an importer; shown beside the piece.
+	Award string `json:"award,omitempty"`
 	// UpdatedAt is when the performance itself last changed (an edited copy
 	// saved over); zero if never since it was added.
 	UpdatedAt time.Time `json:"updated_at,omitzero"`
@@ -180,7 +183,8 @@ type Patch struct {
 	// it again.
 	Hidden *bool `json:"hidden"`
 	// Favorite stars or un-stars the piece.
-	Favorite *bool `json:"favorite"`
+	Favorite *bool   `json:"favorite"`
+	Award    *string `json:"award"`
 	// Provenance (see Piece), set by an importer. Grade overrides the grade
 	// found from the data, when the source is known (GradeSEMIDI).
 	Collection *string `json:"collection"`
@@ -482,7 +486,7 @@ func (l *Library) List(f Filter) []Piece {
 			continue
 		}
 		text := strings.ToLower(strings.Join([]string{p.Title, p.Composer, p.Performer, p.Album, p.Notes,
-			p.SourceName, p.Instrument, p.RecordedOn, p.HeaderText}, " "))
+			p.SourceName, p.Instrument, p.RecordedOn, p.HeaderText, p.Award}, " "))
 		match := true
 		for _, w := range words {
 			if !strings.Contains(text, w) {
@@ -573,6 +577,7 @@ func (l *Library) Update(id string, patch Patch) (Piece, error) {
 	}
 	for _, f := range []struct{ src, dst *string }{
 		{patch.Collection, &q.Collection}, {patch.CapturedOn, &q.CapturedOn}, {patch.Licence, &q.Licence}, {patch.GradeWhy, &q.GradeWhy},
+		{patch.Award, &q.Award},
 	} {
 		if f.src != nil {
 			*f.dst = strings.TrimSpace(*f.src)

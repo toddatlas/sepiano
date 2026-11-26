@@ -435,6 +435,7 @@ paths:
                 track: { type: integer, minimum: 0 }
                 hidden: { type: boolean, description: "Hide the piece from the library's list and search (true) or show it again (false). Its files stay. Not a metadata field: never locked." }
                 favorite: { type: boolean, description: "Star (true) or un-star the piece. Never locked." }
+                award: { type: string, description: "A prize the performance won; set by an importer" }
                 collection: { type: string, description: "The collection it came from (MAESTRO v3, Vienna 4x22 …)" }
                 captured_on: { type: string, description: "The instrument that captured the playing" }
                 licence: { type: string }
@@ -1286,6 +1287,7 @@ components:
         grade_why: { type: string, description: The grade's reasons, in words }
         hidden: { type: boolean, description: Kept out of the library's list and search; its files stay }
         favorite: { type: boolean, description: "Starred: listed first and in Favorites. Zenph's Steinway renderings start starred." }
+        award: { type: string, description: "A prize the performance won, e.g. \"1st prize, Piano-e-Competition 2009\" (set by an importer)" }
         updated_at: { type: string, format: date-time, description: When the performance itself last changed (an edited copy saved over); absent if never }
         locked: { type: array, items: { type: string }, description: Fields set by hand or from a catalog; never re-derived from the files }
         meta_version: { type: integer, description: Version of the parser that described the piece }

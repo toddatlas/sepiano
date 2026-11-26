@@ -1571,3 +1571,6 @@ body.editor-focus .ed-bar .ed-size { min-height: 30px; font-size: 13px; }
 .seek:hover .progress, .seek.seeking .progress, .seek:focus-visible .progress { height: 10px; border-radius: 5px; }
 .seek:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
 .seek.seeking .progress-fill { background: var(--accent-ink); }
+
+/* A prize the performance won (Piano-e-Competition winners). */
+.award-pill { background: #f6e7b4; color: #6b4e00; }

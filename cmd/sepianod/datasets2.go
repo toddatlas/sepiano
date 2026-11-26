@@ -181,6 +181,10 @@ func supraTitle(s string) string {
 // asapItems: the ASAP performances that are not also in MAESTRO
 // (new_performances.csv), from the Piano-e-Competition's Disklavier.
 func asapItems(dir string) ([]dsItem, error) {
+	info, err := loadEcomp(dir)
+	if err != nil {
+		return nil, fmt.Errorf("ecomp: %w", err)
+	}
 	src := filepath.Join(dir, "asap", "x", "asap-dataset-master")
 	rows, col, err := readCatalogue(filepath.Join(dir, "asap", "new_performances.csv"), "composer", "title", "midi_performance")
 	if err != nil {
@@ -218,6 +222,11 @@ func asapItems(dir string) ([]dsItem, error) {
 				"notes": "ASAP (Aligned Scores and Performances): a Piano-e-Competition performance not in MAESTRO. File " + rel + ".",
 			},
 		})
+		if info != nil {
+			if p, ok := info.asap(path.Base(rel), composer); ok {
+				nameEcomp(items[len(items)-1].meta, info, p)
+			}
+		}
 	}
 	return items, nil
 }

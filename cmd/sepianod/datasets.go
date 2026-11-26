@@ -54,9 +54,10 @@ func datasetsCmd(args []string) int {
 	server := fl.String("server", "http://127.0.0.1", "running sepianod to import into")
 	only := fl.String("only", "vienna,batik,maestro,supra,asap,pijama", "which collections, comma-separated")
 	dry := fl.Bool("n", false, "list what would be imported, and import nothing")
+	details := fl.Bool("details", false, "only set the details of pieces already in the library (found by collection and file name); upload nothing")
 	limit := fl.Int("limit", 0, "import at most this many pieces of each collection (0: all)")
 	fl.Usage = func() {
-		fmt.Fprintln(os.Stderr, "usage: sepianod datasets [-server URL] [-only vienna,batik,maestro,supra,asap,pijama] [-n] [-limit N] DOWNLOADS")
+		fmt.Fprintln(os.Stderr, "usage: sepianod datasets [-server URL] [-only vienna,batik,maestro,supra,asap,pijama] [-n] [-details] [-limit N] DOWNLOADS")
 		fmt.Fprintln(os.Stderr, "DOWNLOADS holds vienna4x22/x/, batik/midi/, maestro/maestro-v3.0.0-midi.zip, supra/, asap/ and pijama/ (docs/LIBRARIES.md).")
 		fl.PrintDefaults()
 	}
@@ -92,9 +93,17 @@ func datasetsCmd(args []string) int {
 	if *dry {
 		for _, it := range items {
 			composer, _ := it.meta["composer"].(string)
-			fmt.Printf("  %-34s %s | %v | %v\n", it.label, composer, it.meta["title"], it.meta["album"])
+			performer, _ := it.meta["performer"].(string)
+			award, _ := it.meta["award"].(string)
+			if award != "" {
+				award = " | " + award
+			}
+			fmt.Printf("  %-34s %s | %v | %s | %v%s\n", it.label, composer, it.meta["title"], performer, it.meta["album"], award)
 		}
 		return 0
+	}
+	if *details {
+		return setDetails(*server, items)
 	}
 	added, dups, failed := 0, 0, 0
 	for i, it := range items {
@@ -296,6 +305,10 @@ func batikItems(dir string) ([]dsItem, error) {
 // ------------------------------------------------------------------ MAESTRO
 
 func maestroItems(dir string) ([]dsItem, error) {
+	info, err := loadEcomp(dir)
+	if err != nil {
+		return nil, fmt.Errorf("ecomp: %w", err)
+	}
 	zr, err := zip.OpenReader(filepath.Join(dir, "maestro", "maestro-v3.0.0-midi.zip"))
 	if err != nil {
 		return nil, err
@@ -370,8 +383,29 @@ func maestroItems(dir string) ([]dsItem, error) {
 				"notes": "MAESTRO v3 (Hawthorne et al., ICLR 2019): the International Piano-e-Competition, " + year + ".",
 			},
 		})
+		if info != nil {
+			if p, ok := info.byMaestro[name]; ok {
+				nameEcomp(items[len(items)-1].meta, info, p)
+			}
+		}
 	}
 	return items, nil
+}
+
+// nameEcomp puts a Piano-e-Competition pianist's name, and any prize, on a
+// piece. A 1st prize is starred, so it comes first in the library.
+func nameEcomp(meta map[string]any, info *ecompInfo, p ecompPerf) {
+	meta["performer"] = p.name
+	meta["recorded_on"] = p.year
+	note := ecompNote(p)
+	if a, first := info.award(p.year, p.name); a != "" {
+		meta["award"] = a
+		note += " " + a + "."
+		if first {
+			meta["favorite"] = true
+		}
+	}
+	meta["notes"] = fmt.Sprint(meta["notes"]) + " " + note
 }
 
 // surnames turns MAESTRO's full composer names into the surnames the rest
@@ -386,4 +420,61 @@ func surnames(s string) string {
 		}
 	}
 	return strings.Join(parts, " / ")
+}
+
+// setDetails sets the details of pieces already in the library, found by
+// collection and file name, without uploading anything (-details): for
+// names and prizes learnt after an import.
+func setDetails(server string, items []dsItem) int {
+	base := strings.TrimRight(server, "/") + "/api/v1/pieces"
+	resp, err := http.Get(base + "?hidden=all")
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 1
+	}
+	var list struct {
+		Pieces []library.Piece `json:"pieces"`
+	}
+	err = json.NewDecoder(resp.Body).Decode(&list)
+	resp.Body.Close()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "the piece list:", err)
+		return 1
+	}
+	have := map[string]string{} // collection|source name → id
+	for _, p := range list.Pieces {
+		have[p.Collection+"|"+p.SourceName] = p.ID
+	}
+	set, missing, failed := 0, 0, 0
+	for _, it := range items {
+		coll, _ := it.meta["collection"].(string)
+		name := it.files[0].name
+		id := have[coll+"|"+strings.TrimSuffix(name, filepath.Ext(name))]
+		if id == "" {
+			missing++
+			continue
+		}
+		b, _ := json.Marshal(it.meta)
+		req, _ := http.NewRequest("PATCH", base+"/"+id, bytes.NewReader(b))
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if resp.StatusCode != 200 {
+				err = fmt.Errorf("%s: %s", resp.Status, body)
+			}
+		}
+		if err != nil {
+			failed++
+			fmt.Fprintf(os.Stderr, "%s: %v\n", it.label, err)
+			continue
+		}
+		set++
+	}
+	fmt.Printf("details set on %d pieces (%d not in the library, %d failed)\n", set, missing, failed)
+	if failed > 0 {
+		return 1
+	}
+	return 0
 }
