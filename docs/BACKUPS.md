@@ -42,6 +42,10 @@ there is none, or when the last is a week old or more.
 
 ## Nightly backups from the PC
 
+**Set up on the owner's PC on 2026-11-26:** every night at 3 a.m., into
+`G:\My Drive\Piano backups` (Google Drive), keeping 14. The first runs
+saved 24.6 MB each.
+
 `deploy/windows/piano-backup.ps1` downloads a backup into a folder:
 - it checks the download is complete (it has its manifest);
 - it keeps the newest 14;
@@ -56,6 +60,12 @@ night. In PowerShell, from the repository's `deploy\windows` folder:
 
 - The task is called **"Piano backup"**, and it runs as the signed-in
   user.
+- Its script is kept in `%USERPROFILE%\sepiano` (for example
+  `C:\Users\todd\sepiano`), not under AppData. A packaged app such as the
+  Claude desktop app writes AppData into a private copy that Task
+  Scheduler cannot see, and that stopped the first try (2026-11-26).
+- It runs on battery too: Windows would otherwise hold it until a laptop
+  is plugged in.
 - If the PC is off or asleep at 3 a.m., it runs as soon as it can.
 - To try it now: `Start-ScheduledTask -TaskName "Piano backup"`, then
   look in the folder and its `backup-log.txt`.

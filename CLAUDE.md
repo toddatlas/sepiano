@@ -591,7 +591,11 @@ The owner approved building three roadmap items in one go:
     `corrections.json` are restored only if absent.
   - Status → Backups has the buttons and a warning after 7 days.
 - `deploy/windows/piano-backup.ps1` (tried against the simulator) and
-  `Install-PianoBackupTask.ps1` (a nightly "Piano backup" task). Not
-  installed on the owner's PC yet. Their Google Drive is `G:\My Drive`.
+  `Install-PianoBackupTask.ps1` (a nightly "Piano backup" task).
+  Installed on the owner's PC on 2026-11-26: 3 a.m., into
+  `G:\My Drive\Piano backups` (Google Drive), and it runs on battery.
+  Its script lives in `%USERPROFILE%\sepiano`. Files this app writes
+  under AppData land in a packaged-app private copy that Task Scheduler
+  cannot see; the first try failed that way.
 - The API tests now lay out their folders as sepianod does (one data
   folder), so a backup in a test holds everything.

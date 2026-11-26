@@ -313,8 +313,9 @@ To do:
   the Google Drive folder.
 - [x] **Restore from a backup** (built): adds what is missing, never
       changes or removes anything; every file checked first.
-- [ ] **Automatic backups**, by one of these (the owner chooses). The PC
-      script is built (`deploy/windows`); not yet set up on the PC:
+- [x] **Automatic backups**: the PC way, set up 2026-11-26 (nightly at 3
+      a.m. into `G:\My Drive\Piano backups`). The Pi-to-Drive way stays
+      an option:
   - **From the PC:** a small scheduled task on the Windows PC fetches
     the backup each night into the chosen folder (for example in Google
     Drive). Simple, and nothing to sign in to. It runs only when the PC
