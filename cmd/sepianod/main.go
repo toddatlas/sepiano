@@ -50,6 +50,8 @@ func run(args []string) int {
 			return tagCmd(args[1:])
 		case "datasets":
 			return datasetsCmd(args[1:])
+		case "holiday":
+			return holidayCmd(args[1:])
 		case "version", "-version", "--version":
 			fmt.Println("sepianod", version)
 			return 0

@@ -73,3 +73,20 @@ func TestEcompNames(t *testing.T) {
 		t.Error("nameKey")
 	}
 }
+
+func TestSmytheTitle(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"A_Christmas_Eve_Fantasy-6800A":     {"A Christmas Eve Fantasy", "6800A"},
+		"Noel - 87 D":                       {"Noel", "87 D"},
+		"Nutcracker 1 69603a":               {"Nutcracker 1", "69603a"},
+		"Christmas Greetings 1925 - 213961": {"Christmas Greetings 1925", "213961"},
+		"White Christmas":                   {"White Christmas", ""},
+	} {
+		if title, roll := smytheTitle(in); title != want[0] || roll != want[1] {
+			t.Errorf("smytheTitle(%q) = %q, %q", in, title, roll)
+		}
+	}
+	if holidayList("Seasonal favourite") != "Holiday: Winter" || holidayList("Nutcracker") != "Holiday: Nutcracker" {
+		t.Error("holidayList")
+	}
+}
