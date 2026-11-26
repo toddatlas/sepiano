@@ -1536,3 +1536,38 @@ dialog.pick { max-width: 420px; width: calc(100% - 32px); }
 .chip-toggle .chip-icon { width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px; }
 .chip-toggle.active .chip-icon { color: #f2c94c; }
 .fav-empty .icon { width: 18px; height: 18px; vertical-align: -3px; color: #c8960c; }
+
+/* The editor on a computer: the side bar shrinks to its icons, and the
+   title and its details share one line, so the piano roll gets the room. */
+@media (min-width: 1000px) {
+  body.wide-screen { --side-w: 64px; }
+  body.wide-screen .tabbar { padding-left: 8px; padding-right: 8px; }
+  body.wide-screen .tabbar a { justify-content: center; gap: 0; padding: 0; }
+  body.wide-screen .tabbar a span {
+    position: absolute; width: 1px; height: 1px; overflow: hidden;
+    clip-path: inset(50%); white-space: nowrap;
+  }
+}
+.ed-sub { flex: 1 1 0; min-width: 12em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ed-sub.ed-rec { white-space: normal; }
+
+/* Full screen: the title, small, beside a single-row toolbar that scrolls
+   sideways if it must; the details and group labels are left out. */
+body.editor-focus main { padding-top: calc(var(--sat) + 4px); padding-bottom: 8px; }
+body.editor-focus .ed-top { display: flex; align-items: center; gap: 14px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+body.editor-focus .ed-head { flex: 0 1 auto; max-width: 24%; min-width: 0; margin: 0; flex-wrap: nowrap; }
+body.editor-focus .ed-title { font-size: 17px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+body.editor-focus .ed-sub,
+body.editor-focus .ed-label { display: none; }
+body.editor-focus .ed-bar { flex: 1 1 0; min-width: 0; flex-wrap: nowrap; overflow-x: auto; gap: 6px 12px; padding: 4px 0; border-bottom: 0; scrollbar-width: thin; }
+body.editor-focus .ed-group { flex-wrap: nowrap; flex: none; }
+body.editor-focus .ed-bar .btn { min-height: 30px; padding: 3px 9px; font-size: 13px; white-space: nowrap; }
+body.editor-focus .ed-bar .ed-size { min-height: 30px; font-size: 13px; }
+
+/* Now Playing: the bar is a slider too. A taller hit area around the thin
+   bar; it thickens under the finger or pointer. */
+.seek { padding: 12px 0; margin: -12px 0; cursor: pointer; touch-action: none; outline: none; border-radius: 8px; }
+.seek .progress { transition: height 0.12s; }
+.seek:hover .progress, .seek.seeking .progress, .seek:focus-visible .progress { height: 10px; border-radius: 5px; }
+.seek:focus-visible { box-shadow: 0 0 0 2px var(--accent); }
+.seek.seeking .progress-fill { background: var(--accent-ink); }

@@ -216,9 +216,9 @@ export function editorScreen(root, [id], ui) {
     readColors();
     const narrow = window.matchMedia('(max-width: 700px)').matches;
     fill(root,
-      head,
+      // The title and the toolbar: one slim row in full screen.
+      h('div', { class: 'ed-top' }, head, bar),
       narrow && h('div', { class: 'message message-warn' }, h('p', null, 'The editor is easier on a computer. Here you can look, select, make small changes and play from a point.')),
-      bar,
       h('div', { class: 'ed-main' }, h('div', { class: 'ed-left' }, wrap, statusEl), insp));
     buildBar();
     renderBar();
@@ -432,14 +432,21 @@ export function editorScreen(root, [id], ui) {
       document.exitFullscreen().catch(() => {});
     }
     if (tb.full) setText(tb.full.lastChild || tb.full, on ? 'Leave full screen' : 'Full screen');
+    resizeSoon();
+  }
+
+  // The layout settles over a frame or two (and the browser's own full
+  // screen takes a moment), so measure again shortly after.
+  function resizeSoon() {
     requestAnimationFrame(() => { sizeCanvas(); schedule(); });
+    setTimeout(() => { if (alive) { sizeCanvas(); schedule(); } }, 250);
   }
 
   function onFullscreenChange() {
     if (!document.fullscreenElement && document.body.classList.contains('editor-focus')) {
       document.body.classList.remove('editor-focus');
       if (tb.full) setText(tb.full.lastChild || tb.full, 'Full screen');
-      requestAnimationFrame(() => { sizeCanvas(); schedule(); });
+      resizeSoon();
     }
   }
 

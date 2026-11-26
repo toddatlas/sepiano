@@ -196,7 +196,7 @@ func (s *Server) replay(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := cmdContext(r)
 	defer cancel()
-	if err := s.startQueue(ctx, q.ids, q.coll, target); err != nil {
+	if err := s.startQueue(ctx, q.ids, q.coll, target, 0); err != nil {
 		playError(w, err)
 		return
 	}

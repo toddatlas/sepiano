@@ -91,6 +91,80 @@ paths:
         "202": { $ref: "#/components/responses/Status" }
         "409": { $ref: "#/components/responses/Error" }
 
+  /deck/seek:
+    post:
+      summary: Play the track playing now from a point in its piece (the progress bar)
+      description: |
+        Starts the current track again from `position_ms` into its piece, after a
+        second's lead-in for the pedals, and the rest of its album or play list
+        after it. The piano takes the player again (a few seconds). The track's
+        `from_ms` then says where in its piece it starts. Under a second: from
+        the beginning.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [position_ms]
+              properties:
+                piece: { type: string, description: "The piece playing; if it has changed, nothing happens (409)" }
+                position_ms: { type: integer }
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "400": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+
+  /queue:
+    get:
+      summary: Up next, in order
+      description: |
+        Pieces, albums and play lists that play when the current performance
+        finishes by itself (never after Stop, or when something else is chosen),
+        the first starting as each ends. In memory: a restart empties it. Changes
+        are sent as the event `queue` ({items}).
+      responses:
+        "200":
+          description: The items
+          content:
+            application/json:
+              schema: { type: object, properties: { items: { type: array, items: { $ref: "#/components/schemas/UpNextItem" } } } }
+    post:
+      summary: Queue a piece, album or play list (at the end, or first with ?next=1); when the piano is idle it plays at once
+      parameters:
+        - { name: next, in: query, schema: { type: string, enum: ["1"] }, description: Play it before the rest }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { type: object, properties: { piece: { type: string }, album: { type: string }, playlist: { type: string } } }
+      responses:
+        "200": { description: "Queued: {items, started: false}" }
+        "202": { description: "The piano was idle, so it plays now: {items, started: true}" }
+        "400": { $ref: "#/components/responses/Error" }
+        "404": { $ref: "#/components/responses/Error" }
+        "409": { $ref: "#/components/responses/Error" }
+    delete:
+      summary: Empty Up next
+      responses:
+        "200": { description: "{items: []}" }
+  /queue/play:
+    post:
+      summary: Play the first thing waiting, when the piano is idle (after Stop)
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "409": { $ref: "#/components/responses/Error" }
+  /queue/{n}:
+    parameters:
+      - { name: n, in: path, required: true, schema: { type: integer }, description: The place in Up next, 0 first }
+      - { name: kind, in: query, schema: { type: string } }
+      - { name: id, in: query, schema: { type: string }, description: "With kind: must match the item there, so a stale tap removes nothing else" }
+    delete:
+      summary: Take one item out of Up next
+      responses:
+        "200": { description: "{items}" }
+        "404": { $ref: "#/components/responses/Error" }
+
   /albums:
     get:
       summary: Albums
@@ -1155,6 +1229,7 @@ components:
               piece: { $ref: "#/components/schemas/PieceRef" }
               start_ms: { type: integer }
               duration_ms: { type: integer }
+              from_ms: { type: integer, description: "The track starts this far into its piece (POST /deck/seek); absent from the beginning" }
         track_index: { type: integer, description: Index in `tracks` of the track playing now }
         position_ms: { type: integer, description: "Position in the whole performance, from the piano's own 800 Hz clock" }
         duration_ms: { type: integer, description: Length of the whole performance }
@@ -1239,6 +1314,14 @@ components:
                   track: { type: integer, description: Track number on the album }
                   piece: { $ref: "#/components/schemas/Piece" }
                   renderings: { type: integer, description: "Versions of this track in the library (1 = just this one)" }
+
+    UpNextItem:
+      type: object
+      properties:
+        kind: { type: string, enum: [piece, album, playlist] }
+        id: { type: string, description: "The piece or play list id, or the album name" }
+        title: { type: string }
+        detail: { type: string, description: "composer · performer, or \"12 tracks\"" }
 
     PlaylistSummary:
       type: object

@@ -1312,3 +1312,120 @@ func TestFavoritesAPI(t *testing.T) {
 		}
 	}
 }
+
+// Playing from a point chosen on the progress bar: the track starts there
+// (after a second's lead-in), and the album goes on after it.
+func TestSeek(t *testing.T) {
+	e := newEnv(t)
+	var ids []string
+	for i, name := range []string{"Gould19550616-Bach_GV01Aria-Steinway_SED519960-SE",
+		"Gould19550616-Bach_GV02Var1-Steinway_SED519960-SE"} {
+		kb, lp, sp, _ := sim.Phrase(uint32((20 + i) * se.TicksPerSecond)).Encode()
+		r := e.upload(map[string][]byte{name + ".kb": kb, name + ".lp": lp, name + ".sp": sp})
+		if len(r.Added) != 1 {
+			t.Fatalf("upload %s: %+v", name, r)
+		}
+		ids = append(ids, r.Added[0].ID)
+	}
+	if code, _ := e.do("POST", "/api/v1/deck/seek", map[string]any{"position_ms": 5000}); code != 409 {
+		t.Fatalf("seek with nothing playing: %d", code)
+	}
+
+	// A single piece.
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"piece": ids[0]}); code != 202 {
+		t.Fatalf("play: %d %s", code, b)
+	}
+	e.waitState("playing")
+	if code, _ := e.do("POST", "/api/v1/deck/seek", map[string]any{"piece": ids[1], "position_ms": 5000}); code != 409 {
+		t.Fatalf("seek in another piece: %d", code)
+	}
+	if code, _ := e.do("POST", "/api/v1/deck/seek", map[string]any{"position_ms": 25000}); code != 400 {
+		t.Fatalf("seek past the end: %d", code)
+	}
+	if code, b := e.do("POST", "/api/v1/deck/seek", map[string]any{"piece": ids[0], "position_ms": 12000}); code != 202 {
+		t.Fatalf("seek: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool {
+		return s.State == "playing" && len(s.Tracks) == 1 && s.Tracks[0].FromMs == 11000 && s.Piece.ID == ids[0]
+	})
+	st := e.status()
+	// 1 s of lead-in, then the last 8 s of the piece.
+	if d := st.Tracks[0].DurationMs; d < 8500 || d > 9500 {
+		t.Fatalf("seeked track lasts %d ms", d)
+	}
+
+	// An album: from a point in its first track, the second follows.
+	album := "Bach: The Goldberg Variations (Glenn Gould, 1955)"
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"album": album}); code != 202 {
+		t.Fatalf("play album: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Collection != nil && len(s.Tracks) == 2 })
+	if code, b := e.do("POST", "/api/v1/deck/seek", map[string]any{"piece": ids[0], "position_ms": 15000}); code != 202 {
+		t.Fatalf("seek in album: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool {
+		return s.State == "playing" && s.Collection != nil && s.Collection.Start == 0 && len(s.Tracks) == 2 &&
+			s.Tracks[0].FromMs == 14000 && s.Tracks[1].Piece.ID == ids[1]
+	})
+}
+
+// Up next: queued pieces start when a performance finishes by itself, not
+// after Stop.
+func TestUpNext(t *testing.T) {
+	e := newEnv(t)
+	var ids []string
+	for i := range 3 {
+		kb, lp, sp, _ := sim.Phrase(uint32((3 + i) * se.TicksPerSecond)).Encode()
+		p, _, err := e.lib.AddSet(fmt.Sprintf("q%d", i), kb, lp, sp, library.OriginUpload, fmt.Sprintf("Q %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	// Idle: queuing plays at once.
+	code, b := e.do("POST", "/api/v1/queue", map[string]any{"piece": ids[0]})
+	if code != 202 || !strings.Contains(string(b), `"started":true`) {
+		t.Fatalf("queue while idle: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == ids[0] })
+	for _, id := range ids[1:] {
+		if code, b := e.do("POST", "/api/v1/queue", map[string]any{"piece": id}); code != 200 {
+			t.Fatalf("queue: %d %s", code, b)
+		}
+	}
+	_, b = e.do("GET", "/api/v1/queue", nil)
+	if strings.Count(string(b), `"kind":"piece"`) != 2 {
+		t.Fatalf("up next: %s", b)
+	}
+	// The first piece ends: the second starts by itself.
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == ids[1] })
+	_, b = e.do("GET", "/api/v1/queue", nil)
+	if strings.Count(string(b), `"kind":"piece"`) != 1 || !strings.Contains(string(b), ids[2]) {
+		t.Fatalf("up next after the first: %s", b)
+	}
+	// Stop: the third waits.
+	if code, _ := e.do("POST", "/api/v1/deck/stop", nil); code != 202 && code != 200 {
+		t.Fatalf("stop: %d", code)
+	}
+	e.waitState("idle")
+	time.Sleep(500 * time.Millisecond)
+	if st := e.status(); st.State != "idle" {
+		t.Fatalf("after stop: %s", st.State)
+	}
+	// Remove by place, checked against the id; then clear.
+	if code, _ := e.do("DELETE", "/api/v1/queue/0?kind=piece&id=nosuch", nil); code != 404 {
+		t.Fatalf("remove with the wrong id: %d", code)
+	}
+	if code, b := e.do("DELETE", "/api/v1/queue/0?kind=piece&id="+ids[2], nil); code != 200 || strings.Contains(string(b), ids[2]) {
+		t.Fatalf("remove: %d %s", code, b)
+	}
+	e.do("POST", "/api/v1/deck/play", map[string]any{"piece": ids[0]})
+	e.waitState("playing")
+	e.do("POST", "/api/v1/queue", map[string]any{"piece": ids[1]})
+	if code, b := e.do("DELETE", "/api/v1/queue", nil); code != 200 || strings.Contains(string(b), "piece") {
+		t.Fatalf("clear: %d %s", code, b)
+	}
+	if code, _ := e.do("POST", "/api/v1/queue", map[string]any{"pieces": ids}); code != 400 {
+		t.Fatalf("several pieces at once: %d", code)
+	}
+}

@@ -417,12 +417,53 @@ function applyReplyStatus(s) {
 }
 
 // body: {piece}, {album} or {playlist}, with an optional 0-based `start`.
-// Shows Now Playing once the service has taken it.
+// Shows Now Playing once the service has taken it. While something is
+// playing it asks first: play it now, next, or at the end of Up next (a
+// track chosen inside an album or play list, `start`, plays at once).
 async function startPlay(body, btn) {
+  const s = app.status;
+  const busyNow = s && ['playing', 'paused', 'loading', 'stopping'].includes(s.state);
+  if (busyNow && !Number.isInteger(body.start)) {
+    const what = await pickDialog({
+      title: 'The piano is playing',
+      items: [
+        { label: 'Play now', sub: 'Stops what is playing', value: 'now' },
+        { label: 'Play next', sub: 'When the piece playing ends', value: 'next' },
+        { label: 'Add to Up next', sub: upNextText(), value: 'end' },
+      ],
+    });
+    if (!what) return;
+    if (what !== 'now') {
+      if (btn) btn.disabled = true;
+      try {
+        const r = await api('POST', '/queue' + (what === 'next' ? '?next=1' : ''), body);
+        if (r && Array.isArray(r.items)) setUpNext(r.items);
+        toast(what === 'next' ? 'Plays next.' : 'Added to Up next.');
+      } catch (err) {
+        toast(err.message, 'error');
+      } finally {
+        if (btn) btn.disabled = false;
+      }
+      return;
+    }
+  }
   if (btn) btn.disabled = true;
   const ok = await command('/deck/play', body);
   if (btn) btn.disabled = false;
   if (ok) location.hash = '#/';
+}
+
+// Up next: what plays when the current piece ends (api/queue.go).
+function setUpNext(items) {
+  app.upNext = Array.isArray(items) ? items : [];
+  if (current.onQueue) current.onQueue();
+}
+function loadUpNext() {
+  api('GET', '/queue').then((r) => setUpNext(r && r.items), () => {});
+}
+function upNextText() {
+  const n = (app.upNext || []).length;
+  return n ? `After the ${n === 1 ? 'one' : n} already waiting` : 'When the piece playing ends';
 }
 
 function playPiece(id, btn) { return startPlay({ piece: id }, btn); }
@@ -500,6 +541,7 @@ const app = {
   piecesStale: true,
   piecesGen: 0,
   consoleLines: [],
+  upNext: [], // what plays when the current piece ends
   rec: { title: '', awaitingSince: 0, saved: null, thenKeys: false }, // saved: {id, title}; thenKeys: open the Key check once saved
 };
 
@@ -534,9 +576,15 @@ function stateWords(s) {
 // An album or play list plays as one performance; `tracks` says where each
 // track lies in it. The main progress bar shows the current track's stretch
 // of it, or the whole performance for a single piece.
+// A track started from a point on the bar (from_ms) still shows times in its
+// whole piece: the span reaches back to the piece's beginning.
 function trackSpan(s) {
-  const t = s && s.collection && Array.isArray(s.tracks) ? s.tracks[s.track_index] : null;
-  if (t) return { start: Math.max(0, num0(t.start_ms)), dur: Math.max(0, num0(t.duration_ms)) };
+  const tracks = s && Array.isArray(s.tracks) ? s.tracks : null;
+  const t = tracks && (s.collection ? tracks[s.track_index] : tracks.length === 1 ? tracks[0] : null);
+  if (t) {
+    const from = Math.max(0, num0(t.from_ms));
+    return { start: num0(t.start_ms) - from, dur: Math.max(0, num0(t.duration_ms)) + from };
+  }
   return { start: 0, dur: s && s.duration_ms > 0 ? s.duration_ms : 0 };
 }
 
@@ -628,6 +676,7 @@ function connectEvents() {
     const again = app.everOpen;
     app.everOpen = true;
     setConn('open');
+    loadUpNext();
     if (again) { // things may have changed while we were away
       libraryChanged('');
       loadSettings();
@@ -654,6 +703,10 @@ function connectEvents() {
   source.addEventListener('library', (e) => {
     const d = parseData(e) || {};
     libraryChanged(typeof d.id === 'string' ? d.id : '');
+  });
+  source.addEventListener('queue', (e) => {
+    const d = parseData(e);
+    if (d) setUpNext(d.items);
   });
   source.addEventListener('notice', (e) => {
     const d = parseData(e);
@@ -1150,7 +1203,64 @@ function nowPlayingScreen(root) {
   const hintEl = h('p', { class: 'np-hint' });
   const messageEl = h('p', { class: 'message message-warn', role: 'status' });
   const progFill = h('div', { class: 'progress-fill' });
-  const progress = h('div', { class: 'progress', role: 'progressbar', 'aria-label': 'Position in the piece', 'aria-valuemin': '0' }, progFill);
+  // The bar is also a slider: tap or drag to a point and the piece plays
+  // from there (the piano takes the player again, a few seconds). Arrow
+  // keys choose a point 10 s (Shift: 30 s) at a time; Enter plays it.
+  const progress = h('div', { class: 'seek', role: 'slider', tabindex: '0', 'aria-label': 'Position in the piece', 'aria-valuemin': '0',
+    title: 'Tap or drag to play from that point' }, h('div', { class: 'progress' }, progFill));
+  let seekAt = null; // ms into the piece while a point is being chosen
+  const canSeek = () => {
+    const s = app.status;
+    return !!(s && (s.state === 'playing' || s.state === 'paused') && s.piece && trackSpan(s).dur > 0 && !busy.has('seek'));
+  };
+  const seekPos = (e) => {
+    const r = progress.getBoundingClientRect();
+    const f = r.width ? Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) : 0;
+    return Math.round(f * trackSpan(app.status).dur);
+  };
+  const showSeek = () => {
+    const dur = trackSpan(app.status).dur;
+    progress.classList.add('seeking');
+    progFill.style.transform = `scaleX(${dur ? seekAt / dur : 0})`;
+    elapsedEl.textContent = fmtTime(seekAt);
+    progress.setAttribute('aria-valuetext', `Play from ${fmtTime(seekAt)}`);
+  };
+  const endSeek = (play) => {
+    const at = seekAt;
+    seekAt = null;
+    progress.classList.remove('seeking');
+    lastSec = -1;
+    tick(currentPosition());
+    if (play && at !== null && app.status && app.status.piece) {
+      toast(`Playing from ${fmtTime(at)}: the piano takes a few seconds.`);
+      run('seek', '/deck/seek', { piece: app.status.piece.id, position_ms: at });
+    }
+  };
+  progress.addEventListener('pointerdown', (e) => {
+    if (!canSeek()) return;
+    progress.setPointerCapture(e.pointerId);
+    seekAt = seekPos(e);
+    showSeek();
+  });
+  progress.addEventListener('pointermove', (e) => { if (seekAt !== null) { seekAt = seekPos(e); showSeek(); } });
+  progress.addEventListener('pointerup', (e) => { if (seekAt !== null) { seekAt = seekPos(e); endSeek(true); } });
+  progress.addEventListener('pointercancel', () => endSeek(false));
+  progress.addEventListener('keydown', (e) => {
+    if (!canSeek()) return;
+    const span = trackSpan(app.status);
+    const from = seekAt ?? spanPosition(span, currentPosition());
+    const step = e.shiftKey ? 30000 : 10000;
+    if (e.key === 'ArrowRight' || e.key === 'ArrowUp') seekAt = Math.min(span.dur - 1000, from + step);
+    else if (e.key === 'ArrowLeft' || e.key === 'ArrowDown') seekAt = Math.max(0, from - step);
+    else if (e.key === 'Home') seekAt = 0;
+    else if (e.key === 'Enter' && seekAt !== null) { e.preventDefault(); endSeek(true); return; }
+    else if (e.key === 'Escape' && seekAt !== null) { endSeek(false); return; }
+    else return;
+    e.preventDefault();
+    seekAt = Math.max(0, seekAt);
+    showSeek();
+  });
+  progress.addEventListener('blur', () => { if (seekAt !== null) endSeek(false); });
   const elapsedEl = h('span', null, '0:00');
   const totalEl = h('span');
   // Album or play list: a thin second bar for the whole performance.
@@ -1173,6 +1283,54 @@ function nowPlayingScreen(root) {
     h('div', { class: 'transport-item' }, mainBtn, mainLabel),
     nextItem,
     h('div', { class: 'transport-item' }, stopBtn, h('span', { class: 'transport-label' }, 'Stop')));
+
+  // Up next: what plays when this piece ends, in order.
+  // When the piano is idle with something waiting (after Stop), Play starts it.
+  const upNextPlay = h('button', { class: 'btn btn-small btn-primary', type: 'button', hidden: true, onclick: playUpNextNow }, icon('play'), 'Play');
+  const upNextList = h('ul', { class: 'list list-compact', role: 'list' });
+  const upNextEl = h('section', { class: 'card upnext', hidden: true },
+    h('div', { class: 'card-head' },
+      h('h2', { class: 'card-title' }, 'Up next'),
+      upNextPlay,
+      h('button', { class: 'btn btn-small', type: 'button', onclick: clearUpNext }, 'Clear')),
+    upNextList,
+    h('p', { class: 'muted small' }, 'Each starts when the one before it ends (the piano takes a few seconds). Stop leaves the list waiting. While a piece plays, a Play button elsewhere offers “Play next” or “Add to Up next”.'));
+  function renderUpNext() {
+    const items = app.upNext || [];
+    upNextEl.hidden = !items.length;
+    upNextPlay.hidden = !(app.status && app.status.state === 'idle');
+    fill(upNextList, items.map((it, i) => h('li', { class: 'row' },
+      h('span', { class: 'row-num' }, String(i + 1)),
+      h('a', { class: 'row-main', href: it.kind === 'piece' ? pieceHref(it.id) : it.kind === 'album' ? albumHref(it.id) : playlistHref(it.id) },
+        h('span', { class: 'row-title' }, it.title || 'Untitled'),
+        h('span', { class: 'row-sub' }, [it.kind === 'album' ? 'Album' : it.kind === 'playlist' ? 'Play list' : '', it.detail].filter(Boolean).join(' · '))),
+      h('button', { class: 'row-star', type: 'button', 'aria-label': `Take ${it.title || 'this'} out of Up next`, title: 'Take it out of Up next',
+        onclick: () => removeUpNext(i, it) }, icon('close')))));
+  }
+  async function removeUpNext(i, it) {
+    try {
+      const r = await api('DELETE', `/queue/${i}?kind=${encodeURIComponent(it.kind)}&id=${encodeURIComponent(it.id)}`);
+      setUpNext(r && r.items);
+    } catch (err) {
+      toast(err.message, 'error');
+      loadUpNext();
+    }
+  }
+  async function playUpNextNow() {
+    try {
+      await api('POST', '/queue/play');
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+  async function clearUpNext() {
+    try {
+      const r = await api('DELETE', '/queue');
+      setUpNext(r && r.items);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
 
   const playPanel = h('section', { class: 'np' },
     stateEl, collEl, trackEl, titleEl, composerEl, performerEl, fileEl, voicedEl, correctedEl, fittedEl, editLinkEl, hintEl, messageEl,
@@ -1198,7 +1356,7 @@ function nowPlayingScreen(root) {
   const levelMethod = levelMethodToggle();
   const levelCard = h('section', { class: 'card level-card' }, level.el, levelNote, levelMethod.el);
 
-  root.append(playPanel, emptyPanel, recPanel, levelCard);
+  root.append(playPanel, emptyPanel, recPanel, upNextEl, levelCard);
   update(app.status);
 
   async function run(name, path, body) {
@@ -1221,6 +1379,7 @@ function nowPlayingScreen(root) {
   }
 
   function update(s) {
+    upNextPlay.hidden = !(s && s.state === 'idle');
     if (!s) {
       playPanel.hidden = true;
       recPanel.hidden = true;
@@ -1344,6 +1503,7 @@ function nowPlayingScreen(root) {
     const span = trackSpan(s);
     const dur = span.dur;
     const at = spanPosition(span, pos);
+    if (seekAt !== null) return; // a point is being chosen on the bar
     progFill.style.transform = `scaleX(${dur ? Math.min(1, at / dur) : 0})`;
     const sec = Math.floor(at / 1000);
     if (sec !== lastSec) {
@@ -1364,9 +1524,12 @@ function nowPlayingScreen(root) {
     }
   }
 
+  renderUpNext();
+
   return {
     update,
     tick,
+    onQueue: renderUpNext,
     unmount() { alive = false; },
   };
 }

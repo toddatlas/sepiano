@@ -14,6 +14,7 @@ import (
 
 	"sepiano/deck"
 	"sepiano/library"
+	"sepiano/se"
 )
 
 // queue remembers the album or play list being played, for next/previous.
@@ -96,14 +97,15 @@ func ref(p library.Piece) deck.PieceRef {
 	return deck.PieceRef{ID: p.ID, Title: p.Title, Composer: p.Composer, Performer: p.Performer, SourceName: p.SourceName}
 }
 
-// startQueue plays ids[start:] as one continuous performance.
-func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collection, start int) error {
+// startQueue plays ids[start:] as one continuous performance, the first of
+// them from fromMs into it (0: from the beginning).
+func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collection, start int, fromMs int64) error {
 	if start < 0 || start >= len(ids) {
 		return httpError{400, fmt.Sprintf("start must be between 0 and %d", len(ids)-1)}
 	}
 	sel := ids[start:]
 	var job deck.Job
-	if len(sel) == 1 {
+	if len(sel) == 1 && fromMs <= 0 {
 		p, err := s.Lib.Get(sel[0])
 		if err != nil {
 			return httpError{404, "no such piece"}
@@ -118,23 +120,50 @@ func (s *Server) startQueue(ctx context.Context, ids []string, coll *deck.Collec
 		if err != nil {
 			return err
 		}
-		parts, _, err := s.Lib.Join(sel, dir, "q", coll.Title, s.playFix())
+		fix := s.playFix()
+		var fromTrack int64 // where in its piece the first track starts
+		if fromMs > 0 {
+			// The first piece from a point, after a second for the pedals
+			// to take their places (as the editor's "Play from cursor").
+			base, first := fix, true
+			fix = func(p library.Piece, perf *se.Performance) (*se.Performance, bool, error) {
+				perf, changed, err := base(p, perf)
+				if err != nil || !first {
+					return perf, changed, err
+				}
+				first = false
+				part, err := playFrom(perf, fromMs)
+				return part, true, err
+			}
+			fromTrack = max(0, fromMs-int64(PreviewLead)*1000/se.TicksPerSecond)
+		}
+		title := ""
+		if coll != nil {
+			title = coll.Title
+		} else if p, err := s.Lib.Get(sel[0]); err == nil {
+			title = p.Title
+		}
+		parts, _, err := s.Lib.Join(sel, dir, "q", title, fix)
 		if err != nil {
 			return err
 		}
 		var total int64
 		var played []library.Piece
-		for _, part := range parts {
+		for i, part := range parts {
 			p, _ := s.Lib.Get(part.ID)
 			played = append(played, p)
-			job.Tracks = append(job.Tracks, deck.TrackRef{Piece: ref(p), StartMs: part.StartMs, DurationMs: part.DurationMs})
+			t := deck.TrackRef{Piece: ref(p), StartMs: part.StartMs, DurationMs: part.DurationMs}
+			if i == 0 {
+				t.FromMs = fromTrack
+			}
+			job.Tracks = append(job.Tracks, t)
 			total = part.StartMs + part.DurationMs
 		}
 		job.Piece, job.Dir, job.Name = job.Tracks[0].Piece, dir, "q"
 		s.markFixes(&job, played)
 		job.Duration = time.Duration(total) * time.Millisecond
 	}
-	if err := s.voice(&job, len(sel) > 1 || job.Corrected || job.Fitted); err != nil {
+	if err := s.voice(&job, len(sel) > 1 || fromMs > 0 || job.Corrected || job.Fitted); err != nil {
 		return fmt.Errorf("voicing: %w", err)
 	}
 	if coll != nil {
@@ -187,7 +216,7 @@ func (s *Server) play(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		ctx, cancel := cmdContext(r)
 		defer cancel()
-		err = s.startQueue(ctx, ids, coll, req.Start)
+		err = s.startQueue(ctx, ids, coll, req.Start, 0)
 	}
 	if err != nil {
 		playError(w, err)
@@ -230,7 +259,7 @@ func (s *Server) skip(next bool) http.HandlerFunc {
 		}
 		ctx, cancel := cmdContext(r)
 		defer cancel()
-		if err := s.startQueue(ctx, q.ids, q.coll, target); err != nil {
+		if err := s.startQueue(ctx, q.ids, q.coll, target, 0); err != nil {
 			playError(w, err)
 			return
 		}

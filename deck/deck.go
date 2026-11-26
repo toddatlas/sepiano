@@ -126,6 +126,9 @@ type TrackRef struct {
 	Piece      PieceRef `json:"piece"`
 	StartMs    int64    `json:"start_ms"`
 	DurationMs int64    `json:"duration_ms"`
+	// FromMs: the track starts this far into its piece (playing from a
+	// point chosen on the progress bar); the app shows times in the piece.
+	FromMs int64 `json:"from_ms,omitempty"`
 }
 
 // Event is something to tell clients: Type is "status", "console", "library"
@@ -197,7 +200,10 @@ type Deck struct {
 	cmds  chan command
 	inbox chan any
 
-	mu      sync.Mutex
+	mu sync.Mutex
+	// onEnd is called (on its own goroutine) when a performance finishes
+	// by itself, with nothing else waiting to play (OnPerformanceEnd).
+	onEnd   func()
 	snap    Status
 	subs    map[chan Event]struct{}
 	console []string
@@ -256,6 +262,9 @@ type session struct {
 	deadline                  time.Time
 	aborted                   bool
 	discard                   bool
+	// ended: the player reported the end of the performance (it finished
+	// by itself, not stopped).
+	ended bool
 
 	// A utility program: its command-line file, its console, when it must
 	// have finished, and who waits for it.
@@ -906,7 +915,27 @@ func (d *Deck) sessDone(m sessDone) {
 		d.notice("error", "The piano stopped: %v", m.err)
 		d.st.Message = m.err.Error()
 	}
+	// A piece that played to its end, with nothing chosen to follow it.
+	natural := s.kind == "play" && s.ended && ok && d.next == nil
 	d.afterSession(failed)
+	if natural {
+		d.mu.Lock()
+		f := d.onEnd
+		d.mu.Unlock()
+		if f != nil {
+			go f()
+		}
+	}
+}
+
+// OnPerformanceEnd sets f, called on its own goroutine when a performance
+// finishes by itself (the player reached its end) and nothing else waits to
+// play: never after Stop, or when another piece was chosen. The service
+// starts what is queued next (api/queue.go).
+func (d *Deck) OnPerformanceEnd(f func()) {
+	d.mu.Lock()
+	d.onEnd = f
+	d.mu.Unlock()
 }
 
 // afterSession reopens the idle link, or starts the next piece.
@@ -1031,6 +1060,7 @@ func (d *Deck) consoleLine(line string) {
 		d.setState(Playing)
 		d.resolve("restart", nil)
 	case evEnd:
+		s.ended = true
 		d.st.PositionMs = d.st.DurationMs
 		d.followTrack()
 		d.setState(Stopping)

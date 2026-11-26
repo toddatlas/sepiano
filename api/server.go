@@ -61,6 +61,10 @@ type Server struct {
 
 	qmu   sync.Mutex
 	queue queue
+
+	// upNext: what plays when the current performance ends (queue.go).
+	unMu   sync.Mutex
+	upNext []upNextItem
 }
 
 func (s *Server) logf(format string, args ...any) {
@@ -71,12 +75,19 @@ func (s *Server) logf(format string, args ...any) {
 
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
+	s.Deck.OnPerformanceEnd(s.playUpNext)
 	m := http.NewServeMux()
 	m.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, s.Deck.Status()) })
 	m.HandleFunc("GET /api/v1/events", s.events)
 	m.HandleFunc("POST /api/v1/deck/play", s.play)
 	m.HandleFunc("POST /api/v1/deck/next", s.skip(true))
 	m.HandleFunc("POST /api/v1/deck/previous", s.skip(false))
+	m.HandleFunc("POST /api/v1/deck/seek", s.seek)
+	m.HandleFunc("GET /api/v1/queue", s.getUpNext)
+	m.HandleFunc("POST /api/v1/queue", s.addUpNext)
+	m.HandleFunc("POST /api/v1/queue/play", s.startUpNext)
+	m.HandleFunc("DELETE /api/v1/queue", s.clearUpNext)
+	m.HandleFunc("DELETE /api/v1/queue/{n}", s.removeUpNext)
 	m.HandleFunc("GET /api/v1/albums", s.albums)
 	m.HandleFunc("GET /api/v1/albums/{name}", s.album)
 	m.HandleFunc("GET /api/v1/playlists", s.playlists)
