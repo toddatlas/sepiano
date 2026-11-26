@@ -134,7 +134,8 @@ func run(args []string) int {
 			p, err := lib.AddRecording(dir, name, title)
 			return p.ID, err
 		},
-		Level: lib.Settings().Level,
+		Level:       lib.Settings().Level,
+		PlayerLevel: lib.Settings().LevelMethod == "piano", // the player's own level command, if the owner chose it
 		OnLevel: func(level int) {
 			s := lib.Settings()
 			s.Level = level

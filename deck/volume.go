@@ -62,3 +62,25 @@ func (d *Deck) openPerf(i int, path string) (io.ReadCloser, error) {
 	}
 	return io.NopCloser(r), nil
 }
+
+// applyMethod puts the chosen level method (SetLevelMethod) into effect.
+// The run loop calls it only when no piece is playing: at the start of a
+// piece and after one, so a piece never changes method halfway.
+func (d *Deck) applyMethod() {
+	d.st.LevelMethodPending = false
+	if d.playerLevel == d.wantPlayerLevel {
+		return
+	}
+	d.playerLevel = d.wantPlayerLevel
+	if d.playerLevel {
+		// The player's own: its lowest level is found as it is used.
+		d.st.LevelOnPi, d.st.MinLevel = false, nil
+		d.vol.Store(0)
+		return
+	}
+	m := MinAppLevel
+	d.st.LevelOnPi, d.st.MinLevel = true, &m
+	d.setTarget(min(max(d.st.TargetLevel, MinAppLevel), 0))
+	d.st.Level = d.st.TargetLevel
+	d.vol.Store(int32(d.st.TargetLevel))
+}

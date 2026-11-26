@@ -114,6 +114,11 @@ report. It may lie in the drive hardware, or in a different version.
 Either way, **doing the volume in the app is easy, and removes the
 question**: the piano's level stays at 0 and never changes.
 
+- [x] **Both methods, side by side** (built 2026-11-26, the owner's
+      wish): "Volume set by: On the Pi | Piano's own" on the volume card
+      and in Settings, remembered on the Pi. A switch while a piece plays
+      applies from the next piece. Compare them; refine the Pi's curve
+      before dropping the piano's own.
 - [x] **App volume** (built 2026-11-26): scale each note's velocity on the Pi as the piece is
       sent, using the same machinery as software voicing (already built,
       already used for every piece). The player's level stays at 0.
@@ -142,6 +147,10 @@ Everything is drawn small, even on a laptop. To do (no piano needed):
       they fill the height.
 - [x] **Full screen** (F; hides the side bar), and keyboard zoom (+ and −).
       Pinch zoom on a trackpad (Ctrl + wheel) was already there.
+- [x] **Zoom buttons** (2026-11-26): Time (in and out, every lane
+      together) and Notes (taller and shorter rows) in the toolbar; each
+      lane (loudness, damper, soft) has its own Taller and Shorter buttons
+      at its top right, up to 4 times, for fine pedal and loudness work.
 - [ ] Bigger note handles and lane drag areas; larger fonts in the panel.
 - [ ] Then the owner tries it and says what is still awkward.
 
@@ -255,11 +264,73 @@ To do:
 - [ ] Re-run the Sensor test, and apply the suggested corrections.
 - [ ] Formal playback and recording tests.
 
+## Idea 7: play lists you build (asked 2026-11-26)
+
+**What exists:** play lists made from the owner's folders and `.bat`
+files (33 on the Pi). The app lists, plays and deletes them, and search
+finds them alongside albums ("1 folder or play list"). The service can
+already store new ones (`POST /playlists`, `PUT /playlists/{id}`). The
+app has no way yet to make one, or to add pieces to one.
+
+To do:
+- [ ] **New play list** (Library → Play lists): name it.
+- [ ] **Add to a play list from search:** each search result, and each
+      piece's page, gets "Add to play list…", with a menu of the lists and
+      "New play list". Several results can be ticked and added at once
+      (like Recordings' tick boxes).
+- [ ] **Edit a play list:** reorder by dragging (and up and down buttons
+      on a phone), remove a piece, rename.
+- [ ] **In search, like albums:** play lists you build show in search
+      results with "Play all", as the folder ones do now. They are told
+      apart from folder lists by a label.
+- [ ] Play lists keep working when a piece is hidden; the list says so.
+
+## Idea 8: backups to the desktop and Google Drive (asked 2026-11-26)
+
+**What exists:** Status → "Back up library" downloads a zip of the
+pieces and `settings.json`. It leaves out:
+- the play lists;
+- voicing and corrections;
+- the piano's settings backups (EEPROM);
+- the recordings still in staging;
+- the installed programs.
+
+**Goal:** everything on the Pi saved to the owner's computer, into a
+folder of their choosing. If that folder is inside Google Drive (Google
+Drive for desktop keeps a folder such as `G:\My Drive` in step with the
+cloud), the backup goes to the cloud too.
+
+To do:
+- [ ] **"Back up everything"**: one zip with all of it:
+  - every piece and its metadata;
+  - play lists, settings, voicing, corrections;
+  - the EEPROM backups;
+  - the installed programs (the owner's own copies; never anywhere
+    public);
+  - a list of what is inside, with the date.
+
+  The browser asks where to save (set the browser to ask), for example
+  the Google Drive folder.
+- [ ] **Restore from a backup** onto a fresh Pi or SD card: upload the zip,
+      check it, put everything back.
+- [ ] **Automatic backups**, by one of these (the owner chooses):
+  - **From the PC:** a small scheduled task on the Windows PC fetches
+    the backup each night into the chosen folder (for example in Google
+    Drive). Simple, and nothing to sign in to. It runs only when the PC
+    is on.
+  - **From the Pi, straight to Google Drive** (with `rclone`, after a
+    one-time sign-in): nightly, even when the PC is off. Keeps the last
+    few.
+- [ ] Only what changed: after the first full backup, a nightly run adds
+      only new or changed files, so it stays quick (the pieces are small,
+      about 48 MB in all on 2026-11-26).
+- [ ] The Status page shows when the last backup was made, and warns if
+      it is more than a week old.
+
 ## More ideas
 
-- [ ] **Back up the library automatically** to the PC or a USB stick. The
-      Pi's SD card holds 1,746 pieces and the only copies of the
-      recordings made here, and SD cards fail.
+- [ ] **Back up the library automatically**: now idea 8. The Pi's SD card
+      holds the only copies of the recordings made here, and SD cards fail.
 - [ ] **A settings backup at the start of each session**, kept for a
       while, so any change in the table is caught early.
 - [ ] **A heat watch:** a cheap USB temperature probe near the solenoid

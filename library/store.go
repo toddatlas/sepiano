@@ -165,6 +165,9 @@ type Patch struct {
 type Settings struct {
 	PreferredInstrument string `json:"preferred_instrument"`
 	Level               int    `json:"level"`
+	// LevelMethod: "piano" uses the player's own level command; anything
+	// else (the default, "pi") has the Pi soften the notes it sends.
+	LevelMethod string `json:"level_method,omitempty"`
 }
 
 // Filter selects pieces. Empty fields match everything.

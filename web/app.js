@@ -73,6 +73,10 @@ const ICONS = {
   previous: { stroke: ['M5.5 6v12'], fill: ['M13.5 6.5v11L7.5 12zM19.5 6.5v11L13.5 12z'] },
   next: { stroke: ['M18.5 6v12'], fill: ['M10.5 6.5v11l6-5.5zM4.5 6.5v11l6-5.5z'] },
   minus: { stroke: ['M5 12h14'] },
+  'zoom-in': { stroke: ['M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z', 'M15.3 15.3 20 20', 'M10.5 7.5v6M7.5 10.5h6'] },
+  'zoom-out': { stroke: ['M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13z', 'M15.3 15.3 20 20', 'M7.5 10.5h6'] },
+  taller: { stroke: ['M12 3v18', 'M8 7l4-4 4 4', 'M8 17l4 4 4-4'] },
+  shorter: { stroke: ['M12 3v6M12 15v6', 'M8 5l4 4 4-4', 'M8 19l4-4 4 4', 'M5 12h14'] },
   plus: { stroke: ['M12 5v14M5 12h14'] },
   now: { stroke: ['M9 18V5l11-2v13', 'M6 15a3 3 0 1 0 0 6 3 3 0 0 0 0-6zM17 13a3 3 0 1 0 0 6 3 3 0 0 0 0-6z'] },
   library: { stroke: ['M4 6h16M4 12h16M4 18h10'] },
@@ -774,6 +778,39 @@ function confirmDialog({ title, text, ok = 'OK', danger = false, phrase = '' }) 
   });
 }
 
+// How the level is applied, to compare the two (remembered on the Pi):
+// "On the Pi" softens the notes as the Pi sends them (heard a few seconds
+// later); "Piano's own" uses the player's level command (heard at once).
+// A change while a piece plays applies from the next piece.
+function levelMethodToggle() {
+  const pi = h('button', { type: 'button', onclick: () => choose('pi') }, 'On the Pi');
+  const piano = h('button', { type: 'button', onclick: () => choose('piano') }, 'Piano’s own');
+  const note = h('p', { class: 'level-hint level-method-note', hidden: true });
+  const el = h('div', { class: 'level-method' },
+    h('span', { class: 'level-method-label' }, 'Volume set by'),
+    h('div', { class: 'segmented level-method-seg', role: 'group', 'aria-label': 'Volume set by' }, pi, piano),
+    note);
+  async function choose(m) {
+    if (current() === m) return;
+    pi.disabled = piano.disabled = true;
+    await saveSettings({ level_method: m }, true);
+    pi.disabled = piano.disabled = false;
+    render();
+  }
+  function current() { return app.settings && app.settings.level_method === 'piano' ? 'piano' : 'pi'; }
+  function render() {
+    const m = current();
+    pi.setAttribute('aria-pressed', String(m === 'pi'));
+    piano.setAttribute('aria-pressed', String(m === 'piano'));
+    const s = app.status;
+    const pending = !!(s && s.level_method_pending);
+    note.hidden = !pending;
+    setText(note, pending ? 'Applies when the next piece starts.' : '');
+  }
+  render();
+  return { el, render };
+}
+
 // A − readout + control. onStep(delta) does the work; render() keeps the
 // buttons honest: + stops at 0, − stops at min_level once it is known.
 function levelStepper(onStep, labelText = 'Level') {
@@ -1004,7 +1041,8 @@ function nowPlayingScreen(root) {
 
   const level = levelStepper((delta) => run('level', '/deck/level', { delta }));
   const levelNote = h('p', { class: 'level-hint' });
-  const levelCard = h('section', { class: 'card level-card' }, level.el, levelNote);
+  const levelMethod = levelMethodToggle();
+  const levelCard = h('section', { class: 'card level-card' }, level.el, levelNote, levelMethod.el);
 
   root.append(playPanel, emptyPanel, recPanel, levelCard);
   update(app.status);
@@ -1051,6 +1089,7 @@ function nowPlayingScreen(root) {
 
     const live = s.state === 'playing' || s.state === 'paused';
     level.render(live ? s.level : s.target_level, s.min_level, busy.has('level'));
+    levelMethod.render();
     if (s.level_on_pi) {
       // The Pi softens the notes it sends; the piano reads a few seconds ahead.
       setText(levelNote, live ? 'Heard after a few seconds: the piano reads a little ahead.' : 'Used when the next piece starts.');
@@ -4123,6 +4162,7 @@ function statusScreen(root) {
 
   const prefSel = h('select', { class: 'input', id: 'set-pref', onchange: () => saveSettings({ preferred_instrument: prefSel.value }) });
   const defLevel = levelStepper(stepDefault, 'Default level');
+  const defMethod = levelMethodToggle();
   const settingsCard = h('section', { class: 'card' },
     h('div', { class: 'card-head' }, h('h2', { class: 'card-title' }, 'Settings')),
     h('div', { class: 'field' },
@@ -4130,7 +4170,9 @@ function statusScreen(root) {
       h('div', { class: 'select-wrap' }, prefSel),
       h('p', { class: 'hint' }, 'When a performance has several renderings, the library shows this one.')),
     defLevel.el,
-    h('p', { class: 'level-hint' }, 'The level each piece starts at. The Pi makes the notes softer as it sends them; the piano’s own level command stays at 0.'));
+    h('p', { class: 'level-hint' }, 'The level each piece starts at.'),
+    defMethod.el,
+    h('p', { class: 'hint' }, 'On the Pi: the Pi makes the notes softer as it sends them, and the piano’s own level command stays at 0; a change is heard after a few seconds. Piano’s own: the piano’s level command, heard at once (other owners report it overheating the piano). Try both and compare.'));
 
   const rescanBtn = h('button', { class: 'btn', type: 'button', onclick: rescan }, icon('refresh'), 'Rescan library folder');
   const libCard = h('section', { class: 'card' },
@@ -4308,6 +4350,7 @@ function statusScreen(root) {
   }
 
   function renderDefLevel() {
+    defMethod.render();
     defLevel.render(defaultLevel(), app.status ? app.status.min_level : null, levelBusy);
   }
 

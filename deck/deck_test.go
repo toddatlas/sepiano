@@ -716,3 +716,51 @@ func TestOpenPerfApplyLevel(t *testing.T) {
 		t.Fatal("the damper file was changed")
 	}
 }
+
+// TestSwitchLevelMethod: the owner can switch between the two level
+// methods to compare them. Idle, a switch applies at once; while a piece
+// plays, it applies from the next piece, so a piece never changes method
+// halfway.
+func TestSwitchLevelMethod(t *testing.T) {
+	f := newFixture(t, nil)
+	if err := f.d.SetLevelMethod(f.ctx(), true); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.d.Status(); st.LevelOnPi || st.LevelMethodPending || st.MinLevel != nil {
+		t.Fatalf("idle switch to the player's level: %+v", st)
+	}
+	if err := f.d.SetLevel(f.ctx(), -2); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.d.Play(f.ctx(), f.piece(60)); err != nil {
+		t.Fatal(err)
+	}
+	f.wait(Playing, 5*time.Second)
+	deadline := time.Now().Add(5 * time.Second)
+	for f.d.Status().Level != -2 { // pressed Down twice on the player
+		if time.Now().After(deadline) {
+			t.Fatalf("the player's level never reached -2: %+v", f.d.Status())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	sawPlayerLevel := false
+	for _, line := range f.d.Info().Console {
+		sawPlayerLevel = sawPlayerLevel || strings.Contains(line, "LEVEL=-2")
+	}
+	if !sawPlayerLevel {
+		t.Fatal("the player's own level was not used")
+	}
+
+	// Back to the Pi while playing: from the next piece.
+	if err := f.d.SetLevelMethod(f.ctx(), false); err != nil {
+		t.Fatal(err)
+	}
+	if st := f.d.Status(); st.LevelOnPi || !st.LevelMethodPending {
+		t.Fatalf("switch while playing: %+v", st)
+	}
+	f.d.Stop(f.ctx())
+	st := f.wait(Idle, 5*time.Second)
+	if !st.LevelOnPi || st.LevelMethodPending || st.MinLevel == nil || *st.MinLevel != MinAppLevel || st.TargetLevel != -2 {
+		t.Fatalf("after the piece: %+v", st)
+	}
+}

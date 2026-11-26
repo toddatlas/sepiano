@@ -565,3 +565,14 @@ The owner approved building three roadmap items in one go:
 - Flaky under load: `TestTracksFollowThePosition` and `TestNoisyTransfer`
   fail when every package runs at once alongside the simulator. They
   pass alone.
+- **Both volume methods** (the owner wants to compare them before
+  dropping the piano's own). Settings.LevelMethod is "pi" (default) or
+  "piano". `deck.SetLevelMethod` switches at once when idle, or from the
+  next piece (`applyMethod` runs at the start and end of each piece;
+  `Status.LevelMethodPending`). The toggle "Volume set by: On the Pi |
+  Piano's own" is on the volume card and in Settings.
+- **Editor zoom buttons**: Time (in/out) and Notes (taller/shorter rows)
+  in the toolbar. Each lane has Taller/Shorter at its top right
+  (`laneZoom`, 1 to 4 times).
+- Added to the roadmap: play lists you build from search (idea 7), and
+  full backups to the desktop or Google Drive (idea 8).

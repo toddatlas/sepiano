@@ -492,6 +492,7 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		PreferredInstrument *string `json:"preferred_instrument"`
 		Level               *int    `json:"level"`
+		LevelMethod         *string `json:"level_method"`
 	}
 	if err := readJSON(r, &req); err != nil {
 		fail(w, 400, err.Error())
@@ -504,9 +505,24 @@ func (s *Server) putSettings(w http.ResponseWriter, r *http.Request) {
 	if req.Level != nil {
 		set.Level = *req.Level
 	}
+	if req.LevelMethod != nil {
+		if m := *req.LevelMethod; m != "pi" && m != "piano" {
+			fail(w, 400, "level_method must be pi or piano")
+			return
+		}
+		set.LevelMethod = *req.LevelMethod
+	}
 	if err := s.Lib.SaveSettings(set); err != nil {
 		fail(w, 400, err.Error())
 		return
+	}
+	if req.LevelMethod != nil {
+		ctx, cancel := cmdContext(r)
+		defer cancel()
+		if err := s.Deck.SetLevelMethod(ctx, *req.LevelMethod == "piano"); err != nil {
+			deckError(w, err)
+			return
+		}
 	}
 	if req.Level != nil {
 		ctx, cancel := cmdContext(r)

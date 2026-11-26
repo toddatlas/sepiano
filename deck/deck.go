@@ -78,14 +78,17 @@ type Status struct {
 	MinLevel    *int        `json:"min_level"`
 	// LevelOnPi: the level is applied by the Pi to each note it sends, and
 	// the piano's own level stays at 0 (Config.PlayerLevel false).
-	LevelOnPi      bool      `json:"level_on_pi"`
-	Message        string    `json:"message"`
-	RecordingTitle string    `json:"recording_title,omitempty"`
-	Program        string    `json:"program,omitempty"`
-	Voiced         bool      `json:"voiced"`    // playing with software voicing
-	Corrected      bool      `json:"corrected"` // a recording playing with the per-key corrections
-	Simulated      bool      `json:"simulated"`
-	Since          time.Time `json:"since"`
+	LevelOnPi bool `json:"level_on_pi"`
+	// LevelMethodPending: the other method has been chosen; it applies when
+	// the next piece starts.
+	LevelMethodPending bool      `json:"level_method_pending"`
+	Message            string    `json:"message"`
+	RecordingTitle     string    `json:"recording_title,omitempty"`
+	Program            string    `json:"program,omitempty"`
+	Voiced             bool      `json:"voiced"`    // playing with software voicing
+	Corrected          bool      `json:"corrected"` // a recording playing with the per-key corrections
+	Simulated          bool      `json:"simulated"`
+	Since              time.Time `json:"since"`
 }
 
 // Job is a performance to play: the files Dir/Name.kb, .lp and .sp.
@@ -202,6 +205,11 @@ type Deck struct {
 	lastTS  atomic.Uint32 // the piano's latest clock reading; bit 16 marks it valid
 	vol     atomic.Int32  // the level on the Pi, read as the key stream is sent (volume.go)
 
+	// playerLevel: the level method in effect (Config.PlayerLevel at the
+	// start); wantPlayerLevel: the one chosen, applied when no piece is
+	// playing and at the start of each piece (applyMethod). Run loop only.
+	playerLevel, wantPlayerLevel bool
+
 	// Owned by the run goroutine.
 	ctx        context.Context
 	st         Status
@@ -304,6 +312,7 @@ func New(cfg Config) *Deck {
 	}
 	d := &Deck{cfg: cfg, cmds: make(chan command), inbox: make(chan any, 256), subs: map[chan Event]struct{}{},
 		released: make(chan struct{})}
+	d.playerLevel, d.wantPlayerLevel = cfg.PlayerLevel, cfg.PlayerLevel
 	close(d.released)
 	if !cfg.PlayerLevel {
 		cfg.Level = min(max(cfg.Level, MinAppLevel), 0)
@@ -398,6 +407,17 @@ func (d *Deck) Restart(ctx context.Context) error { return d.do(ctx, command{op:
 // SetLevel sets the level (0 = as recorded, negative = softer).
 func (d *Deck) SetLevel(ctx context.Context, level int) error {
 	return d.do(ctx, command{op: "level", level: &level})
+}
+
+// SetLevelMethod chooses how the level is applied: by the player's own
+// Down and Up keys (player true), or by the Pi to each note it sends. It
+// applies at once when no piece is playing, else when the next one starts.
+func (d *Deck) SetLevelMethod(ctx context.Context, player bool) error {
+	n := 0
+	if player {
+		n = 1
+	}
+	return d.do(ctx, command{op: "levelmethod", delta: n})
 }
 
 // ChangeLevel moves the level by delta steps.
@@ -732,7 +752,7 @@ func (d *Deck) connDone(m connDone) {
 		path = filepath.Join(s.dir(d), s.base()+".kb")
 	}
 	fs := host.NewFileService(path)
-	if s.kind == "play" && !d.cfg.PlayerLevel {
+	if s.kind == "play" && !d.playerLevel {
 		fs.OpenPerf = d.openPerf
 	}
 	if s.kind == "record" {
@@ -801,6 +821,7 @@ func (d *Deck) startSession(kind string, j *Job, title string) error {
 	d.st.PositionMs = 0
 	d.st.Message = ""
 	d.resetClock()
+	d.applyMethod()   // a method chosen while the last piece played
 	d.release(d.conn) // the idle link: the new connection waits for it to close
 	d.setConn(nil)
 	d.setState(Loading)
@@ -887,6 +908,7 @@ func (d *Deck) sessDone(m sessDone) {
 
 // afterSession reopens the idle link, or starts the next piece.
 func (d *Deck) afterSession(failed bool) {
+	d.applyMethod()
 	d.st.Piece = nil
 	d.st.Voiced, d.st.Corrected = false, false
 	d.st.Collection, d.st.Tracks, d.st.TrackIndex = nil, nil, 0
@@ -1074,7 +1096,7 @@ func (d *Deck) playerRunning() bool {
 
 // applyLevel steps the player toward the target level, one key at a time.
 func (d *Deck) applyLevel() {
-	if !d.cfg.PlayerLevel { // the Pi applies it; the player's level stays at 0
+	if !d.playerLevel { // the Pi applies it; the player's level stays at 0
 		if !d.stepping {
 			d.resolve("level", nil)
 		}
@@ -1097,7 +1119,7 @@ func (d *Deck) applyLevel() {
 }
 
 func (d *Deck) levelReport(n int) {
-	if !d.cfg.PlayerLevel {
+	if !d.playerLevel {
 		return // the player's own level, always 0 here
 	}
 	prev := d.st.Level
@@ -1135,7 +1157,7 @@ func (d *Deck) setTarget(t int) {
 			d.cfg.OnLevel(t)
 		}
 	}
-	if !d.cfg.PlayerLevel { // on the Pi: at once, for every note not yet sent
+	if !d.playerLevel { // on the Pi: at once, for every note not yet sent
 		d.st.Level = t
 		d.vol.Store(int32(t))
 		return
@@ -1226,7 +1248,7 @@ func (d *Deck) command(c command) {
 			return
 		}
 		d.setTarget(t)
-		if !d.cfg.PlayerLevel {
+		if !d.playerLevel {
 			d.publish()
 			reply(nil)
 			return
@@ -1245,6 +1267,14 @@ func (d *Deck) command(c command) {
 			d.applyLevel()
 			return
 		}
+		d.publish()
+		reply(nil)
+	case "levelmethod":
+		d.wantPlayerLevel = c.delta == 1
+		if d.sess == nil {
+			d.applyMethod()
+		}
+		d.st.LevelMethodPending = d.wantPlayerLevel != d.playerLevel
 		d.publish()
 		reply(nil)
 	case "arm":

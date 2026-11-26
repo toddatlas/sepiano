@@ -261,6 +261,13 @@ The editor's operations live in `web/edittools.js`.
 - **Range previews keep the sostenuto paired**: down at the start if it
   was down there, and up at the end if it is still down
   (`edit.Doc.From`, `Until`).
+- **Zoom buttons** (2026-11-26): **Time** zooms in and out across, every
+  lane together, centred on the cursor when it is in view; **Notes** makes
+  the rows taller or shorter. Each lane (loudness, damper, soft) has its
+  own Taller and Shorter buttons at its top right (1, 1.5, 2, 3 or 4
+  times; remembered per browser). A taller pedal lane gives finer control
+  of the pedal's depth. The damper and soft lanes now have separate
+  heights (`DAMP_H`, `SOFT_H`).
 - **Size** (2026-11-26): the toolbar's menu, Comfortable, Large or Extra
   large, scales the rows, the text, the toolbar and the panel together
   (remembered in each browser). The lanes below keep about their size on

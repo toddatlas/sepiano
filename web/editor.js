@@ -33,16 +33,27 @@ const GAP = 8;
 // bigger size they keep about their size on screen (laneSizes), so the extra
 // room goes to the notes; the text in them still grows.
 let VEL_H = 76;
-let PED_H = 46;
+let DAMP_H = 46; // the damper pedal lane
+let SOFT_H = 46; // the soft pedal lane
 let OVERVIEW = 30;
 let SOST_H = 20; // the sostenuto pedal lane
 let FIXED_H = 0;
+// laneZoom makes each lane taller for fine work (its 'Taller' and 'Shorter'
+// buttons), 1 to 4 times; remembered in this browser.
+const LANE_KEY = 'editor.lanes';
+const laneZoom = (() => {
+  const z = { vel: 1, damper: 1, soft: 1 };
+  try { Object.assign(z, JSON.parse(localStorage.getItem(LANE_KEY)) || {}); } catch { /* the defaults */ }
+  for (const k of Object.keys(z)) z[k] = Math.max(1, Math.min(4, Number(z[k]) || 1));
+  return z;
+})();
 function laneSizes(scale) {
-  VEL_H = Math.round(76 / scale);
-  PED_H = Math.round(46 / scale);
+  VEL_H = Math.round((76 * laneZoom.vel) / scale);
+  DAMP_H = Math.round((46 * laneZoom.damper) / scale);
+  SOFT_H = Math.round((46 * laneZoom.soft) / scale);
   SOST_H = Math.max(14, Math.round(20 / scale));
   OVERVIEW = Math.max(20, Math.round(30 / scale));
-  FIXED_H = RULER + GAP + VEL_H + GAP + PED_H + GAP + PED_H + GAP + SOST_H + GAP + OVERVIEW;
+  FIXED_H = RULER + GAP + VEL_H + GAP + DAMP_H + GAP + SOFT_H + GAP + SOST_H + GAP + OVERVIEW;
 }
 laneSizes(1);
 
@@ -161,7 +172,7 @@ export function editorScreen(root, [id], ui) {
     ['Range', 'Drag along the time ruler to mark a stretch of time (a click there moves the cursor): play it, copy it, delete it, keep only it, stretch its tempo, or set the pedals over it.'],
     ['Copy', 'Ctrl+C copies the selected notes (or the range, with its pedals); Ctrl+V mixes them in at the cursor, Ctrl+Shift+V opens a gap for them; Ctrl+D duplicates. The copy stays while the app is open, so it can go into another piece.'],
     ['Keys', 'Space plays from the cursor or stops · Delete removes · ←/→ move 10 ms (Shift: 100 ms) · Alt+←/→ move releases · ↑/↓ change key · Ctrl+Z, Ctrl+Y undo and redo · Ctrl+S saves · Esc clears the selection and the range.'],
-    ['View', 'wheel scrolls, Shift+wheel goes along; Ctrl+wheel (or pinch) zooms; Alt+wheel makes rows taller; right-drag pans; click the strip at the bottom to jump. K fits the rows to the keys used, 0 shows the whole piece, F is full screen. The Size menu makes everything bigger.'],
+    ['View', 'wheel scrolls, Shift+wheel goes along; Ctrl+wheel (or pinch) zooms; Alt+wheel makes rows taller; right-drag pans; click the strip at the bottom to jump. K fits the rows to the keys used, 0 shows the whole piece, F is full screen. The toolbar’s Time and Notes buttons zoom across and up; each lane’s own buttons (top right) make it taller for finer changes. The Size menu makes everything bigger.'],
   ];
 
   document.body.classList.add('wide-screen');
@@ -310,15 +321,82 @@ export function editorScreen(root, [id], ui) {
     fill(bar,
       h('div', { class: 'ed-group' }, tb.undo, tb.redo),
       h('div', { class: 'ed-group' },
-        button('−', () => zoomAt(1 / 1.6, GUTTER + (cssW - GUTTER) / 2), { title: 'Zoom out (−)', aria: 'Zoom out' }),
-        button('+', () => zoomAt(1.6, GUTTER + (cssW - GUTTER) / 2), { title: 'Zoom in (+)', aria: 'Zoom in' }),
-        button('Whole piece', fitAll, { title: 'Show the whole piece (0)' }),
+        h('span', { class: 'ed-label' }, 'Time'),
+        button('', () => zoomAt(1 / 1.6, zoomX()), { icon: 'zoom-out', title: 'Zoom out in time, every lane together (−)', aria: 'Zoom out in time' }),
+        button('', () => zoomAt(1.6, zoomX()), { icon: 'zoom-in', title: 'Zoom in in time, every lane together (+)', aria: 'Zoom in in time' }),
+        button('Whole piece', fitAll, { title: 'Show the whole piece (0)' })),
+      h('div', { class: 'ed-group' },
+        h('span', { class: 'ed-label' }, 'Notes'),
+        button('', () => rowsBy(-1), { icon: 'shorter', title: 'Shorter rows: more keys (Alt+wheel)', aria: 'Shorter note rows' }),
+        button('', () => rowsBy(1), { icon: 'taller', title: 'Taller rows: bigger notes (Alt+wheel)', aria: 'Taller note rows' }),
         button('Fit keys', () => { fitRows(); clampView(); schedule(); }, { title: 'Rows just for the keys this piece uses, as tall as fits (K)' })),
       h('div', { class: 'ed-group' }, sizeSelect(),
         tb.full = button('Full screen', toggleFull, { title: 'Use the whole screen for the editor (F); Esc leaves' })),
       h('div', { class: 'ed-group' }, tb.play, tb.stop),
       h('div', { class: 'ed-group' }, tb.apply, tb.ghost),
       h('div', { class: 'ed-group ed-save' }, tb.save, tb.copy));
+  }
+
+  // Where a time zoom from the toolbar centres: the cursor if it is in
+  // view, else the middle.
+  function zoomX() {
+    const x = xOf(cursor);
+    return x >= GUTTER && x <= cssW ? x : GUTTER + (cssW - GUTTER) / 2;
+  }
+
+  // rowsBy makes the note rows taller (+1) or shorter (−1), keeping the
+  // key in the middle of the roll in place.
+  function rowsBy(dir) {
+    const old = view.rowH;
+    const next = Math.max(4, Math.min(40, dir > 0 ? Math.max(old + 1, Math.round(old * 1.25)) : Math.min(old - 1, Math.round(old / 1.25))));
+    const at = rollH / 2;
+    view.y = ((at + view.y) / old) * next - at;
+    view.rowH = next;
+    clampView();
+    schedule();
+  }
+
+  // Each lane can be made taller for fine work, its own buttons at its
+  // left (laneZoom: 1, 1.5, 2, 3 or 4 times).
+  const LANE_STEPS = [1, 1.5, 2, 3, 4];
+  const LANES = [['vel', 'Loudness'], ['damper', 'Damper pedal'], ['soft', 'Soft pedal']];
+  const laneBtns = h('div', { class: 'ed-lanebtns' });
+  const laneBtnEls = {};
+  for (const [name, label] of LANES) {
+    const up = h('button', { type: 'button', class: 'ed-lanebtn', title: `${label}: taller, for finer changes`, 'aria-label': `${label} taller`, onclick: () => zoomLane(name, 1) }, icon('taller'));
+    const down = h('button', { type: 'button', class: 'ed-lanebtn', title: `${label}: shorter`, 'aria-label': `${label} shorter`, onclick: () => zoomLane(name, -1) }, icon('shorter'));
+    laneBtnEls[name] = h('div', { class: 'ed-lanebtn-pair' }, up, down);
+    laneBtns.append(laneBtnEls[name]);
+  }
+  wrap.append(laneBtns);
+
+  function zoomLane(name, dir) {
+    const i = LANE_STEPS.indexOf(laneZoom[name]);
+    const j = Math.max(0, Math.min(LANE_STEPS.length - 1, (i < 0 ? 0 : i) + dir));
+    if (LANE_STEPS[j] === laneZoom[name]) return;
+    laneZoom[name] = LANE_STEPS[j];
+    localStorage.setItem(LANE_KEY, JSON.stringify(laneZoom));
+    laneSizes(scale);
+    sizeCanvas();
+    schedule();
+  }
+
+  // placeLaneButtons keeps each lane's buttons beside its label.
+  let lanePlace = '';
+  function placeLaneButtons(L) {
+    const tops = { vel: [L.velTop, VEL_H], damper: [L.damperTop, DAMP_H], soft: [L.softTop, SOFT_H] };
+    const key = `${scale}|${JSON.stringify(tops)}`;
+    if (key === lanePlace) return;
+    lanePlace = key;
+    for (const [name] of LANES) {
+      const [top, hgt] = tops[name];
+      const el = laneBtnEls[name];
+      el.style.top = `${Math.round(top * scale) + 3}px`; // the lane's top right corner
+      el.hidden = hgt * scale < 24;
+      const i = LANE_STEPS.indexOf(laneZoom[name]);
+      el.firstChild.disabled = i === LANE_STEPS.length - 1;
+      el.lastChild.disabled = i <= 0;
+    }
   }
 
   // The size menu: rows, lanes, text, the panel and the toolbar together.
@@ -907,8 +985,8 @@ export function editorScreen(root, [id], ui) {
     const rollBottom = RULER + rollH;
     const velTop = rollBottom + GAP;
     const damperTop = velTop + VEL_H + GAP;
-    const softTop = damperTop + PED_H + GAP;
-    const sostTop = softTop + PED_H + GAP;
+    const softTop = damperTop + DAMP_H + GAP;
+    const sostTop = softTop + SOFT_H + GAP;
     const overTop = sostTop + SOST_H + GAP;
     return { rollTop, rollBottom, velTop, damperTop, softTop, sostTop, overTop };
   }
@@ -934,6 +1012,7 @@ export function editorScreen(root, [id], ui) {
     view.t0 = t - (x - GUTTER) / view.ppt;
     clampView();
     schedule();
+    renderStatus();
   }
 
   function fitAll() {
@@ -941,6 +1020,7 @@ export function editorScreen(root, [id], ui) {
     view.ppt = minPpt();
     clampView();
     schedule();
+    renderStatus();
   }
 
   function sizeCanvas() {
@@ -975,8 +1055,8 @@ export function editorScreen(root, [id], ui) {
     if (y < RULER) return x < GUTTER ? 'none' : 'ruler';
     if (y < L.rollBottom) return x < GUTTER ? 'keys' : 'roll';
     if (y >= L.velTop && y < L.velTop + VEL_H) return x < GUTTER ? 'none' : 'vel';
-    if (y >= L.damperTop && y < L.damperTop + PED_H) return x < GUTTER ? 'none' : 'damper';
-    if (y >= L.softTop && y < L.softTop + PED_H) return x < GUTTER ? 'none' : 'soft';
+    if (y >= L.damperTop && y < L.damperTop + DAMP_H) return x < GUTTER ? 'none' : 'damper';
+    if (y >= L.softTop && y < L.softTop + SOFT_H) return x < GUTTER ? 'none' : 'soft';
     if (y >= L.sostTop && y < L.sostTop + SOST_H) return x < GUTTER ? 'none' : 'sost';
     if (y >= L.overTop && y < L.overTop + OVERVIEW) return 'overview';
     return 'none';
@@ -1269,7 +1349,8 @@ export function editorScreen(root, [id], ui) {
     const L = layout();
     const top = drag.name === 'damper' ? L.damperTop : L.softTop;
     const period = drag.name === 'damper' ? doc.dp : doc.sp;
-    const value = Math.round(Math.max(0, Math.min(1, (top + PED_H - 2 - p.y) / (PED_H - 6))) * 255);
+    const lh = drag.name === 'damper' ? DAMP_H : SOFT_H;
+    const value = Math.round(Math.max(0, Math.min(1, (top + lh - 2 - p.y) / (lh - 6))) * 255);
     const t = Math.max(0, tOf(p.x));
     if (!drag.began) {
       begin();
@@ -1458,6 +1539,7 @@ export function editorScreen(root, [id], ui) {
     if (!doc || !cssW || !alive) return;
     const c = ctx;
     const L = layout();
+    placeLaneButtons(L);
     const step = gridStep();
     const ta = tOf(GUTTER) - 2 / view.ppt;
     const tb = tOf(cssW);
@@ -1594,8 +1676,8 @@ export function editorScreen(root, [id], ui) {
     }
     c.restore();
 
-    drawPedal(c, doc.damper, doc.dp, L.damperTop, step);
-    drawPedal(c, doc.soft, doc.sp, L.softTop, step);
+    drawPedal(c, doc.damper, doc.dp, L.damperTop, DAMP_H, step);
+    drawPedal(c, doc.soft, doc.sp, L.softTop, SOFT_H, step);
     drawSostenuto(c, L.sostTop, step);
 
     // The ruler.
@@ -1734,14 +1816,14 @@ export function editorScreen(root, [id], ui) {
     c.restore();
   }
 
-  function drawPedal(c, arr, period, top, step) {
+  function drawPedal(c, arr, period, top, laneH, step) {
     const tw = cssW - GUTTER;
-    clip(c, GUTTER, top, tw, PED_H);
+    clip(c, GUTTER, top, tw, laneH);
     c.fillStyle = colors.elev;
-    c.fillRect(GUTTER, top, tw, PED_H);
-    gridLines(c, top, PED_H, step);
-    const base = top + PED_H - 2;
-    const hh = PED_H - 6;
+    c.fillRect(GUTTER, top, tw, laneH);
+    gridLines(c, top, laneH, step);
+    const base = top + laneH - 2;
+    const hh = laneH - 6;
     const tpp = 1 / view.ppt;
     const last = arr.length ? arr[arr.length - 1] : 0;
     c.beginPath();

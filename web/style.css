@@ -1453,3 +1453,30 @@ body.editor-focus main { padding-top: calc(var(--sat) + 8px); }
 
 /* A piece converted from MIDI says so in the list. */
 .grade-pill { background: var(--bg-sunk); color: var(--ink-2); }
+
+/* Volume set by: On the Pi | Piano's own */
+.level-method { display: grid; justify-items: center; gap: 6px; margin-top: 12px; }
+.level-method-label { font-size: 13px; color: var(--muted); }
+.level-method-seg { display: inline-flex; }
+.level-method-seg button {
+  min-height: 36px; padding: 0 14px; border: none; border-radius: 999px;
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 500; cursor: pointer;
+}
+.level-method-seg button[aria-pressed="true"] { background: var(--ink); color: var(--on-ink); }
+.level-method-seg button:disabled { opacity: 0.6; }
+.level-method-note { margin: 0; }
+
+/* Each lane's Taller and Shorter buttons, at its top right corner. */
+.ed-wrap { position: relative; }
+.ed-lanebtn-pair { position: absolute; right: 6px; z-index: 1; display: flex; gap: 3px; }
+.ed-lanebtn {
+  width: calc(24px * var(--ed-scale, 1)); height: calc(20px * var(--ed-scale, 1)); padding: 0;
+  display: grid; place-items: center;
+  border: 1px solid var(--line-strong); border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-elev) 85%, transparent); color: var(--ink-2); cursor: pointer;
+}
+.ed-lanebtn .icon { width: 70%; height: 70%; }
+.ed-lanebtn:disabled { opacity: 0.35; cursor: default; }
+.ed-lanebtn:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent-ink); }
+.ed-bar .ed-label { font-size: 13px; color: var(--muted); }
+.ed-bar .btn:has(> .icon:only-child) { padding: 5px 8px; }
