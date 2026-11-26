@@ -188,3 +188,36 @@ func (s *FitStore) Save(fs Fits) (Fits, error) {
 	}
 	return out, os.Rename(tmp, s.Path)
 }
+
+// Pedal speed limits at playback (docs/LIBRARIES.md, "Pedals"). This is a
+// vintage acoustic piano, not a MIDI instrument: a sudden full press or
+// release is a hard knock for its pedal mechanism.
+const (
+	// PedalStep: no pedal moves more than this per sample (10 ms for the
+	// damper, 20 ms for the soft pedal). It is the fastest move in native
+	// SE recordings: the owner's 350 Zenph files never exceed it, so they
+	// play exactly as recorded.
+	PedalStep = 60
+	// OnOffPedalStep: a pedal that is only ever fully up or fully down (an
+	// on/off MIDI pedal: rolls, transcriptions) carries no speed at all, so
+	// it moves more gently, a full stroke over about 80 ms (damper) or
+	// 160 ms (soft), about a pianist's usual pace.
+	OnOffPedalStep = 32
+)
+
+// SafePedals slows a performance's pedals to those limits and returns how
+// many samples it changed. Every piece goes through it as it plays.
+func SafePedals(p *se.Performance) int {
+	n := 0
+	for _, ped := range []*se.Pedal{p.Damper, p.Soft} {
+		if ped == nil {
+			continue
+		}
+		step := PedalStep
+		if ped.OnOff() {
+			step = OnOffPedalStep
+		}
+		n += ped.Limit(step)
+	}
+	return n
+}

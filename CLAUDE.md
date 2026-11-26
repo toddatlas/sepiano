@@ -69,8 +69,19 @@ in plain words, and say what they should see or hear at the piano.
 
   Finish and verify one stage before starting the next. Ask before
   starting large work.
-- **The piano is a Steinway**: a model B, "Steinway B-SE" in its table.
-  Prefer Steinway renderings.
+- **The piano is a 1909 Steinway D** (a 9-foot concert grand), retrofitted
+  with a Stahnke SE system. Its table calls it "Steinway B-SE": that is
+  the label of Stahnke's prototype table for Steinways (`putb`), which
+  this piano's table started from, not its model (owner, 2026-11-26). A D
+  behaves quite differently from a 7-foot B, so:
+  - the calibration values are this piano's own;
+  - Stahnke's factory "Steinway B" table is only a starting point, never
+    a reset;
+  - Steinway renderings are still the best match. Prefer them.
+- **It is a vintage acoustic piano, not a MIDI instrument.** Never send
+  sudden full pedal moves: sources with an on/off sustain pedal are
+  smoothed at playback (docs/LIBRARIES.md, "Pedals").
+
 - **At the piano.** Don't play, record or run tools on the real piano
   without asking; the owner tries new features there. Writing the EEPROM
   needs the owner's explicit OK and a verified backup (see Hard rules).
@@ -300,7 +311,8 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
   moved. The 2048-byte image is in `~/sepiano-data/backups/eeprom-20261123.lut`
   on the Pi and in the owner's `Desktop\SE\EEPROM backups\`.
 - What it holds:
-  - **"Steinway B-SE"** (a model B), table V30.17, serial 08;
+  - **"Steinway B-SE"**, table V30.17, serial 08. That is the label of
+    Stahnke's Steinway prototype table; the piano is a 1909 Steinway D;
   - calibrated throughout, with the calibration range set to E1 only;
   - E1 and C#3 at the maximum (255) in section 2.
 
@@ -631,11 +643,27 @@ The owner approved building three roadmap items in one go:
   - per-collection **fits** (`piano.Fit`, `/api/v1/fits`, Piano → Fit by
     collection): loudness % and pedal depth %, applied at playback with
     the corrections (`playFix`, `markFixes`; `Status.Fitted`).
-- Not answered yet: the owner told the other session the piano is a 1909
-  Steinway D. The EEPROM table says "Steinway B-SE".
+- The owner confirmed (2026-11-26) that the piano is a **1909 Steinway D**.
+  "Steinway B-SE" is the prototype table's label.
 - **Imported into the Pi (2026-11-26):** all 1,422 pieces (Vienna 110,
   Batik 36, MAESTRO 1,276), none failed, as 27 new albums. The library is
   now 3,170 pieces: 1,858 native, 1,276 performance, 36 se-midi. The data
   folder is 176 MB, up from 29 MB, so nightly backups grow to match.
 - Batch 2 (SUPRA rolls, ASAP, PiJAMA) is downloaded and waits for the
   owner's choice (docs/ROADMAP.md, idea 4).
+
+## Status (2026-11-26, later: the 1909 D, safe pedals, backups every 3 days)
+
+- The owner corrected the model: a **1909 Steinway D**. The docs and the
+  Tools text now say so; "Steinway B-SE" is the label of Stahnke's
+  prototype table (`putb`), which this piano's table started from.
+- **Pedal speed limits** (docs/LIBRARIES.md, "Pedals"): the owner asked
+  that on/off sustain pedals (MIDI sources) never slam the vintage
+  mechanism. `piano.SafePedals` runs on every piece as it plays (in
+  `playFix`, so albums and play lists too, and in editor previews): at
+  most 60 per sample, 32 for an on/off pedal, centred on the recorded
+  moment (`se.Pedal.Limit`). The owner's 350 native files never exceed
+  60 and play unchanged. Stahnke's MIDI players (Tools) are not covered;
+  their descriptions say so.
+- **Backups every 3 days, keeping 3** (the owner's choice): the "Piano
+  backup" task was reinstalled that way on the owner's PC.

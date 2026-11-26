@@ -8,7 +8,7 @@
   checks it is a complete sepiano backup, and keeps the newest copies.
   Point -Folder at a folder inside Google Drive (for example
   "G:\My Drive\Piano backups") and the backup goes to the cloud as well.
-  See docs/BACKUPS.md. Install-PianoBackupTask.ps1 runs this every night.
+  See docs/BACKUPS.md. Install-PianoBackupTask.ps1 runs this every few days.
 
 .EXAMPLE
   .\piano-backup.ps1 -Folder "G:\My Drive\Piano backups"
@@ -16,7 +16,7 @@
 param(
   [string]$Folder = (Join-Path $env:USERPROFILE 'Documents\Piano backups'),
   [string]$Pi = 'http://raspberrypi.local',
-  [int]$Keep = 14
+  [int]$Keep = 3
 )
 
 $ErrorActionPreference = 'Stop'

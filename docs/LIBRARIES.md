@@ -62,6 +62,44 @@ MIDI CC 0–127 maps to SE 0–255 in a straight line, for both sources.
 Bösendorfer's own converter does exactly this (within 1, over 225,882
 damper samples).
 
+### Pedal speed: protecting the mechanism
+
+This is a 1909 acoustic piano with a retrofitted pedal actuator, not a
+MIDI instrument. A source whose sustain pedal is only ever "on" or "off"
+asks the pedal to go from fully up to fully down in one 10 ms step, and
+to drop back just as suddenly. That is a hard knock for the mechanism
+(the owner, 2026-11-26). So **every piece is slowed to safe pedal speeds
+as it plays** (`piano.SafePedals`):
+
+- **No pedal moves more than 60 (of 255) per sample**: 10 ms for the
+  damper, 20 ms for the soft pedal. That is the fastest move in native SE
+  recordings: none of the owner's 350 Zenph files goes faster, so they
+  play exactly as recorded (`TestSafePedalsLeaveNativeAlone`).
+- **An on/off pedal moves more gently still: 32 per sample**, so a full
+  stroke takes about 80 ms (damper) or 160 ms (soft pedal), about a
+  pianist's usual pace.
+- The move is spread evenly around the moment it was recorded (half
+  before, half after), so the pedal is half down when the file says
+  "down", and the dampers' timing against the notes stays as recorded
+  (`se.Pedal.Limit`).
+- It applies everywhere the app plays: single pieces, albums, play
+  lists and the editor's previews. The files never change.
+
+What the sources hold (largest move in one sample):
+
+| Source | Pedal | Largest step | Slowed? |
+|---|---|---|---|
+| The owner's Zenph SE files (350) | depth | 60 | never |
+| Vienna 4x22 (SE, from a Bösendorfer) | depth | 127 | a few moves |
+| MAESTRO (Disklavier) | depth, often on/off | 255 (about 4,200 moves of 200 or more) | yes |
+| SUPRA Welte-Mignon rolls | on/off only | 255, every change | yes, the gentle rate |
+| PiJAMA jazz transcriptions | on/off only | 255 | yes, the gentle rate |
+
+Stahnke's own MIDI players (Tools → "MIDI file player", "MIDI input")
+send pedals as the file or the input has them; the slowing does not
+apply there. For a file with an on/off pedal, play the converted piece
+from the Library instead.
+
 ## Fitting to this piano
 
 Files from other pianos come out a little "all over the place" here:

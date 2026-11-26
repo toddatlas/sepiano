@@ -1,12 +1,13 @@
 <#
 .SYNOPSIS
-  Runs piano-backup.ps1 every night (Windows Task Scheduler).
+  Runs piano-backup.ps1 every few days (Windows Task Scheduler).
 
 .DESCRIPTION
   Copies piano-backup.ps1 to %USERPROFILE%\sepiano and registers a task,
-  "Piano backup", that runs it daily at -At for the current user. If the PC
+  "Piano backup", that runs it every -EveryDays days (3) at -At, keeping the
+  newest -Keep (3), for the current user. If the PC
   is off or asleep then, it runs as soon as it can. Run it again to change
-  the folder or the time. To stop the nightly backup:
+  the folder, the interval or the time. To stop the backups:
   Unregister-ScheduledTask -TaskName 'Piano backup'
   See docs/BACKUPS.md.
 
@@ -17,7 +18,8 @@ param(
   [Parameter(Mandatory = $true)][string]$Folder,
   [string]$Pi = 'http://raspberrypi.local',
   [datetime]$At = '3:00',
-  [int]$Keep = 14
+  [int]$EveryDays = 3,
+  [int]$Keep = 3
 )
 
 $ErrorActionPreference = 'Stop'
@@ -30,12 +32,12 @@ Copy-Item -Path (Join-Path $PSScriptRoot 'piano-backup.ps1') -Destination $scrip
 
 $args_ = '-NoProfile -ExecutionPolicy Bypass -WindowStyle Hidden -File "{0}" -Folder "{1}" -Pi "{2}" -Keep {3}' -f $script, $Folder, $Pi, $Keep
 $action = New-ScheduledTaskAction -Execute 'powershell.exe' -Argument $args_
-$trigger = New-ScheduledTaskTrigger -Daily -At $At
+$trigger = New-ScheduledTaskTrigger -Daily -DaysInterval $EveryDays -At $At
 # A laptop on battery would hold the task until plugged in (Windows' default);
 # the backup takes seconds, so it runs on battery too.
 $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -RunOnlyIfNetworkAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Minutes 30)
 Register-ScheduledTask -TaskName 'Piano backup' -Action $action -Trigger $trigger -Settings $settings `
   -Description 'Saves a full backup of the piano''s Pi (sepiano) into a folder; see docs/BACKUPS.md' -Force | Out-Null
 
-Write-Output ('"Piano backup" will run every day at {0:t}, into {1}.' -f $At, $Folder)
+Write-Output ('"Piano backup" will run every {0} day(s) at {1:t}, into {2}, keeping {3}.' -f $EveryDays, $At, $Folder, $Keep)
 Write-Output 'To try it now:  Start-ScheduledTask -TaskName "Piano backup"'

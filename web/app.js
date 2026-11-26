@@ -4409,7 +4409,7 @@ function backupCard() {
     h('div', { class: 'btn-col' },
       h('a', { class: 'btn btn-primary', href: API + '/backup', download: '', onclick: () => setTimeout(refresh, 4000) }, icon('download'), 'Back up now'),
       restoreBtn, fileInput),
-    h('p', { class: 'hint' }, 'Back up now saves one .zip file with everything on the Pi (every piece and its details, play lists, settings, voicing, corrections, the piano’s settings backups, and the installed programs) to the device you are using. On a computer, choose a folder in Google Drive to keep it in the cloud too. The nightly backup from the PC goes to Google Drive by itself.'),
+    h('p', { class: 'hint' }, 'Back up now saves one .zip file with everything on the Pi (every piece and its details, play lists, settings, voicing, corrections, the piano’s settings backups, and the installed programs) to the device you are using. On a computer, choose a folder in Google Drive to keep it in the cloud too. The PC’s automatic backup (every 3 days) goes to Google Drive by itself.'),
     h('p', { class: 'hint' }, 'Restoring adds what a backup has and this Pi lacks. Nothing here is changed or removed.'),
     report);
   refresh();
@@ -4426,7 +4426,7 @@ function backupCard() {
       }
       const old = s.age_days >= 7;
       lastEl.className = 'backup-last ' + (old ? 'message message-warn' : 'muted small');
-      const by = s.by === 'pc' ? ' by the PC’s nightly backup' : ' from the app';
+      const by = s.by === 'pc' ? ' by the PC’s automatic backup' : ' from the app';
       fill(lastEl, h('p', null, `Last full backup: ${fmtDateTime(s.last)}${by}, ${s.pieces} pieces.` + (old ? ` That is ${s.age_days} days ago: time for another.` : '') + size));
     } catch (err) {
       fill(lastEl, err.message);

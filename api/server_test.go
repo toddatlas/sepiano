@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -1213,6 +1214,50 @@ func TestFits(t *testing.T) {
 	st := e.waitState("playing")
 	if !st.Fitted {
 		t.Errorf("not fitted: %+v", st)
+	}
+	e.do("POST", "/api/v1/deck/stop", nil)
+	e.waitState("idle")
+}
+
+// TestSafePedals: a piece whose damper is only fully up or fully down (an
+// on/off MIDI pedal) reaches the piano with every move slowed to a ramp;
+// the library's file is unchanged.
+func TestSafePedals(t *testing.T) {
+	e := newEnv(t)
+	perf := sim.Phrase(20 * se.TicksPerSecond)
+	for i := range perf.Damper.Samples {
+		perf.Damper.Samples[i] = 0
+		if (i/100)%2 == 1 {
+			perf.Damper.Samples[i] = 255
+		}
+	}
+	kb, lp, sp, _ := perf.Encode()
+	p, _, err := e.lib.AddSet("onoff", kb, lp, sp, library.OriginUpload, "On/off pedal")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"piece": p.ID}); code != 202 {
+		t.Fatalf("play: %d %s", code, b)
+	}
+	e.waitState("playing")
+	matches, _ := filepath.Glob(filepath.Join(e.store.Dir, "..", "play", "*", "c.lp"))
+	if len(matches) == 0 {
+		t.Fatal("no prepared copy was played")
+	}
+	b, _ := os.ReadFile(matches[len(matches)-1])
+	ped, err := se.ParsePedal(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := 1; i < len(ped.Samples); i++ {
+		if d := int(ped.Samples[i]) - int(ped.Samples[i-1]); d > piano.OnOffPedalStep || d < -piano.OnOffPedalStep {
+			t.Fatalf("a pedal step of %d reached the piano", d)
+		}
+	}
+	dir, base, _ := e.lib.Files(p.ID)
+	orig, _ := os.ReadFile(filepath.Join(dir, base+".lp"))
+	if !bytes.Equal(orig, lp) {
+		t.Error("the library's file changed")
 	}
 	e.do("POST", "/api/v1/deck/stop", nil)
 	e.waitState("idle")

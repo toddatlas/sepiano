@@ -88,14 +88,12 @@ func (s *Server) putFits(w http.ResponseWriter, r *http.Request) {
 }
 
 // playFix is what playback does to each piece before the piano gets it:
-// the recording corrections for a recording made here, then its
-// collection's fit. Nil when nothing applies.
+// the recording corrections for a recording made here, its collection's
+// fit, and always the pedal speed limits (piano.SafePedals), so no sudden
+// full pedal move ever reaches the mechanism.
 func (s *Server) playFix() library.Fix {
 	corr := s.correctFix()
 	fs := s.fits()
-	if corr == nil && !fs.Active() {
-		return nil
-	}
 	return func(p library.Piece, perf *se.Performance) (*se.Performance, bool, error) {
 		changed := false
 		if corr != nil {
@@ -106,6 +104,9 @@ func (s *Server) playFix() library.Fix {
 			perf, changed = out, ch
 		}
 		if f, ok := fs.For(p.Collection); ok && f.Apply(perf) > 0 {
+			changed = true
+		}
+		if piano.SafePedals(perf) > 0 {
 			changed = true
 		}
 		return perf, changed, nil

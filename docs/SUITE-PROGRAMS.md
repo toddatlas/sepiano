@@ -320,7 +320,10 @@ in `~/sepiano-data/backups/eeprom-20261123.lut` and in the owner's
 the repository.
 
 - **"Steinway B-SE", table V30.17**, 1873 bytes: the `putb` prototype's
-  layout, so a Steinway model B.
+  layout, the label of Stahnke's Steinway prototype table. **The piano is in
+  fact a 1909 Steinway D** (a 9-foot concert grand; the owner, 2026-11-26):
+  the table started from the B prototype and was then calibrated on this
+  piano, key by key.
 - Settings:
   - serial number **08**;
   - discard silent notes **false** (the prototype says true), so notes

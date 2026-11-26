@@ -354,9 +354,9 @@ To do:
   the Google Drive folder.
 - [x] **Restore from a backup** (built): adds what is missing, never
       changes or removes anything; every file checked first.
-- [x] **Automatic backups**: the PC way, set up 2026-11-26 (nightly at 3
-      a.m. into `G:\My Drive\Piano backups`). The Pi-to-Drive way stays
-      an option:
+- [x] **Automatic backups**: the PC way, set up 2026-11-26 (every 3 days
+      at 3 a.m. into `G:\My Drive\Piano backups`, keeping 3, as the owner
+      chose). The Pi-to-Drive way stays an option:
   - **From the PC:** a small scheduled task on the Windows PC fetches
     the backup each night into the chosen folder (for example in Google
     Drive). Simple, and nothing to sign in to. It runs only when the PC
@@ -364,7 +364,7 @@ To do:
   - **From the Pi, straight to Google Drive** (with `rclone`, after a
     one-time sign-in): nightly, even when the PC is off. Keeps the last
     few.
-- [ ] Only what changed: after the first full backup, a nightly run adds
+- [ ] Only what changed: after the first full backup, each run adds
       only new or changed files, so it stays quick (the pieces are small,
       about 48 MB in all on 2026-11-26).
 - [x] The Status page shows when the last backup was made, and warns if

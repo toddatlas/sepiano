@@ -11,6 +11,7 @@ import (
 	"sepiano/deck"
 	"sepiano/edit"
 	"sepiano/library"
+	"sepiano/piano"
 	"sepiano/se"
 )
 
@@ -259,6 +260,7 @@ func (s *Server) preview(w http.ResponseWriter, r *http.Request) {
 	if f, ok := s.fits().For(p.Collection); ok {
 		fitted = f.Apply(perf) > 0
 	}
+	piano.SafePedals(perf) // and never a sudden full pedal move
 	dir, err := s.playDir()
 	if err != nil {
 		fail(w, 500, err.Error())

@@ -40,23 +40,30 @@ Drive then copies it to the cloud.
 The card shows when the last full backup was made and how. It warns when
 there is none, or when the last is a week old or more.
 
-## Nightly backups from the PC
+## Automatic backups from the PC, every 3 days
 
-**Set up on the owner's PC on 2026-11-26:** every night at 3 a.m., into
-`G:\My Drive\Piano backups` (Google Drive), keeping 14. The first runs
-saved 24.6 MB each.
+**Set up on the owner's PC on 2026-11-26:** every 3 days at 3 a.m., into
+`G:\My Drive\Piano backups` (Google Drive), keeping the newest 3. The
+owner chose this (2026-11-26): the library changes slowly, so a backup
+every 3 days and three copies are enough. It was nightly, keeping 14, for
+the first day. The first runs saved 24.6 MB each; after the content
+libraries were imported a backup is about 150 MB.
 
 `deploy/windows/piano-backup.ps1` downloads a backup into a folder:
 - it checks the download is complete (it has its manifest);
-- it keeps the newest 14;
+- it keeps the newest 3 (`-Keep`), removing older ones only after a new
+  one is saved;
 - it notes each run in `backup-log.txt` in that folder.
 
 `deploy/windows/Install-PianoBackupTask.ps1` makes Windows run it every
-night. In PowerShell, from the repository's `deploy\windows` folder:
+3 days. In PowerShell, from the repository's `deploy\windows` folder:
 
 ```powershell
 .\Install-PianoBackupTask.ps1 -Folder "G:\My Drive\Piano backups" -At 3am
 ```
+
+`-EveryDays` (3) and `-Keep` (3) change the interval and how many are
+kept.
 
 - The task is called **"Piano backup"**, and it runs as the signed-in
   user.
@@ -69,10 +76,10 @@ night. In PowerShell, from the repository's `deploy\windows` folder:
 - If the PC is off or asleep at 3 a.m., it runs as soon as it can.
 - To try it now: `Start-ScheduledTask -TaskName "Piano backup"`, then
   look in the folder and its `backup-log.txt`.
-- To stop the nightly backup: `Unregister-ScheduledTask -TaskName "Piano
+- To stop the automatic backup: `Unregister-ScheduledTask -TaskName "Piano
   backup"`.
 - The Pi records each backup the PC takes, so Status → Backups shows "by
-  the PC's nightly backup".
+  the PC's automatic backup".
 
 The script uses `http://raspberrypi.local`. If the PC cannot find the Pi
 by that name, add `-Pi http://192.168.6.164` (the Pi's address on the home
