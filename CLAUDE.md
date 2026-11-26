@@ -749,3 +749,7 @@ needs no further decision:
 - Tried in the simulator: a take armed with details, its title changed
   while waiting, saved with all of them; the form kept pianist and album.
 - Flaky under load too: `link.TestFlowControl` (passed 2 of 3 alone).
+- Installed on the Pi (6c25b28); "Pianist for recordings" set there to the
+  owner's name. The 10 earlier recordings (test takes, the two sensor-test
+  takes and one edited copy) were given the owner as pianist and "Recorded
+  on this piano" too.
