@@ -715,3 +715,7 @@ needs no further decision:
 - Lesson: in perl `s|…|…|` an escaped `\|` in the pattern becomes
   "or". It matched the empty string and wrote text at the top of files
   three times this session. Use the Edit tool for code edits.
+- Installed on the Pi (290bbed): 393 pieces starred (305 Zenph Steinway
+  files, 88 1st-prize performances). The holiday collection was imported
+  (115 new, 26 already there and starred; 4 starred play lists): 7,031
+  pieces. A backup is now 251.5 MB and took 47 s into Google Drive.

@@ -48,8 +48,13 @@ there is none, or when the last is a week old or more.
 `G:\My Drive\Piano backups` (Google Drive), keeping the newest 3. The
 owner chose this (2026-11-26): the library changes slowly, so a backup
 every 3 days and three copies are enough. It was nightly, keeping 14, for
-the first day. The first runs saved 24.6 MB each; after the content
-libraries were imported a backup is about 150 MB.
+the first day. The first runs saved 24.6 MB each.
+- With the content libraries (7,031 pieces) a backup is 251.5 MB, and
+  takes 47 seconds (2026-11-26, 14:09).
+- The first 130 MB backup took 11 minutes, written straight into Google
+  Drive with Windows PowerShell's slow progress display on. The script now
+  downloads to the PC's temporary folder first, with the progress display
+  off.
 
 `deploy/windows/piano-backup.ps1` downloads a backup into a folder:
 - it checks the download is complete (it has its manifest);
