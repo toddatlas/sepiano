@@ -812,3 +812,9 @@ needs no further decision:
   row with "N tracks played" and a + that lists every track, ticked if
   played, each with a play-from-here button; `DELETE
   /history/{id}?group=1` removes a group.
+- **Editor, easier to grab** (docs/RECORDING-EDITOR.md, "Easier to grab"):
+  notes catch the pointer in a band at least 14 px tall (`HIT_ROW`, the
+  nearest row wins) and 6 px past their ends; length handles up to 10 px;
+  grips drawn on the note under the pointer (`hoverHit`); stalks caught
+  within 10 px; taller lanes (88/60/60/24); a wider panel with larger text.
+  Tried in the simulator: a 15 px band on 10 px rows, and an end drag.

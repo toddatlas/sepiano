@@ -1607,3 +1607,18 @@ body.editor-focus .ed-bar .ed-size { min-height: 30px; font-size: 13px; }
 .hist-track .row-title { font-size: 15px; }
 .hist-track:not(.played) .row-title { color: var(--muted); }
 .hist-mark { color: var(--accent-ink); font-weight: 700; text-align: center; }
+
+/* The editor's side panel and status line, larger to read and to press
+   (the owner, 2026-11-27); the panel a little wider to hold it. */
+.ed-insp { font-size: 15.5px; line-height: 1.45; }
+.ed-sel { font-size: 15.5px; }
+.ed-insp .ed-label { font-size: 13px; }
+.ed-insp .ed-tools .btn { min-height: 40px; padding: 7px 14px; font-size: 15px; }
+.ed-insp .ed-tools .btn .icon { width: 18px; height: 18px; }
+.ed-insp .ed-num label { font-size: 15px; }
+.ed-insp .ed-num .input.ed-num-input { min-height: 40px; font-size: 15.5px; width: 92px; }
+.ed-help { font-size: 14.5px; }
+.ed-status { font-size: 14.5px; }
+@media (min-width: 1280px) {
+  .ed-main { grid-template-columns: minmax(0, 1fr) calc(330px * var(--ed-scale, 1)); }
+}

@@ -27,16 +27,26 @@ const SOFTER = 1.05;
 
 // Canvas layout, in CSS pixels.
 const GUTTER = 64;
-const RULER = 24;
+const RULER = 26;
 const GAP = 8;
+// Grab areas, bigger than what is drawn (the owner, 2026-11-27): a note's
+// row counts at least HIT_ROW tall, a note reaches HIT_SLACK past its ends,
+// its length handles are up to HANDLE wide, and a loudness stalk is caught
+// within STALK_HIT.
+const HIT_ROW = 14;
+const HIT_SLACK = 6;
+const HANDLE = 10;
+const STALK_HIT = 10;
 // The lanes below the roll, in drawing units at the Comfortable size. At a
 // bigger size they keep about their size on screen (laneSizes), so the extra
 // room goes to the notes; the text in them still grows.
-let VEL_H = 76;
-let DAMP_H = 46; // the damper pedal lane
-let SOFT_H = 46; // the soft pedal lane
+const LANE_VEL = 88;
+const LANE_PEDAL = 60;
+let VEL_H = LANE_VEL;
+let DAMP_H = LANE_PEDAL; // the damper pedal lane
+let SOFT_H = LANE_PEDAL; // the soft pedal lane
 let OVERVIEW = 30;
-let SOST_H = 20; // the sostenuto pedal lane
+let SOST_H = 24; // the sostenuto pedal lane
 let FIXED_H = 0;
 // laneZoom makes each lane taller for fine work (its 'Taller' and 'Shorter'
 // buttons), 1 to 4 times; remembered in this browser.
@@ -48,10 +58,10 @@ const laneZoom = (() => {
   return z;
 })();
 function laneSizes(scale) {
-  VEL_H = Math.round((76 * laneZoom.vel) / scale);
-  DAMP_H = Math.round((46 * laneZoom.damper) / scale);
-  SOFT_H = Math.round((46 * laneZoom.soft) / scale);
-  SOST_H = Math.max(14, Math.round(20 / scale));
+  VEL_H = Math.round((LANE_VEL * laneZoom.vel) / scale);
+  DAMP_H = Math.round((LANE_PEDAL * laneZoom.damper) / scale);
+  SOFT_H = Math.round((LANE_PEDAL * laneZoom.soft) / scale);
+  SOST_H = Math.max(16, Math.round(24 / scale));
   OVERVIEW = Math.max(20, Math.round(30 / scale));
   FIXED_H = RULER + GAP + VEL_H + GAP + DAMP_H + GAP + SOFT_H + GAP + SOST_H + GAP + OVERVIEW;
 }
@@ -155,6 +165,7 @@ export function editorScreen(root, [id], ui) {
   let colors = {};
   let drag = null;
   let hoverKey = null;
+  let hoverHit = null; // the note under the pointer and the part (body, start, end): its grips are drawn
   let raf = 0;
   const touches = new Map();
 
@@ -1070,22 +1081,37 @@ export function editorScreen(root, [id], ui) {
   }
 
   // The note under a point of the roll, and which part of it.
+  // The note under a point, and which part: its body (to move it), or a
+  // handle at its start or end (to change its length). The grab areas are
+  // bigger than the drawing: rows count at least HIT_ROW pixels tall (the
+  // nearest row wins), a note reaches HIT_SLACK pixels past its ends, and the
+  // handles are up to HANDLE pixels wide, the end one reaching past the note.
   function hitNote(x, y, alt) {
     const key = keyOf(y);
     const t = tOf(x);
-    const slack = 3 / view.ppt;
+    const slack = HIT_SLACK / view.ppt;
+    // A band HIT_ROW tall (or the row, if taller) centred on each note's row.
+    const half = Math.max(view.rowH, HIT_ROW) / 2;
+    const reach = Math.ceil(half / view.rowH);
     let best = null;
+    let bestD = Infinity;
     for (const n of doc.notes) {
-      if (n.key !== key || n.on - slack > t || n.off + slack < t) continue;
-      if (!best || sel.has(n) || n.on > best.on) best = n;
-      if (sel.has(n)) break;
+      if (Math.abs(n.key - key) > reach || n.on - slack > t || n.off + slack < t) continue;
+      const d = Math.abs(y - (rowTop(n.key) + view.rowH / 2));
+      if (d > half) continue;
+      // The nearest row first; then a selected note; then the later one.
+      if (!best || d < bestD - 0.5 || (Math.abs(d - bestD) <= 0.5 && (sel.has(n) && !sel.has(best) || !sel.has(best) && n.on > best.on))) {
+        best = n;
+        bestD = d;
+      }
     }
     if (!best) return null;
     const xa = xOf(best.on);
     const xb = xOf(best.off);
+    const w = xb - xa;
     let part = 'body';
-    if (xb - xa > 10 && x >= xb - 5) part = 'end';
-    else if (xb - xa > 14 && x <= xa + 4) part = 'start';
+    if (w >= 12 && x >= xb - Math.min(HANDLE, w / 3) || w < 12 && x > xb) part = 'end';
+    else if (w >= 18 && x <= xa + Math.min(HANDLE - 2, w / 4)) part = 'start';
     else if (alt) part = 'end';
     return { note: best, part };
   }
@@ -1093,7 +1119,7 @@ export function editorScreen(root, [id], ui) {
   // The note whose loudness stalk is nearest a point of the velocity lane.
   function hitStalk(x) {
     let best = null;
-    let bestD = 6;
+    let bestD = STALK_HIT;
     for (const n of doc.notes) {
       const d = Math.abs(xOf(n.on) - x);
       if (d < bestD || (d <= bestD && best && sel.has(n) && !sel.has(best))) { best = n; bestD = d; }
@@ -1384,10 +1410,13 @@ export function editorScreen(root, [id], ui) {
     let cur = 'default';
     let text = null;
     let key = null;
+    let hit = null;
     if (where === 'roll') {
-      const hit = hitNote(p.x, p.y, e.altKey);
-      if (hit) { cur = hit.part === 'body' ? 'move' : 'ew-resize'; text = noteText(hit.note); }
-      else cur = 'crosshair';
+      hit = hitNote(p.x, p.y, e.altKey);
+      if (hit) {
+        cur = hit.part === 'body' ? 'move' : 'ew-resize';
+        text = noteText(hit.note) + (hit.part === 'end' ? ' · drag to change where it ends' : hit.part === 'start' ? ' · drag to change where it starts' : '');
+      } else cur = 'crosshair';
       key = keyOf(p.y);
     } else if (where === 'keys') {
       cur = 'pointer';
@@ -1404,6 +1433,7 @@ export function editorScreen(root, [id], ui) {
     }
     canvas.style.cursor = cur;
     if (key !== hoverKey) { hoverKey = key; schedule(); }
+    if ((hit && hit.note) !== (hoverHit && hoverHit.note) || (hit && hit.part) !== (hoverHit && hoverHit.part)) { hoverHit = hit; schedule(); }
     renderStatus(text);
   }
 
@@ -1502,7 +1532,7 @@ export function editorScreen(root, [id], ui) {
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
     canvas.addEventListener('pointercancel', onUp);
-    canvas.addEventListener('pointerleave', () => { if (!drag && hoverKey !== null) { hoverKey = null; schedule(); } });
+    canvas.addEventListener('pointerleave', () => { if (!drag && (hoverKey !== null || hoverHit)) { hoverKey = null; hoverHit = null; schedule(); } });
     canvas.addEventListener('wheel', onWheel, { passive: false });
     canvas.addEventListener('dblclick', onDouble);
     canvas.addEventListener('contextmenu', noMenu);
@@ -1638,9 +1668,26 @@ export function editorScreen(root, [id], ui) {
         }
       }
     }
+    // The note under the pointer: grips at its ends, the one a drag would
+    // take darker, at least 12 pixels tall even on short rows.
+    if (hoverHit && !drag && doc.notes.includes(hoverHit.note)) {
+      const n = hoverHit.note;
+      const xa = xOf(n.on);
+      const xb = xOf(n.off);
+      const gh = Math.max(rh, 12);
+      const gy = rowTop(n.key) + 1 + rh / 2 - gh / 2;
+      const grip = (x, active) => {
+        c.globalAlpha = active ? 1 : 0.5;
+        c.fillStyle = active ? colors.ink : colors.ink2;
+        c.fillRect(Math.round(x) - 1.5, gy, 3, gh);
+        c.globalAlpha = 1;
+      };
+      grip(xb, hoverHit.part === 'end');
+      if (xb - xa >= 18) grip(xa, hoverHit.part === 'start');
+    }
     // Note names, when there is room for them.
     if (view.rowH >= 11) {
-      c.font = `${Math.min(11, view.rowH - 2)}px system-ui, sans-serif`;
+      c.font = `${Math.min(12, view.rowH - 2)}px system-ui, sans-serif`;
       c.textBaseline = 'middle';
       for (const n of doc.notes) {
         if (n.on > tb) break;
@@ -1677,8 +1724,8 @@ export function editorScreen(root, [id], ui) {
         const x = Math.round(xOf(n.on));
         const hh = Math.max(2, loud(n.vel) * (VEL_H - 8));
         c.fillStyle = pass ? colors.ink : n.vel === 0 ? colors.danger : n.vel >= SILENT ? colors.muted : colors.accent;
-        c.fillRect(x, base - hh, 1, hh);
-        c.fillRect(x - 1, base - hh - 1, 3, 3);
+        c.fillRect(pass ? x - 0.5 : x, base - hh, pass ? 2 : 1, hh);
+        c.fillRect(x - 2, base - hh - 2, 5, 5); // the head, to grab
       }
     }
     c.restore();
@@ -1694,7 +1741,7 @@ export function editorScreen(root, [id], ui) {
     c.fillRect(GUTTER, RULER - 1, tw, 1);
     const dec = step >= 1 ? 0 : step >= 0.1 ? 1 : 2;
     const st = step * TICK_HZ;
-    c.font = '11px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textBaseline = 'middle';
     c.fillStyle = colors.muted;
     for (let t = Math.floor(Math.max(0, tOf(GUTTER)) / st) * st; t <= tb; t += st) {
@@ -1746,7 +1793,7 @@ export function editorScreen(root, [id], ui) {
       }
     }
     c.restore();
-    c.font = '11px system-ui, sans-serif';
+    c.font = '12px system-ui, sans-serif';
     c.textBaseline = 'top';
     c.fillStyle = colors.muted;
     c.fillText('Loudness', 6, L.velTop + 4);

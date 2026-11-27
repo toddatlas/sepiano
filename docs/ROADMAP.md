@@ -153,7 +153,8 @@ Everything is drawn small, even on a laptop. To do (no piano needed):
       together) and Notes (taller and shorter rows) in the toolbar; each
       lane (loudness, damper, soft) has its own Taller and Shorter buttons
       at its top right, up to 4 times, for fine pedal and loudness work.
-- [ ] Bigger note handles and lane drag areas; larger fonts in the panel.
+- [x] Bigger note handles and lane drag areas; larger fonts in the panel
+      (2026-11-27: docs/RECORDING-EDITOR.md, "Easier to grab").
 - [ ] Then the owner tries it and says what is still awkward.
 
 ## Idea 4: broad libraries of good content
@@ -389,7 +390,7 @@ To do:
 
 ## More ideas
 
-- [ ] **Back up the library automatically**: now idea 8. The Pi's SD card
+- [x] **Back up the library automatically**: done as idea 8 (every 3 days from the PC). The Pi's SD card
       holds the only copies of the recordings made here, and SD cards fail.
 - [ ] **A settings backup at the start of each session**, kept for a
       while, so any change in the table is caught early.

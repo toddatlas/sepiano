@@ -144,6 +144,30 @@ browser.
 On a phone the editor works for looking, small changes and playing from a
 point.
 
+### Easier to grab (2026-11-27)
+
+The owner asked for bigger handles. The areas that catch the pointer are
+now bigger than what is drawn:
+- **A note** catches the pointer in a band at least 14 pixels tall, centred
+  on its row; on short rows, the nearest note wins. It also reaches 6
+  pixels past its ends.
+  - A full keyboard's rows are about 7 pixels, so the band roughly doubles.
+  - Measured on a demo piece: 15 pixels, against its 10-pixel rows.
+- **Length handles**: the end handle is up to 10 pixels wide, and on a
+  short note it reaches past the note's end. The start handle is up to 8
+  pixels.
+- **Grips**: the note under the pointer shows a grip at each end, the one a
+  drag would move drawn darker. The status line says "drag to change where
+  it ends (or starts)".
+- **Loudness stalks** catch the pointer within 10 pixels and have bigger
+  heads.
+- **The lanes are taller** by default: loudness 88, each pedal 60,
+  sostenuto 24 (were 76, 46, 20). Each still has its own Taller and
+  Shorter buttons.
+- **The side panel** is wider (330 pixels) with larger text (15.5) and
+  buttons (40 pixels tall). The status line, the time ruler and note names
+  are a little larger too.
+
 ## Per-key corrections (built 2026-11-23, the owner's choice)
 
 Corrections put right what this piano's sensors get wrong when it records.
