@@ -301,8 +301,10 @@ other session's catalogue (`holiday/holiday_catalog.csv`):
 - Every piece is starred, and the starred play lists "Holiday: Christmas",
   "Holiday: Nutcracker", "Holiday: Winter" and "Holiday: everything" hold
   them, best sources first.
-- **The 11 organ rolls (176-note) are left out** until the owner decides.
-  Written for a pipe organ, they hold many keys down for a long time.
+- **The 11 organ rolls (176-note) are left out**: the owner's decision
+  (2026-11-27), once their workload was measured. Written for a pipe
+  organ, they hold many keys down for a long time. `sepianod holiday`
+  never imports them.
 - Running it again adds nothing twice and refreshes the play lists.
 
 ## Importing

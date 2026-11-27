@@ -433,7 +433,6 @@ Waiting for the owner's choice (downloaded by the other session, kept in
       about 230 MB).
 - [ ] **Terry Smythe's other rolls**: 6,230 roll files, Ampico, Duo-Art
       and Welte among them.
-- [ ] **The 11 holiday organ rolls**: measured (docs/LIBRARIES.md, "How
-      hard a piece works the piano"). 4 are light or moderate and could be
-      imported; 4 are heavy; 3 are very heavy (O Holy Night, O Little Town
-      of Bethlehem, The First Noel) and are best left out.
+- [x] **The 11 holiday organ rolls**: measured (docs/LIBRARIES.md, "How
+      hard a piece works the piano"): 4 light or moderate, 4 heavy, 3 very
+      heavy. **The owner decided to leave all 11 out** (2026-11-27).

@@ -766,3 +766,5 @@ needs no further decision:
   piano"). Rolls and transcriptions hold about twice as much as the Zenph
   files. Of the 11 holiday organ rolls, 3 are very heavy (O Holy Night, O
   Little Town of Bethlehem, The First Noel).
+- The owner decided to leave all 11 holiday organ rolls out (2026-11-27);
+  `sepianod holiday` already skips them.
