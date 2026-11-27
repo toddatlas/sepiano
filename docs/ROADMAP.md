@@ -309,6 +309,21 @@ To do:
       photos, with a few meter checks by the technician where traces hide.
 - [ ] Share with the designer, with the questions under idea 1.
 
+**Started 2026-11-27 (key-sensor rail).** The owner supplied an engineering
+brief and board photos. The investigation, its figures and its checklists
+are kept outside this repository, in the owner's private
+`C:\Users\todd\sepiano\hardware\se-key-sensors\`, because the photos and
+correspondence are private. What can be said here:
+- the rail is four "24 Note Key-Detect." style boards (SSD-01-005, Issue 2;
+  one probably a 16-note board), chained by 5-way flat cables;
+- per key: an Optek OPB606A reflective sensor, a 74HC132 Schmitt gate and a
+  74HC165 shift-register input, with fixed resistors; the emitters are fed
+  by LM317L current sources;
+- nothing seen on the rail can store or receive a setting, and the firmware
+  only reads the scanner, so the key thresholds are set by the analog parts
+  (supported, not yet proven; two small chips are still unidentified);
+- next: the photo and continuity checklist with the owner and Anatoly.
+
 ## After the technician (idea 1 continued, and the owner's note on calibration)
 
 - [ ] Back up the table, then **recalibrate** (cal, silent) over the whole

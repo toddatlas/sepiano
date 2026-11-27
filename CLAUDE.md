@@ -819,3 +819,13 @@ needs no further decision:
   within 10 px; taller lanes (88/60/60/24); a wider panel with larger text.
   Tried in the simulator: a 15 px band on 10 px rows, and an end drag.
 - Installed on the Pi (667155b), 2026-11-27 12:35.
+
+## Status (2026-11-27, later: the key-sensor rail investigation)
+
+- The owner gave an engineering brief (key-sensor rail: document,
+  reconstruct, plan resistor work; no software or hardware changes). The
+  work lives **outside this repository** in
+  `C:\Users\todd\sepiano\hardware\se-key-sensors\` (private photos and
+  correspondence; README there). Summary in docs/ROADMAP.md, idea 6.
+- The owner's iPhone photos (HEIC) and one video (HEVC) cannot be decoded on
+  this PC without installing a converter; the brief requires approval first.
