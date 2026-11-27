@@ -1696,3 +1696,22 @@ func TestPlayHistoryGroups(t *testing.T) {
 		t.Fatalf("after deleting the group: %+v", r.Entries)
 	}
 }
+
+// History entries from before groups are grouped when the file is read.
+func TestHistoryOldEntriesGrouped(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	at := time.Date(2026, 11, 27, 11, 0, 0, 0, time.UTC)
+	old := []historyEntry{
+		{ID: "a", At: at, Piece: "p1", FromKind: "album", FromID: "G"},
+		{ID: "b", At: at.Add(2 * time.Minute), Piece: "p2", FromKind: "album", FromID: "G"},
+		{ID: "c", At: at.Add(4 * time.Minute), Piece: "p3"},
+		{ID: "d", At: at.Add(6 * time.Minute), Piece: "p1", FromKind: "album", FromID: "G"},
+	}
+	b, _ := json.Marshal(old)
+	os.WriteFile(path, b, 0o644)
+	h := &history{path: path}
+	got := h.list() // newest first
+	if got[3].Group != "a" || got[2].Group != "a" || got[1].Group != "" || got[0].Group != "d" {
+		t.Fatalf("groups: %+v", got)
+	}
+}

@@ -69,6 +69,24 @@ func (h *history) load() {
 	if json.Unmarshal(b, &es) == nil {
 		h.entries = es
 	}
+	// Entries from before groups (2026-11-27): group them as add does.
+	changed := false
+	for i := range h.entries {
+		e := &h.entries[i]
+		if e.FromKind == "" || e.Group != "" {
+			continue
+		}
+		e.Group = e.ID
+		if i > 0 {
+			if prev := h.entries[i-1]; prev.FromKind == e.FromKind && prev.FromID == e.FromID && prev.Group != "" && e.At.Sub(prev.At) < historyGroupGap {
+				e.Group = prev.Group
+			}
+		}
+		changed = true
+	}
+	if changed {
+		h.save()
+	}
 }
 
 func (h *history) save() error {
