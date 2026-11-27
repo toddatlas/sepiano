@@ -447,3 +447,7 @@ Waiting for the owner's choice (downloaded by the other session, kept in
       is no next track; each item has a play button.
 - [x] **Play history**: the History button on Now Playing; play again,
       remove one, or clear all.
+- [x] **A gentle pedal ending** (2026-11-27): no more hard pedal releases at
+      the end of MIDI pieces (docs/LIBRARIES.md, "A gentle ending").
+- [x] **History by album or play list**: one row, with + to see the
+      tracks, ticked if played.

@@ -795,3 +795,20 @@ needs no further decision:
   (button at the top of Now Playing) has play, remove and Clear.
 - Tried in the simulator: Next into Up next, an item played now, History
   listing, removing.
+
+## Status (2026-11-27, later: gentle endings; history by album)
+
+- The owner heard the sustain pedal come up hard at the end of a MAESTRO
+  piece. Many MIDI recordings drop a pedal in one step as the recording
+  stops, or end with a pedal still down, which the piano lets go at once.
+  `piano.GentleEnding` (in `SafePedals`) limits the release from just
+  before the last note to a full stroke in 1.5 s and never leaves a pedal
+  down, making the piece longer as needed (docs/LIBRARIES.md, "A gentle
+  ending"). It changes only endings with a jump no foot makes (more than
+  60 per sample) or a pedal left down; the Zenph endings stay as made.
+  `api.correct` now takes the length from the adjusted piece.
+- **History by album:** consecutive plays of one album or play list share
+  a group (`historyEntry.Group`, within 3 h); the History page shows one
+  row with "N tracks played" and a + that lists every track, ticked if
+  played, each with a play-from-here button; `DELETE
+  /history/{id}?group=1` removes a group.

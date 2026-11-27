@@ -26,6 +26,10 @@ const MaxHistory = 2000
 // restart) is not a new entry.
 const historyRepeat = 10 * time.Minute
 
+// historyGroupGap: tracks of the same album or play list played within
+// this time of each other, with nothing else between, are one group.
+const historyGroupGap = 3 * time.Hour
+
 type historyEntry struct {
 	ID        string    `json:"id"`
 	At        time.Time `json:"at"`
@@ -37,6 +41,9 @@ type historyEntry struct {
 	FromKind  string `json:"from_kind,omitempty"` // album or playlist
 	FromID    string `json:"from_id,omitempty"`
 	FromTitle string `json:"from_title,omitempty"`
+	// Group: plays of one album or play list in a row share it (the id of
+	// the first), so the history can show them as one row.
+	Group string `json:"group,omitempty"`
 }
 
 type history struct {
@@ -97,6 +104,17 @@ func (h *history) add(e historyEntry) (bool, error) {
 	b := make([]byte, 6)
 	rand.Read(b)
 	e.ID = "h" + hex.EncodeToString(b)
+	if e.FromKind != "" {
+		e.Group = e.ID
+		if n := len(h.entries); n > 0 {
+			if last := h.entries[n-1]; last.FromKind == e.FromKind && last.FromID == e.FromID && e.At.Sub(last.At) < historyGroupGap {
+				e.Group = last.Group
+				if e.Group == "" {
+					e.Group = last.ID
+				}
+			}
+		}
+	}
 	h.entries = append(h.entries, e)
 	if len(h.entries) > MaxHistory {
 		h.entries = append([]historyEntry(nil), h.entries[len(h.entries)-MaxHistory:]...)
@@ -129,6 +147,25 @@ func (h *history) remove(id string) error {
 		}
 	}
 	return errNoEntry
+}
+
+// removeGroup takes out every entry of a group (an album or play list
+// played through).
+func (h *history) removeGroup(group string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.load()
+	kept := h.entries[:0:0]
+	for _, e := range h.entries {
+		if e.Group != group && e.ID != group {
+			kept = append(kept, e)
+		}
+	}
+	if len(kept) == len(h.entries) {
+		return errNoEntry
+	}
+	h.entries = kept
+	return h.save()
 }
 
 func (h *history) clear() error {
@@ -207,8 +244,14 @@ func (s *Server) getHistory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 200, map[string]any{"entries": s.hist().list()})
 }
 
+// deleteHistoryEntry takes out one entry, or with ?group=1 its whole group
+// (an album or play list played through).
 func (s *Server) deleteHistoryEntry(w http.ResponseWriter, r *http.Request) {
-	if err := s.hist().remove(r.PathValue("id")); err != nil {
+	remove := s.hist().remove
+	if r.URL.Query().Get("group") == "1" {
+		remove = s.hist().removeGroup
+	}
+	if err := remove(r.PathValue("id")); err != nil {
 		code := 500
 		if errors.Is(err, errNoEntry) {
 			code = 404

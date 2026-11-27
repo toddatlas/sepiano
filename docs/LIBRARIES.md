@@ -120,6 +120,34 @@ send pedals as the file or the input has them; the slowing does not
 apply there. For a file with an on/off pedal, play the converted piece
 from the Library instead.
 
+### A gentle ending (2026-11-27)
+
+The owner heard the sustain pedal come up "super noisy and abrupt" at
+the end of a MAESTRO piece. Two things happen at the end of many MIDI
+recordings:
+- **A pedal dropped with the last notes.** In that piece the damper sat
+  at 194, then fell to 0 in one sample as the recording stopped (the
+  Disklavier's reset, not a foot). Even slowed to 60 per sample it came
+  up in 40 ms, with the strings still ringing.
+- **A pedal still down when the file ends.** Its soft pedal was still at
+  255, and the piano lets a pedal go all at once when a piece ends. 386 of
+  MAESTRO's pieces end with the damper down; 5 of the owner's 350 files
+  do.
+
+So every piece now gets a gentle ending (`piano.GentleEnding`, part of
+`SafePedals`):
+- from a quarter of a second before the last note's release, a pedal
+  comes up no faster than a full stroke in 1.5 s;
+- no pedal is left down: the piece is made longer by what the release
+  needs (at most about 1.5 s; that MAESTRO piece by 2.5 s for both
+  pedals).
+
+It acts only on an ending with a jump no foot makes (more than 60 in one
+sample, faster than any Zenph pedal move) or with a pedal left down. The
+Zenph files' own endings stay exactly as made. About 990 MAESTRO pieces
+get a gentler ending, and so do 5 files in the owner's folder (one Zenph
+file, which ends with its pedal down).
+
 ## Fitting to this piano
 
 Files from other pianos come out a little "all over the place" here:

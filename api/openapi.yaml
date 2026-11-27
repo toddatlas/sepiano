@@ -190,6 +190,7 @@ paths:
                         from_kind: { type: string, enum: [album, playlist] }
                         from_id: { type: string }
                         from_title: { type: string }
+                        group: { type: string, description: "Plays of one album or play list in a row share it (the first entry's id); the History page shows them as one row" }
     delete:
       summary: Clear the play history (the pieces stay in the library)
       responses:
@@ -197,6 +198,7 @@ paths:
   /history/{id}:
     parameters:
       - { name: id, in: path, required: true, schema: { type: string } }
+      - { name: group, in: query, schema: { type: string, enum: ["1"] }, description: "Remove the whole group (an album or play list played through) the id names" }
     delete:
       summary: Take one entry out of the play history
       responses:

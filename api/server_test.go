@@ -367,8 +367,11 @@ func TestAlbumAndPlaylistPlayback(t *testing.T) {
 		t.Fatalf("play album: %d %s", code, b)
 	}
 	st := e.waitState("playing")
+	// A track whose pedal is left down at its end gets a gentle release,
+	// up to EndingRelease longer (piano.GentleEnding); the phrases are.
+	near := func(got, want int64) bool { return got >= want && got <= want+2*int64(piano.EndingRelease*1000+250) }
 	if st.Collection == nil || st.Collection.Kind != "album" || st.Collection.Count != 3 || len(st.Tracks) != 3 ||
-		st.Tracks[1].StartMs != 20000 || st.DurationMs != 20000+21000+22000 || st.Piece.Title != "Goldberg Variations: Aria" {
+		!near(st.Tracks[1].StartMs, 20000) || !near(st.DurationMs-st.Tracks[1].StartMs, 21000+22000) || st.Piece.Title != "Goldberg Variations: Aria" {
 		t.Fatalf("album status: %+v", st)
 	}
 	if code, b := e.do("POST", "/api/v1/deck/next", nil); code != 202 {
@@ -1407,8 +1410,9 @@ func TestSeek(t *testing.T) {
 		return s.State == "playing" && len(s.Tracks) == 1 && s.Tracks[0].FromMs == 11000 && s.Piece.ID == ids[0]
 	})
 	st := e.status()
-	// 1 s of lead-in, then the last 8 s of the piece.
-	if d := st.Tracks[0].DurationMs; d < 8500 || d > 9500 {
+	// 1 s of lead-in, then the last 8 s of the piece (and the pedal, left
+	// half down by the phrase, let up gently: piano.GentleEnding).
+	if d := st.Tracks[0].DurationMs; d < 8500 || d > 9500+int64(piano.EndingRelease*1000)+200 { // plus a gentle pedal release at the end
 		t.Fatalf("seeked track lasts %d ms", d)
 	}
 
@@ -1640,5 +1644,55 @@ func TestPlayHistory(t *testing.T) {
 	}
 	if code, _ := e.do("DELETE", "/api/v1/history", nil); code != 200 || len(get()) != 0 {
 		t.Fatalf("clear: %d", code)
+	}
+}
+
+// An album played through is one group in the history; a single piece
+// after it is its own; a group can be deleted whole.
+func TestPlayHistoryGroups(t *testing.T) {
+	e := newEnv(t)
+	for i, name := range []string{"Gould19550616-Bach_GV01Aria-Steinway_SED519960-SE",
+		"Gould19550616-Bach_GV02Var1-Steinway_SED519960-SE", "Gould19550616-Bach_GV03Var2-Steinway_SED519960-SE"} {
+		kb, lp, sp, _ := sim.Phrase(uint32((20 + i) * se.TicksPerSecond)).Encode()
+		if r := e.upload(map[string][]byte{name + ".kb": kb, name + ".lp": lp, name + ".sp": sp}); len(r.Added) != 1 {
+			t.Fatalf("upload %s: %+v", name, r)
+		}
+	}
+	kb, lp, sp, _ := sim.Phrase(uint32(25 * se.TicksPerSecond)).Encode()
+	single, _, _ := e.lib.AddSet("single", kb, lp, sp, library.OriginUpload, "Single")
+	album := "Bach: The Goldberg Variations (Glenn Gould, 1955)"
+	e.do("POST", "/api/v1/deck/play", map[string]any{"album": album})
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Collection != nil })
+	for i := 1; i <= 2; i++ {
+		e.do("POST", "/api/v1/deck/next", nil)
+		waitFor(t, e, func(s deck.Status) bool {
+			return s.State == "playing" && s.Collection != nil && s.Collection.Start == i
+		})
+	}
+	e.do("POST", "/api/v1/deck/play", map[string]any{"piece": single.ID})
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == single.ID })
+	time.Sleep(200 * time.Millisecond)
+	var r struct {
+		Entries []historyEntry `json:"entries"`
+	}
+	_, b := e.do("GET", "/api/v1/history", nil)
+	json.Unmarshal(b, &r)
+	h := r.Entries
+	if len(h) != 4 || h[0].Piece != single.ID || h[0].Group != "" {
+		t.Fatalf("history: %+v", h)
+	}
+	g := h[1].Group
+	for _, en := range h[1:] {
+		if en.Group == "" || en.Group != g || en.FromKind != "album" || en.FromID != album {
+			t.Fatalf("album entries not one group: %+v", h)
+		}
+	}
+	if code, _ := e.do("DELETE", "/api/v1/history/"+g+"?group=1", nil); code != 200 {
+		t.Fatalf("delete group: %d", code)
+	}
+	_, b = e.do("GET", "/api/v1/history", nil)
+	json.Unmarshal(b, &r)
+	if len(r.Entries) != 1 || r.Entries[0].Piece != single.ID {
+		t.Fatalf("after deleting the group: %+v", r.Entries)
 	}
 }

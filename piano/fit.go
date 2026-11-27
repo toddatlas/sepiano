@@ -205,19 +205,27 @@ const (
 	OnOffPedalStep = 32
 )
 
-// SafePedals slows a performance's pedals to those limits and returns how
+// SafePedals slows a performance's pedals to those limits, gives them a
+// gentle ending (GentleEnding; it may make the piece longer), and returns how
 // many samples it changed. Every piece goes through it as it plays.
 func SafePedals(p *se.Performance) int {
-	n := 0
+	// The step depends on the pedal as recorded (an on/off pedal moves more
+	// gently), so it is chosen before the ending adds a slow release.
+	steps := map[*se.Pedal]int{}
 	for _, ped := range []*se.Pedal{p.Damper, p.Soft} {
 		if ped == nil {
 			continue
 		}
-		step := PedalStep
+		steps[ped] = PedalStep
 		if ped.OnOff() {
-			step = OnOffPedalStep
+			steps[ped] = OnOffPedalStep
 		}
-		n += ped.Limit(step)
+	}
+	n := GentleEnding(p)
+	for _, ped := range []*se.Pedal{p.Damper, p.Soft} {
+		if ped != nil {
+			n += ped.Limit(steps[ped])
+		}
 	}
 	return n
 }

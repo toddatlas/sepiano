@@ -1575,7 +1575,7 @@ function historyScreen(root) {
   const clearBtn = h('button', { class: 'btn btn-small', type: 'button', hidden: true, onclick: clearAll }, icon('trash'), 'Clear history');
   root.append(
     h('div', { class: 'screen-head' }, h('h1', { class: 'screen-title' }, 'Play history'), clearBtn),
-    h('p', { class: 'muted small' }, 'Every piece the piano started playing, newest first. Tap one to see it, or play it again.'),
+    h('p', { class: 'muted small' }, 'Every piece the piano started playing, newest first. An album or play list is one row: + shows its tracks, ticked if played.'),
     body);
   load();
 
@@ -1607,21 +1607,102 @@ function historyScreen(root) {
         h('p', { class: 'empty-text' }, 'Pieces appear here as the piano plays them.')));
       return;
     }
-    const groups = [];
+    // An album or play list played through is one row (its entries share a
+    // group); a piece played on its own is a row of its own.
+    const items = [];
     for (const en of entries) {
-      const d = new Date(en.at);
-      const label = dayLabel(d);
-      if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
-      groups[groups.length - 1].items.push(en);
+      const last = items[items.length - 1];
+      if (en.group && last && last.group === en.group) last.entries.push(en);
+      else items.push(en.group ? { group: en.group, entries: [en] } : { entry: en });
     }
-    fill(body, groups.map((g) => [
-      h('h2', { class: 'list-head' }, g.label),
-      h('ul', { class: 'list', role: 'list' }, g.items.map(row)),
+    const days = [];
+    for (const it of items) {
+      const first = it.entry || it.entries[it.entries.length - 1]; // when it started
+      const label = dayLabel(new Date(first.at));
+      if (!days.length || days[days.length - 1].label !== label) days.push({ label, items: [] });
+      days[days.length - 1].items.push(it);
+    }
+    fill(body, days.map((d) => [
+      h('h2', { class: 'list-head' }, d.label),
+      h('ul', { class: 'list', role: 'list' }, d.items.map((it) => (it.entry ? row(it.entry) : groupRows(it)))),
     ]));
   }
 
+  const clock = (en) => new Date(en.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const open = new Set(); // groups shown with their tracks
+  const tracks = new Map(); // "album:NAME" or "playlist:ID" → [{id, title, sub}], or null if gone
+
+  // An album or play list: one row, and with + every track of it, played
+  // ones ticked; a track's play button plays the collection from there.
+  function groupRows(g) {
+    const en = g.entries[0];
+    const started = g.entries[g.entries.length - 1];
+    const played = new Set(g.entries.map((x) => x.piece));
+    const isAlbum = en.from_kind === 'album';
+    const name = en.from_title || en.from_id || 'Untitled';
+    const shown = open.has(g.group);
+    const key = `${en.from_kind}:${en.from_id}`;
+    const head = h('li', { class: 'row hist-group' },
+      h('span', { class: 'row-num history-time' }, clock(started)),
+      h('button', { class: 'row-star hist-toggle', type: 'button', 'aria-expanded': String(shown),
+        'aria-label': shown ? `Hide the tracks of ${name}` : `Show the tracks of ${name}`, title: shown ? 'Hide the tracks' : 'Show the tracks',
+        onclick: () => { if (shown) open.delete(g.group); else open.add(g.group); render(); } }, shown ? '−' : '+'),
+      h('a', { class: 'row-main', href: isAlbum ? albumHref(en.from_id) : playlistHref(en.from_id) },
+        h('span', { class: 'row-title' }, name),
+        h('span', { class: 'row-sub' }, `${isAlbum ? 'Album' : 'Play list'} · ${played.size === 1 ? '1 track played' : `${played.size} tracks played`}`)),
+      h('button', { class: 'row-star', type: 'button', 'aria-label': `Take ${name} out of the history`, title: 'Take it out of the history',
+        onclick: () => removeGroup(g) }, icon('close')),
+      h('button', { class: 'row-play', type: 'button', 'aria-label': `Play all of ${name}`,
+        onclick: (e) => startPlay(isAlbum ? { album: en.from_id } : { playlist: en.from_id }, e.currentTarget) }, icon('play')));
+    if (!shown) return head;
+    const list = tracks.get(key);
+    if (list === undefined) {
+      loadTracks(en);
+      return [head, h('li', { class: 'row hist-track' }, h('span', { class: 'muted small' }, 'Loading the tracks…'))];
+    }
+    // Gone from the library: just what was played.
+    const rows = list || g.entries.slice().reverse().map((x) => ({ id: x.piece, title: x.title, sub: byline(x) }));
+    return [head, ...rows.map((t, i) => {
+      const was = played.has(t.id);
+      return h('li', { class: 'row hist-track' + (was ? ' played' : '') },
+        h('span', { class: 'row-num hist-mark', title: was ? 'Played' : 'Not played' }, was ? '✓' : '·'),
+        h('a', { class: 'row-main', href: pieceHref(t.id) },
+          h('span', { class: 'row-title' }, t.title || 'Untitled'),
+          h('span', { class: 'row-sub' }, [was ? 'Played' : 'Not played', t.sub].filter(Boolean).join(' · '))),
+        list && h('button', { class: 'row-play', type: 'button', 'aria-label': `Play ${name} from ${t.title || 'this track'}`,
+          onclick: (e) => startPlay(isAlbum ? { album: en.from_id, start: i } : { playlist: en.from_id, start: i }, e.currentTarget) }, icon('play')));
+    })];
+  }
+
+  async function loadTracks(en) {
+    const key = `${en.from_kind}:${en.from_id}`;
+    try {
+      if (en.from_kind === 'album') {
+        const a = await api('GET', albumPath(en.from_id));
+        tracks.set(key, (a.tracks || []).map((t) => ({ id: t.piece.id, title: t.piece.title, sub: '' })));
+      } else {
+        const p = await api('GET', playlistPath(en.from_id));
+        tracks.set(key, (p.pieces || []).map((x) => ({ id: x.id, title: x.title, sub: byline(x) })));
+      }
+    } catch {
+      tracks.set(key, null);
+    }
+    if (alive) render();
+  }
+
+  async function removeGroup(g) {
+    try {
+      const r = await api('DELETE', '/history/' + encodeURIComponent(g.group) + '?group=1');
+      if (!alive) return;
+      entries = (r && r.entries) || entries.filter((x) => x.group !== g.group);
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
   function row(en) {
-    const when = new Date(en.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const when = clock(en);
     const from = en.from_kind && `${en.from_kind === 'album' ? 'From the album' : 'From the play list'} ${en.from_title || ''}`;
     return h('li', { class: 'row' },
       h('span', { class: 'row-num history-time' }, when),

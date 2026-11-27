@@ -181,6 +181,8 @@ func (s *Server) correct(job *deck.Job, p library.Piece) error {
 		return err
 	}
 	job.Dir, job.Name = dir, "c"
+	// The fixes can make a piece longer (a gentle pedal release at the end).
+	job.Duration = se.TickDuration(out.KB.End)
 	s.markFixes(job, []library.Piece{p})
 	return nil
 }
