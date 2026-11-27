@@ -818,3 +818,4 @@ needs no further decision:
   grips drawn on the note under the pointer (`hoverHit`); stalks caught
   within 10 px; taller lanes (88/60/60/24); a wider panel with larger text.
   Tried in the simulator: a 15 px band on 10 px rows, and an end drag.
+- Installed on the Pi (667155b), 2026-11-27 12:35.
