@@ -827,5 +827,10 @@ needs no further decision:
   work lives **outside this repository** in
   `C:\Users\todd\sepiano\hardware\se-key-sensors\` (private photos and
   correspondence; README there). Summary in docs/ROADMAP.md, idea 6.
-- The owner's iPhone photos (HEIC) and one video (HEVC) cannot be decoded on
-  this PC without installing a converter; the brief requires approval first.
+- HEIC photos and HEVC video: Windows' decoders refuse desktop programs on the
+  owner's PC. FFmpeg 9.1 was installed with the owner's approval (winget
+  `Gyan.FFmpeg`); `ffmpeg -i X.HEIC -frames:v 1 -update 1 -q:v 2 X.jpg`.
+- Second pass done: every chip on the rail identified (none programmable),
+  Wayne's predictions confirmed, the feedback layout seen in the copper. Two
+  first-pass readings were corrected (10-contact connectors, not 5; part
+  number SSB-, not SSD-).

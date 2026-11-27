@@ -314,15 +314,20 @@ brief and board photos. The investigation, its figures and its checklists
 are kept outside this repository, in the owner's private
 `C:\Users\todd\sepiano\hardware\se-key-sensors\`, because the photos and
 correspondence are private. What can be said here:
-- the rail is four "24 Note Key-Detect." style boards (SSD-01-005, Issue 2;
-  one probably a 16-note board), chained by 5-way flat cables;
-- per key: an Optek OPB606A reflective sensor, a 74HC132 Schmitt gate and a
-  74HC165 shift-register input, with fixed resistors; the emitters are fed
-  by LM317L current sources;
-- nothing seen on the rail can store or receive a setting, and the firmware
-  only reads the scanner, so the key thresholds are set by the analog parts
-  (supported, not yet proven; two small chips are still unidentified);
-- next: the photo and continuity checklist with the owner and Anatoly.
+- the rail is four boards: a "16 Note Key-Detect" (SSB-01-002) at the bass
+  end and three "24 Note Key-Detect." (SSB-01-005), Issue 2, linked by
+  10-contact connectors and flat cables. The 16-note board carries two
+  MAX490 RS-422 transceivers and connects by a 10-way ribbon to a DB-25 on
+  the keyframe;
+- per key: an Optek OPB606A reflective sensor, a 22 k pull-up, a 74HC132
+  Schmitt gate (inputs tied) with a 220 k resistor from its output back to
+  its inputs, and a 74HC165 shift-register input; the emitters are fed by
+  LM317L current sources; each board has a 78L05 for its logic;
+- every chip on the rail is identified and none can store or receive a
+  setting; the firmware only reads the scanner. So the key thresholds are set
+  by the analog parts, and adjusting resistors is the restoration path;
+- next: a power-off continuity session (the 10-wire link, the pull-up
+  supply) and the mechanical trip-point baseline, with the owner and Anatoly.
 
 ## After the technician (idea 1 continued, and the owner's note on calibration)
 
