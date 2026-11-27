@@ -121,6 +121,7 @@ func (s *Server) backup(ctx context.Context, reason string) (map[string]any, err
 	if err != nil {
 		return nil, err
 	}
+	s.loadStrikeLimits() // the table may have changed
 	os.Remove(path)
 	s.logf("piano settings backed up (%s): %s (%s, %d bytes)", reason, b.ID, b.Model, b.Size)
 	reply := map[string]any{"backup": b, "console": res.Console}

@@ -78,11 +78,14 @@ paths:
 
   /deck/next:
     post:
-      summary: Skip to the next track of the album or play list
-      description: Plays the collection again from the next track (a pause of a few seconds while the player uploads).
+      summary: Skip to the next track of the album or play list, or to Up next
+      description: |
+        Plays the collection again from the next track (a pause of a few seconds while the player
+        uploads). With no next track (a single piece, or the last track) and something in Up next, the
+        first item of Up next plays now and leaves the list.
       responses:
         "202": { $ref: "#/components/responses/Status" }
-        "409": { description: Nothing playing, or already the last track, content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
+        "409": { description: "Nothing playing, or already the last track with nothing up next", content: { application/json: { schema: { $ref: "#/components/schemas/Error" } } } }
   /deck/previous:
     post:
       summary: Back to the start of this track, or to the previous track
@@ -148,6 +151,57 @@ paths:
       summary: Empty Up next
       responses:
         "200": { description: "{items: []}" }
+  /queue/{n}/play:
+    parameters:
+      - { name: n, in: path, required: true, schema: { type: integer }, description: The place in Up next, 0 first }
+      - { name: kind, in: query, schema: { type: string } }
+      - { name: id, in: query, schema: { type: string }, description: "With kind: must match the item there" }
+    post:
+      summary: Play one item of Up next now; it leaves the list, and the rest stay in order
+      responses:
+        "202": { $ref: "#/components/responses/Status" }
+        "404": { $ref: "#/components/responses/Error" }
+  /history:
+    get:
+      summary: The play history, newest first
+      description: |
+        An entry each time a piece starts playing (an album's tracks one by one; the same piece again
+        within 10 minutes, as after a seek, is not a new entry). At most 2,000 are kept. Kept in
+        history.json, and so in backups. Changes are sent as the event `history`.
+      responses:
+        "200":
+          description: The entries
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  entries:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        id: { type: string }
+                        at: { type: string, format: date-time }
+                        piece: { type: string }
+                        title: { type: string }
+                        composer: { type: string }
+                        performer: { type: string }
+                        from_kind: { type: string, enum: [album, playlist] }
+                        from_id: { type: string }
+                        from_title: { type: string }
+    delete:
+      summary: Clear the play history (the pieces stay in the library)
+      responses:
+        "200": { description: "{entries: []}" }
+  /history/{id}:
+    parameters:
+      - { name: id, in: path, required: true, schema: { type: string } }
+    delete:
+      summary: Take one entry out of the play history
+      responses:
+        "200": { description: "{entries}, what is left" }
+        "404": { $ref: "#/components/responses/Error" }
   /queue/play:
     post:
       summary: Play the first thing waiting, when the piano is idle (after Stop)
@@ -778,6 +832,7 @@ paths:
         the longest hold, the sustained part of holds (beyond 4 s each), the holding a full damper
         pedal makes unnecessary, and a level ("light", "moderate", "heavy", "very heavy") against
         this piano's own Zenph recordings.
+        too_loud counts notes louder than this piano can strike (by its table): they play at the key's limit.
       responses:
         "200": { description: The figures (piano.Work) }
         "404": { $ref: "#/components/responses/Error" }

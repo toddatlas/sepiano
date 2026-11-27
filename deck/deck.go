@@ -211,8 +211,10 @@ type Deck struct {
 	since   *time.Time
 	cur     atomic.Pointer[host.Conn]
 	rx, tx  atomic.Int64
-	lastTS  atomic.Uint32 // the piano's latest clock reading; bit 16 marks it valid
-	vol     atomic.Int32  // the level on the Pi, read as the key stream is sent (volume.go)
+	lastTS  atomic.Uint32               // the piano's latest clock reading; bit 16 marks it valid
+	vol     atomic.Int32                // the level on the Pi, read as the key stream is sent (volume.go)
+	strike  atomic.Pointer[[128]uint16] // the loudest velocity each key can strike (SetStrikeLimits)
+	atLimit atomic.Int64                // notes played at their strike limit in the current piece
 
 	// playerLevel: the level method in effect (Config.PlayerLevel at the
 	// start); wantPlayerLevel: the one chosen, applied when no piece is
@@ -265,6 +267,8 @@ type session struct {
 	// ended: the player reported the end of the performance (it finished
 	// by itself, not stopped).
 	ended bool
+	// progError: the firmware stopped the program ("PROGRAM ERROR AT …").
+	progError string
 
 	// A utility program: its command-line file, its console, when it must
 	// have finished, and who waits for it.
@@ -764,7 +768,9 @@ func (d *Deck) connDone(m connDone) {
 		path = filepath.Join(s.dir(d), s.base()+".kb")
 	}
 	fs := host.NewFileService(path)
-	if s.kind == "play" && !d.playerLevel {
+	// Every piece goes through openPerf: the level on the Pi (when chosen)
+	// and the strike limits (always).
+	if s.kind == "play" {
 		fs.OpenPerf = d.openPerf
 	}
 	if s.kind == "record" {
@@ -915,8 +921,15 @@ func (d *Deck) sessDone(m sessDone) {
 		d.notice("error", "The piano stopped: %v", m.err)
 		d.st.Message = m.err.Error()
 	}
-	// A piece that played to its end, with nothing chosen to follow it.
-	natural := s.kind == "play" && s.ended && ok && d.next == nil
+	// A piece that played to its end, or that the piano's firmware stopped
+	// with a program error, with nothing chosen to follow it: what is queued
+	// next plays (the next piece is a different one).
+	natural := s.kind == "play" && d.next == nil && (s.ended && ok || s.progError != "" && !s.aborted)
+	if s.kind == "play" {
+		if n := d.atLimit.Swap(0); n > 0 {
+			d.logf("deck: %d notes played at their key's strike limit", n)
+		}
+	}
 	d.afterSession(failed)
 	if natural {
 		d.mu.Lock()
@@ -1075,6 +1088,14 @@ func (d *Deck) consoleLine(line string) {
 	case evInterlock:
 		d.st.Message = line
 		d.notice("error", "%s", line)
+		d.publish()
+	case evProgramError:
+		// The piano's firmware stopped the program; the session ends by
+		// itself. For the player this was a note too loud for its key
+		// (SetStrikeLimits keeps notes within the table since 2026-11-27).
+		s.progError = line
+		d.st.Message = s.progError
+		d.notice("error", "The piano stopped the player: %s", s.progError)
 		d.publish()
 	case evRecEnd:
 		if d.st.State == Recording {

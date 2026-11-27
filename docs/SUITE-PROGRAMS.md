@@ -451,6 +451,41 @@ not in the repository (they are Stahnke's code).
 `sesuite -fw IMAGE -org A000 -table B82A` reports, entry by entry, the
 ports and fixed memory each one reaches; `-list` prints the listing.
 
+### "PROGRAM ERROR AT ADDRESS BEDA" (seen 2026-11-27)
+
+On 2026-11-27 the player stopped four minutes into a MAESTRO piece and
+printed this. Up next then did not start.
+
+- **The error routine.** BB09 is the firmware's error routine:
+  1. it disables interrupts and takes its caller's return address;
+  2. it resets the stack;
+  3. it prints "PROGRAM ERROR AT ADDRESS" and that address (the text at
+     BB21);
+  4. the program then ends.
+- **Where it was called.** BEDA is the return address of a `CALL Z,BB09H`
+  at BED7, inside **FW#17** (BE91). FW#17 puts a key into the strike
+  (mode 01) with a value: H is the key, L the strike level. FW#17 calls
+  the error routine when L is 0, the hardest strike, which it refuses.
+  (It also calls it when status port 28H bit 3 is not set: FW#3, at BD51.)
+- **Why L was 0.** The strike level comes from FW#71 (section 2 of the
+  table). Below the table's loudest breakpoint (SE velocity 30), FW#71
+  extends the line and floors it at 0. A note loud enough asks for level 0.
+  - The piece had one: a low E1 at velocity 21 at 239.8 s, where E1's limit
+    is 25. That is 4:00 into the piece, the minute it stopped.
+  - With this piano's table (2026-11-23), the loudest safe velocity is
+    10–26 depending on the key.
+  - The owner's 350 Zenph files never ask for it (their loudest note is
+    24).
+  - About 400 of MAESTRO's 1,276 pieces do, and about 40% of ASAP's extra
+    pieces, half of the competition originals and 10% of the Ampico
+    rolls. PiJAMA and SUPRA never do.
+- **What sepianod does about it.** Every note the player is sent is kept
+  within its key's limit (`piano.StrikeLimits`, worked out from the
+  newest table backup with one level of margin, and applied in
+  `deck.openPerf`). The deck also recognises the message, shows it, and
+  lets Up next go on (`evProgramError`). The simulator imitates it
+  (`sim.Instrument.StrikeLimit`).
+
 ## What this means for sepiano
 
 1. **Back up first** (done 2026-11-23). `getlut` copies the EEPROM to a

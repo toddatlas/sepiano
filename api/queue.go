@@ -142,6 +142,42 @@ func (s *Server) startUpNext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, 202, s.Deck.Status())
 }
 
+// playUpNextAt takes item n out of Up next and plays it now. kind and id,
+// if given, must match the item there (a stale tap plays nothing else).
+func (s *Server) playUpNextAt(ctx context.Context, n int, kind, id string) error {
+	s.unMu.Lock()
+	if n < 0 || n >= len(s.upNext) || id != "" && (s.upNext[n].ID != id || s.upNext[n].Kind != kind) {
+		s.unMu.Unlock()
+		return httpError{404, "no such item in up next"}
+	}
+	it := s.upNext[n]
+	s.upNext = append(s.upNext[:n:n], s.upNext[n+1:]...)
+	s.unMu.Unlock()
+	s.upNextChanged()
+	ids, coll, err := s.resolve(it.request())
+	if err == nil {
+		err = s.startQueue(ctx, ids, coll, 0, 0)
+	}
+	return err
+}
+
+// playUpNextItem plays one item of Up next now (POST /queue/{n}/play),
+// taking it out of the list; the rest stay in order.
+func (s *Server) playUpNextItem(w http.ResponseWriter, r *http.Request) {
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		fail(w, 404, "no such item in up next")
+		return
+	}
+	ctx, cancel := cmdContext(r)
+	defer cancel()
+	if err := s.playUpNextAt(ctx, n, r.URL.Query().Get("kind"), r.URL.Query().Get("id")); err != nil {
+		playError(w, err)
+		return
+	}
+	writeJSON(w, 202, s.Deck.Status())
+}
+
 func (s *Server) clearUpNext(w http.ResponseWriter, r *http.Request) {
 	s.unMu.Lock()
 	s.upNext = nil

@@ -62,6 +62,14 @@ type Server struct {
 	qmu   sync.Mutex
 	queue queue
 
+	// The play history (history.go).
+	histOnce  sync.Once
+	histStore *history
+
+	// strike: the loudest velocity each key can strike (work.go).
+	strikeMu sync.Mutex
+	strike   *piano.StrikeLimits
+
 	// rec: the details for the recording being made (recording.go).
 	recMu sync.Mutex
 	rec   recordingDetails
@@ -80,6 +88,8 @@ func (s *Server) logf(format string, args ...any) {
 // Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler {
 	s.Deck.OnPerformanceEnd(s.playUpNext)
+	s.loadStrikeLimits()
+	s.watchHistory()
 	m := http.NewServeMux()
 	m.HandleFunc("GET /api/v1/status", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, 200, s.Deck.Status()) })
 	m.HandleFunc("GET /api/v1/events", s.events)
@@ -90,6 +100,7 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("GET /api/v1/queue", s.getUpNext)
 	m.HandleFunc("POST /api/v1/queue", s.addUpNext)
 	m.HandleFunc("POST /api/v1/queue/play", s.startUpNext)
+	m.HandleFunc("POST /api/v1/queue/{n}/play", s.playUpNextItem)
 	m.HandleFunc("DELETE /api/v1/queue", s.clearUpNext)
 	m.HandleFunc("DELETE /api/v1/queue/{n}", s.removeUpNext)
 	m.HandleFunc("GET /api/v1/albums", s.albums)
@@ -100,6 +111,9 @@ func (s *Server) Handler() http.Handler {
 	m.HandleFunc("PUT /api/v1/playlists/{id}", s.updatePlaylist)
 	m.HandleFunc("POST /api/v1/playlists/{id}/pieces", s.addToPlaylist)
 	m.HandleFunc("DELETE /api/v1/playlists/{id}", s.deletePlaylist)
+	m.HandleFunc("GET /api/v1/history", s.getHistory)
+	m.HandleFunc("DELETE /api/v1/history", s.clearHistory)
+	m.HandleFunc("DELETE /api/v1/history/{id}", s.deleteHistoryEntry)
 	m.HandleFunc("GET /api/v1/favorites", s.getFavorites)
 	m.HandleFunc("POST /api/v1/favorites", s.setFavorite)
 	m.HandleFunc("POST /api/v1/deck/pause", s.deckCmd(s.Deck.Pause))

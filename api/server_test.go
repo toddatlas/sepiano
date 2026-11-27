@@ -34,6 +34,7 @@ type env struct {
 	lib   *library.Library
 	in    *sim.Instrument
 	store *piano.Store
+	deck  *deck.Deck
 }
 
 func newEnv(t *testing.T) *env {
@@ -73,7 +74,7 @@ func newEnv(t *testing.T) *env {
 		UI: fstest.MapFS{"index.html": {Data: []byte("<!doctype html><title>Piano</title>")}}}
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { srv.Close(); cancel(); <-done })
-	e := &env{t: t, srv: srv, lib: lib, in: in, store: s.Piano}
+	e := &env{t: t, srv: srv, lib: lib, in: in, store: s.Piano, deck: d}
 	e.waitState("idle")
 	return e
 }
@@ -1502,5 +1503,142 @@ func TestPieceWork(t *testing.T) {
 	}
 	if code, _ := e.do("GET", "/api/v1/pieces/nosuch00/work", nil); code != 404 {
 		t.Fatalf("unknown piece: %d", code)
+	}
+}
+
+// A note too loud for its key stops the real player ("PROGRAM ERROR AT
+// ADDRESS BEDA", 2026-11-27). The simulator does the same. Up next goes on
+// after it, and with strike limits the note plays at the key's limit, so
+// the piece plays to its end.
+func TestStrikeLimitsAndProgramError(t *testing.T) {
+	e := newEnv(t)
+	e.in.StrikeLimit = 400 // the phrase's notes are 300 to 520: some too loud
+	add := func(name string, seconds int, soft bool) string {
+		perf := sim.Phrase(uint32(seconds * se.TicksPerSecond))
+		if soft {
+			for i := range perf.KB.Events {
+				if perf.KB.Events[i].On {
+					perf.KB.Events[i].Vel = 500
+				}
+			}
+		}
+		kb, lp, sp, _ := perf.Encode()
+		p, _, err := e.lib.AddSet(name, kb, lp, sp, library.OriginUpload, name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return p.ID
+	}
+	loud, soft := add("loud", 6, false), add("soft", 4, true)
+	if code, b := e.do("POST", "/api/v1/deck/play", map[string]any{"piece": loud}); code != 202 {
+		t.Fatalf("play: %d %s", code, b)
+	}
+	e.waitState("playing")
+	if code, b := e.do("POST", "/api/v1/queue", map[string]any{"piece": soft}); code != 200 {
+		t.Fatalf("queue: %d %s", code, b)
+	}
+	// The loud piece stops with the program error; the queued one plays.
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == soft })
+	e.waitState("idle")
+
+	// With limits, the same piece plays to its end.
+	var limits [128]uint16
+	for k := range limits {
+		limits[k] = 400
+	}
+	e.deck.SetStrikeLimits(&limits)
+	e.do("POST", "/api/v1/deck/play", map[string]any{"piece": loud})
+	e.waitState("playing")
+	start := time.Now()
+	e.waitState("idle")
+	// 6 s of music at the simulator's speed; the error came 1 s in.
+	if d, full := time.Since(start), time.Duration(float64(6*time.Second)/e.in.Speed); d < full*7/10 {
+		t.Fatalf("the piece stopped after %v of %v; it should have played to its end", d, full)
+	}
+}
+
+// Next with something up next, and playing an item of Up next directly.
+func TestUpNextSkip(t *testing.T) {
+	e := newEnv(t)
+	// Distinct pieces: phrases of different lengths.
+	var ids []string
+	for i := range 3 {
+		kb, lp, sp, _ := sim.Phrase(uint32((20 + i) * se.TicksPerSecond)).Encode()
+		p, _, err := e.lib.AddSet(fmt.Sprintf("u%d", i), kb, lp, sp, library.OriginUpload, fmt.Sprintf("U %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	e.do("POST", "/api/v1/deck/play", map[string]any{"piece": ids[0]})
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == ids[0] })
+	if code, _ := e.do("POST", "/api/v1/deck/next", nil); code != 409 {
+		t.Fatalf("next with nothing up next: %d", code)
+	}
+	e.do("POST", "/api/v1/queue", map[string]any{"piece": ids[1]})
+	e.do("POST", "/api/v1/queue", map[string]any{"piece": ids[2]})
+	if code, b := e.do("POST", "/api/v1/deck/next", nil); code != 202 {
+		t.Fatalf("next: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == ids[1] })
+	if _, b := e.do("GET", "/api/v1/queue", nil); strings.Contains(string(b), ids[1]) || !strings.Contains(string(b), ids[2]) {
+		t.Fatalf("up next after next: %s", b)
+	}
+	if code, _ := e.do("POST", "/api/v1/queue/0/play?kind=piece&id=nosuch", nil); code != 404 {
+		t.Fatalf("stale item: %d", code)
+	}
+	if code, b := e.do("POST", "/api/v1/queue/0/play?kind=piece&id="+ids[2], nil); code != 202 {
+		t.Fatalf("play item: %d %s", code, b)
+	}
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == ids[2] })
+	if _, b := e.do("GET", "/api/v1/queue", nil); strings.Contains(string(b), `"kind"`) {
+		t.Fatalf("up next should be empty: %s", b)
+	}
+}
+
+// Play history: each piece that starts playing, once (a seek adds
+// nothing), newest first; entries can be deleted, or all cleared.
+func TestPlayHistory(t *testing.T) {
+	e := newEnv(t)
+	var ids []string
+	for i := range 2 {
+		kb, lp, sp, _ := sim.Phrase(uint32((20 + i) * se.TicksPerSecond)).Encode()
+		p, _, err := e.lib.AddSet(fmt.Sprintf("h%d", i), kb, lp, sp, library.OriginUpload, fmt.Sprintf("H %d", i))
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, p.ID)
+	}
+	type entries struct {
+		Entries []historyEntry `json:"entries"`
+	}
+	get := func() []historyEntry {
+		_, b := e.do("GET", "/api/v1/history", nil)
+		var r entries
+		json.Unmarshal(b, &r)
+		return r.Entries
+	}
+	for _, id := range ids {
+		e.do("POST", "/api/v1/deck/play", map[string]any{"piece": id})
+		waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && s.Piece != nil && s.Piece.ID == id })
+	}
+	e.do("POST", "/api/v1/deck/seek", map[string]any{"piece": ids[1], "position_ms": 8000})
+	waitFor(t, e, func(s deck.Status) bool { return s.State == "playing" && len(s.Tracks) == 1 && s.Tracks[0].FromMs > 0 })
+	time.Sleep(200 * time.Millisecond)
+	h := get()
+	if len(h) != 2 || h[0].Piece != ids[1] || h[1].Piece != ids[0] || h[0].Title != "H 1" {
+		t.Fatalf("history: %+v", h)
+	}
+	if code, _ := e.do("DELETE", "/api/v1/history/nosuch", nil); code != 404 {
+		t.Fatalf("unknown entry: %d", code)
+	}
+	if code, _ := e.do("DELETE", "/api/v1/history/"+h[1].ID, nil); code != 200 {
+		t.Fatalf("delete: %d", code)
+	}
+	if h = get(); len(h) != 1 || h[0].Piece != ids[1] {
+		t.Fatalf("after delete: %+v", h)
+	}
+	if code, _ := e.do("DELETE", "/api/v1/history", nil); code != 200 || len(get()) != 0 {
+		t.Fatalf("clear: %d", code)
 	}
 }

@@ -103,6 +103,7 @@ const ICONS = {
   check: { stroke: ['M5 12.5l4.5 4.5L19 7'] },
   refresh: { stroke: ['M20 11a8 8 0 0 0-14.5-4.5L4 8M4 4v4h4M4 13a8 8 0 0 0 14.5 4.5L20 16M20 20v-4h-4'] },
   star: { fill: ['M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z'] },
+  history: { stroke: ['M3.5 12a8.5 8.5 0 1 0 2.6-6.1L3.5 8.5', 'M3.5 3.5v5h5', 'M12 7.5V12l3 2'] },
   'star-outline': { stroke: ['M12 3.2l2.7 5.6 6.1.8-4.5 4.2 1.1 6.1L12 17l-5.4 2.9 1.1-6.1-4.5-4.2 6.1-.8z'] },
 };
 
@@ -717,6 +718,7 @@ function connectEvents() {
     const d = parseData(e);
     if (d) setUpNext(d.items);
   });
+  source.addEventListener('history', () => { if (current.onHistory) current.onHistory(); });
   source.addEventListener('notice', (e) => {
     const d = parseData(e);
     if (d && d.text) toast(d.text, d.level);
@@ -1083,6 +1085,7 @@ const UI = { h, fill, setText, icon, api, command, toast, noteName, isBlackKey, 
 // `back: true` goes to the library section last shown; an object names its own.
 const ROUTES = [
   { name: 'now', re: /^\/$/, tab: 'now', title: 'Now Playing', screen: nowPlayingScreen },
+  { name: 'history', re: /^\/history$/, tab: 'now', title: 'Play history', back: { href: '#/', label: 'Now Playing' }, screen: historyScreen },
   { name: 'library', re: /^\/library$/, tab: 'library', title: 'Library', screen: libraryScreen },
   { name: 'favorites', re: /^\/favorites$/, tab: 'library', title: 'Favorites', screen: (root, params, ctx) => libraryScreen(root, params, ctx, { favorites: true }) },
   { name: 'albums', re: /^\/albums$/, tab: 'library', title: 'Albums', screen: albumsScreen },
@@ -1303,7 +1306,7 @@ function nowPlayingScreen(root) {
       upNextPlay,
       h('button', { class: 'btn btn-small', type: 'button', onclick: clearUpNext }, 'Clear')),
     upNextList,
-    h('p', { class: 'muted small' }, 'Each starts when the one before it ends (the piano takes a few seconds). Stop leaves the list waiting. While a piece plays, a Play button elsewhere offers “Play next” or “Add to Up next”.'));
+    h('p', { class: 'muted small' }, 'Each starts when the one before it ends (the piano takes a few seconds). Next skips to the first; a piece’s own play button plays it now. Stop leaves the list waiting. While a piece plays, a Play button elsewhere offers “Play next” or “Add to Up next”.'));
   function renderUpNext() {
     const items = app.upNext || [];
     upNextEl.hidden = !items.length;
@@ -1314,7 +1317,15 @@ function nowPlayingScreen(root) {
         h('span', { class: 'row-title' }, it.title || 'Untitled'),
         h('span', { class: 'row-sub' }, [it.kind === 'album' ? 'Album' : it.kind === 'playlist' ? 'Play list' : '', it.detail].filter(Boolean).join(' · '))),
       h('button', { class: 'row-star', type: 'button', 'aria-label': `Take ${it.title || 'this'} out of Up next`, title: 'Take it out of Up next',
-        onclick: () => removeUpNext(i, it) }, icon('close')))));
+        onclick: () => removeUpNext(i, it) }, icon('close')),
+      h('button', { class: 'row-play', type: 'button', 'aria-label': `Play ${it.title || 'this'} now`, title: 'Play it now (the rest stay in Up next)',
+        onclick: (e) => playUpNextItem(i, it, e.currentTarget) }, icon('play')))));
+  }
+  // Plays an item now: it leaves Up next, and the others stay in order.
+  async function playUpNextItem(i, it, btn) {
+    btn.disabled = true;
+    await command(`/queue/${i}/play?kind=${encodeURIComponent(it.kind)}&id=${encodeURIComponent(it.id)}`);
+    btn.disabled = false;
   }
   async function removeUpNext(i, it) {
     try {
@@ -1365,7 +1376,9 @@ function nowPlayingScreen(root) {
   const levelMethod = levelMethodToggle();
   const levelCard = h('section', { class: 'card level-card' }, level.el, levelNote, levelMethod.el);
 
-  root.append(playPanel, emptyPanel, recPanel, upNextEl, levelCard);
+  // The play history, behind a button at the top (historyScreen).
+  const historyLink = h('div', { class: 'np-top' }, h('a', { class: 'btn btn-small', href: '#/history' }, icon('history'), 'History'));
+  root.append(historyLink, playPanel, emptyPanel, recPanel, upNextEl, levelCard);
   update(app.status);
 
   async function run(name, path, body) {
@@ -1463,13 +1476,18 @@ function nowPlayingScreen(root) {
     // An album or play list: with none, all of this stays hidden and the
     // screen is the single-piece one.
     const c = s.collection || null;
+    // Next also goes to Up next, so it shows when something is waiting there.
+    const waiting = (app.upNext || []).length > 0;
     collEl.hidden = !c;
     trackEl.hidden = !c;
     allEl.hidden = !c;
-    prevItem.hidden = !c;
-    nextItem.hidden = !c;
-    transport.classList.toggle('has-skip', !!c);
+    prevItem.hidden = !c && !waiting;
+    nextItem.hidden = !c && !waiting;
+    transport.classList.toggle('has-skip', !!c || waiting);
     progress.setAttribute('aria-label', c ? 'Position in the track' : 'Position in the piece');
+    prevBtn.disabled = !c || !(playing || paused) || busy.has('previous');
+    nextBtn.disabled = !(playing || paused) || busy.has('next');
+    nextBtn.setAttribute('aria-label', 'Next track');
     if (c) {
       setText(collLink, c.title || c.id || 'Untitled');
       const href = collectionHref(c);
@@ -1477,8 +1495,11 @@ function nowPlayingScreen(root) {
       else collLink.removeAttribute('href');
       const { n, m } = trackOf(s);
       setText(trackEl, m ? `Track ${n} of ${m}` : `Track ${n}`);
-      prevBtn.disabled = !(playing || paused) || busy.has('previous');
-      nextBtn.disabled = !(playing || paused) || (m > 0 && n >= m) || busy.has('next');
+      const last = m > 0 && n >= m;
+      if (last && !waiting) nextBtn.disabled = true;
+      if (last && waiting) nextBtn.setAttribute('aria-label', 'Next: the first piece in Up next');
+    } else if (waiting) {
+      nextBtn.setAttribute('aria-label', 'Next: the first piece in Up next');
     }
 
     const span = trackSpan(s);
@@ -1538,7 +1559,108 @@ function nowPlayingScreen(root) {
   return {
     update,
     tick,
-    onQueue: renderUpNext,
+    onQueue() { renderUpNext(); update(app.status); },
+    unmount() { alive = false; },
+  };
+}
+
+// ================================================================ Play history
+
+// Every piece the piano has started playing, newest first, by day (the Pi
+// keeps them: api/history.go). Play one again, take one out, or clear all.
+function historyScreen(root) {
+  let alive = true;
+  let entries = null;
+  const body = h('div', null, h('p', { class: 'muted center' }, 'Loading…'));
+  const clearBtn = h('button', { class: 'btn btn-small', type: 'button', hidden: true, onclick: clearAll }, icon('trash'), 'Clear history');
+  root.append(
+    h('div', { class: 'screen-head' }, h('h1', { class: 'screen-title' }, 'Play history'), clearBtn),
+    h('p', { class: 'muted small' }, 'Every piece the piano started playing, newest first. Tap one to see it, or play it again.'),
+    body);
+  load();
+
+  async function load() {
+    try {
+      const r = await api('GET', '/history');
+      if (!alive) return;
+      entries = (r && r.entries) || [];
+      render();
+    } catch (err) {
+      if (!alive) return;
+      fill(body, loadFailed('the history', err, load));
+    }
+  }
+
+  function dayLabel(d) {
+    const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime();
+    const diff = Math.round((day(new Date()) - day(d)) / 86400000);
+    if (diff === 0) return 'Today';
+    if (diff === 1) return 'Yesterday';
+    return d.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric', year: diff > 300 ? 'numeric' : undefined });
+  }
+
+  function render() {
+    clearBtn.hidden = !entries.length;
+    if (!entries.length) {
+      fill(body, h('div', { class: 'empty small' },
+        h('h2', { class: 'empty-title' }, 'Nothing played yet'),
+        h('p', { class: 'empty-text' }, 'Pieces appear here as the piano plays them.')));
+      return;
+    }
+    const groups = [];
+    for (const en of entries) {
+      const d = new Date(en.at);
+      const label = dayLabel(d);
+      if (!groups.length || groups[groups.length - 1].label !== label) groups.push({ label, items: [] });
+      groups[groups.length - 1].items.push(en);
+    }
+    fill(body, groups.map((g) => [
+      h('h2', { class: 'list-head' }, g.label),
+      h('ul', { class: 'list', role: 'list' }, g.items.map(row)),
+    ]));
+  }
+
+  function row(en) {
+    const when = new Date(en.at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+    const from = en.from_kind && `${en.from_kind === 'album' ? 'From the album' : 'From the play list'} ${en.from_title || ''}`;
+    return h('li', { class: 'row' },
+      h('span', { class: 'row-num history-time' }, when),
+      h('a', { class: 'row-main', href: pieceHref(en.piece) },
+        h('span', { class: 'row-title' }, en.title || 'Untitled'),
+        byline(en) && h('span', { class: 'row-sub' }, byline(en)),
+        from && h('span', { class: 'row-file' }, from)),
+      h('button', { class: 'row-star', type: 'button', 'aria-label': `Take ${en.title || 'this'} out of the history`, title: 'Take it out of the history',
+        onclick: () => remove(en) }, icon('close')),
+      h('button', { class: 'row-play', type: 'button', 'aria-label': `Play ${en.title || 'this piece'}`,
+        onclick: (e) => playPiece(en.piece, e.currentTarget) }, icon('play')));
+  }
+
+  async function remove(en) {
+    try {
+      const r = await api('DELETE', '/history/' + encodeURIComponent(en.id));
+      if (!alive) return;
+      entries = (r && r.entries) || entries.filter((x) => x.id !== en.id);
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  async function clearAll() {
+    const ok = await confirmDialog({ title: 'Clear the play history?', text: `All ${entries.length} entries go. The pieces stay in the library.`, ok: 'Clear', danger: true });
+    if (!ok) return;
+    try {
+      await api('DELETE', '/history');
+      if (!alive) return;
+      entries = [];
+      render();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  }
+
+  return {
+    onHistory: load,
     unmount() { alive = false; },
   };
 }
@@ -2693,6 +2815,7 @@ function pieceScreen(root, [id]) {
     fill(workEl,
       h('span', { class: 'work-level work-' + w.level.replace(' ', '-') }, w.level[0].toUpperCase() + w.level.slice(1)),
       `: ${parts.join('; ')}.`,
+      w.too_loud > 0 && h('span', { class: 'work-hint' }, ` ${w.too_loud === 1 ? '1 note is' : `${w.too_loud} notes are`} louder than this piano can strike; ${w.too_loud === 1 ? 'it plays' : 'they play'} at the key’s loudest.`),
       h('span', { class: 'hint work-hint' }, ' How hard it works the keys’ solenoids (heat and wear), against this piano’s own Zenph recordings.'));
   }
 

@@ -198,6 +198,28 @@ the competitors' names, and for the winners to be marked.
   `sepianod datasets -details -only maestro,asap DOWNLOADS` puts them on
   pieces already in the library, without uploading anything.
 
+## Notes too loud for this piano (2026-11-27)
+
+A note louder than its key can strike stops Stahnke's player with
+"PROGRAM ERROR AT ADDRESS BEDA". The firmware is asked for a strike level
+of 0, which it refuses (docs/SUITE-PROGRAMS.md, the section of that name).
+- **Which sources have such notes:**
+  - MIDI sources reach far louder than SE files: MIDI 127 becomes SE
+    velocity 12 through the Disklavier curve;
+  - about 400 of MAESTRO's 1,276 pieces, 40% of ASAP's extra pieces, half
+    of the competition originals and 10% of the Ampico rolls have at least
+    one such note;
+  - PiJAMA, SUPRA and the owner's Zenph files never do.
+- **The fix.** sepianod keeps every note within its key's limit as the
+  piano reads it (`piano.StrikeLimits`, `deck.SetStrikeLimits`).
+  - The limits come from the newest backup of the piano's table, with one
+    step of margin. They are recomputed after every new backup.
+  - A too-loud note plays at the loudest the key can strike: barely
+    different to the ear.
+  - The Zenph files are untouched.
+- **Where to see it.** A piece's Workload line says how many of its notes
+  are too loud.
+
 ## How hard a piece works the piano (2026-11-26)
 
 Each key the player holds down is a solenoid kept powered, which makes

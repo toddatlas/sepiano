@@ -58,6 +58,11 @@ type Instrument struct {
 	// controller is left stuck. It still answers on the link, but takes no
 	// more programs until it is switched off and on.
 	WedgeOnDrop bool
+	// StrikeLimit makes the player stop as the real one did on 2026-11-27: a
+	// note louder than this SE velocity (smaller is louder) gets a strike
+	// level of 0 from the table, and the firmware stops the program with
+	// "PROGRAM ERROR AT ADDRESS BEDA" when the note's time comes. 0: no limit.
+	StrikeLimit uint16
 	// Log, if set, receives one line per notable event.
 	Log func(format string, args ...any)
 
@@ -456,6 +461,16 @@ func (c *conn) player(banner string) error {
 		return err
 	}
 	end := int32(kb.End)
+	// A note too loud for the table stops the program when its time comes.
+	crash := int32(-1)
+	if lim := c.in.StrikeLimit; lim > 0 {
+		for _, e := range kb.Events {
+			if e.On && !e.Filler() && e.Vel > 0 && e.Vel < 640 && e.Vel < lim {
+				crash = int32(e.Tick)
+				break
+			}
+		}
+	}
 	tick := time.NewTicker(5 * time.Millisecond)
 	defer tick.Stop()
 	for {
@@ -463,6 +478,10 @@ func (c *conn) player(banner string) error {
 		case <-c.ctx.Done():
 			return c.ctx.Err()
 		case <-tick.C:
+			if crash >= 0 && c.clk.value() >= crash {
+				c.clk.run(false)
+				return c.end("\r\nPROGRAM ERROR AT ADDRESS BEDA\r\n")
+			}
 			if c.clk.value() >= end {
 				c.clk.set(end, false)
 				return c.end("END OF PERFORMANCE\r\n")

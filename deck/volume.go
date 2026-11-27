@@ -55,13 +55,31 @@ func (d *Deck) openPerf(i int, path string) (io.ReadCloser, error) {
 		d.logf("deck: %s: %v; sent without the level", path, err)
 		return os.Open(path)
 	}
-	r, err := kb.Reader(true, func(e se.Event) uint16 { return Subdue(e.Vel, int(d.vol.Load())) })
+	limits := d.strike.Load()
+	r, err := kb.Reader(true, func(e se.Event) uint16 {
+		v := Subdue(e.Vel, int(d.vol.Load()))
+		// Never louder than the key can strike (SetStrikeLimits).
+		if limits != nil && v > 0 && v < silentVelocity && int(e.Key) < len(limits) {
+			if m := limits[e.Key]; m > 0 && v < m {
+				v = m
+				d.atLimit.Add(1)
+			}
+		}
+		return v
+	})
 	if err != nil {
 		d.logf("deck: %s: %v; sent without the level", path, err)
 		return os.Open(path)
 	}
 	return io.NopCloser(r), nil
 }
+
+// SetStrikeLimits sets, per key, the loudest SE velocity the piano can
+// strike (piano.StrikeLimits; nil: none). A louder note asks the firmware for
+// a strike level of 0, and the player stops with "PROGRAM ERROR AT ADDRESS
+// BEDA"; every note the player is sent is kept within the limit. It applies
+// from the next piece.
+func (d *Deck) SetStrikeLimits(l *[128]uint16) { d.strike.Store(l) }
 
 // applyMethod puts the chosen level method (SetLevelMethod) into effect.
 // The run loop calls it only when no piece is playing: at the start of a

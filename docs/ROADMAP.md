@@ -436,3 +436,14 @@ Waiting for the owner's choice (downloaded by the other session, kept in
 - [x] **The 11 holiday organ rolls**: measured (docs/LIBRARIES.md, "How
       hard a piece works the piano"): 4 light or moderate, 4 heavy, 3 very
       heavy. **The owner decided to leave all 11 out** (2026-11-27).
+
+## The owner's requests of 2026-11-27
+
+- [x] **The piano stopped mid-piece and Up next stalled**: diagnosed and
+      fixed. A note too loud for its key stopped Stahnke's player; notes
+      are now kept within the piano's table, and Up next goes on after a
+      player error (docs/LIBRARIES.md, "Notes too loud for this piano").
+- [x] **Advance through Up next**: Next goes to its first item when there
+      is no next track; each item has a play button.
+- [x] **Play history**: the History button on Now Playing; play again,
+      remove one, or clear all.

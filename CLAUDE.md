@@ -231,6 +231,10 @@ deploy/deploy.sh                   # build, copy and install sepianod on the Pi 
 - The piano's frames, idle ones included, carry its 800 Hz playback clock in
   `ts`, which gives a live position.
 - The player's level only goes from 0 (as recorded) down. It can't go louder.
+- **A note louder than its key can strike stops the player** ("PROGRAM
+  ERROR AT ADDRESS BEDA": the firmware's FW#17 refuses a strike level of 0).
+  MIDI sources have such notes; every note sent is kept within the table's
+  limits (`piano.StrikeLimits`, docs/SUITE-PROGRAMS.md).
 - **Never drop the link while the piano is taking a program.** Cut off
   mid-upload, the real piano took no program at all until it was switched
   off and on (2026-11-24; docs/SE-SERIAL-PROTOCOL.md, the last section).
@@ -768,3 +772,26 @@ needs no further decision:
   Little Town of Bethlehem, The First Noel).
 - The owner decided to leave all 11 holiday organ rolls out (2026-11-27);
   `sepianod holiday` already skips them.
+
+## Status (2026-11-27: the player stopped; Up next stalled; history)
+
+- **The piano stopped mid-piece** with "PROGRAM ERROR AT ADDRESS BEDA". A
+  MAESTRO note louder than its key can strike (E1 at velocity 21; E1's
+  limit is 25) made FW#71 ask FW#17 for strike level 0, which the firmware
+  refuses (docs/SUITE-PROGRAMS.md). About 400 MAESTRO pieces and many other
+  MIDI pieces have such notes; the Zenph files never do.
+- **Fixed:**
+  - `piano.StrikeLimits` (from the newest table backup, with a step of
+    margin) is applied to every note in `deck.openPerf`, which now serves
+    every piece whatever the volume method;
+  - the deck recognises the message (`evProgramError`), shows it, and
+    Up next goes on;
+  - `sim.Instrument.StrikeLimit` imitates the crash;
+  - `TestStrikeLimitsAndProgramError` covers both.
+- **Up next:** Next skips to its first item when there is no next track,
+  and each item has a play button (`POST /queue/{n}/play`).
+- **Play history** (`api/history.go`, `history.json`, in backups): an
+  entry each time a piece starts (a seek adds none). The History page
+  (button at the top of Now Playing) has play, remove and Clear.
+- Tried in the simulator: Next into Up next, an item played now, History
+  listing, removing.

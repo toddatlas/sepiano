@@ -25,6 +25,10 @@ const (
 	evRecEnd     // the recorder is writing its files
 	evDiscarded  // the recorder discarded the recording and is ready again
 	evRecRefused // the table has no recording type or serial number
+	// evProgramError: the firmware stopped the program ("PROGRAM ERROR AT
+	// ADDRESS BEDA": a strike level of 0, from a note louder than the key can
+	// strike; piano.StrikeLimits). Seen on the real piano, 2026-11-27.
+	evProgramError
 )
 
 var levelRE = regexp.MustCompile(`^LEVEL=\s*(-?\d+)`)
@@ -64,6 +68,8 @@ func parseLine(line string) (consoleEvent, int) {
 		return evDiscarded, 0
 	case strings.Contains(s, "ILLEGAL RECORDING TYPE OR MODE"):
 		return evRecRefused, 0
+	case strings.HasPrefix(s, "PROGRAM ERROR"):
+		return evProgramError, 0
 	}
 	if m := levelRE.FindStringSubmatch(s); m != nil {
 		n, err := strconv.Atoi(m[1])

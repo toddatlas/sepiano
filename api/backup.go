@@ -368,6 +368,21 @@ func (s *Server) restoreFile(a *backup.Archive, p string, rep *restoreReport) {
 		} else {
 			rep.Kept++
 		}
+	case "history.json":
+		// The play history: taken only when this Pi has none.
+		b, err := a.Read(p)
+		var took bool
+		if err == nil {
+			took, err = s.hist().restore(b)
+		}
+		switch {
+		case err != nil:
+			rep.Errors = append(rep.Errors, p+": "+err.Error())
+		case took:
+			rep.Restored = append(rep.Restored, p)
+		default:
+			rep.Kept++
+		}
 	case "backup-state.json":
 		// The backup's own record of backups: this Pi keeps its own.
 	default:

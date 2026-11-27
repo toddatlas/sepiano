@@ -241,15 +241,29 @@ func (s *Server) skip(next bool) http.HandlerFunc {
 		s.qmu.Lock()
 		q := s.queue
 		s.qmu.Unlock()
-		if st.Collection == nil || q.coll == nil || q.coll.Kind != st.Collection.Kind || q.coll.ID != st.Collection.ID ||
-			len(st.Tracks) == 0 {
-			fail(w, 409, "not playing an album or play list")
+		inColl := st.Collection != nil && q.coll != nil && q.coll.Kind == st.Collection.Kind && q.coll.ID == st.Collection.ID &&
+			len(st.Tracks) > 0
+		// Next with no next track (a single piece, or an album's last track):
+		// the first thing in Up next, if there is one.
+		lastTrack := inColl && st.Collection.Start+st.TrackIndex+1 >= len(q.ids)
+		if next && (!inColl || lastTrack) && len(s.upNextList()) > 0 {
+			ctx, cancel := cmdContext(r)
+			defer cancel()
+			if err := s.playUpNextAt(ctx, 0, "", ""); err != nil {
+				playError(w, err)
+				return
+			}
+			writeJSON(w, 202, s.Deck.Status())
+			return
+		}
+		if !inColl {
+			fail(w, 409, "not playing an album or play list, and nothing is up next")
 			return
 		}
 		abs := st.Collection.Start + st.TrackIndex
 		target := abs
 		if next {
-			if abs+1 >= len(q.ids) {
+			if lastTrack {
 				fail(w, 409, "this is the last track")
 				return
 			}

@@ -1594,3 +1594,9 @@ body.editor-focus .ed-bar .ed-size { min-height: 30px; font-size: 13px; }
 .work-heavy { color: var(--warn-ink); }
 .work-very-heavy { color: var(--danger, #b3261e); }
 .work-hint { display: block; margin-top: 2px; }
+
+/* Now Playing: the History button, top right. */
+.np-top { display: flex; justify-content: flex-end; margin: 0 0 4px; }
+.np-top .icon { width: 16px; height: 16px; }
+/* Play history: the time of day beside each piece. */
+.history-time { width: auto; min-width: 4.5em; text-align: left; font-variant-numeric: tabular-nums; }
